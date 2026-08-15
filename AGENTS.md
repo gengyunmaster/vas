@@ -210,6 +210,12 @@ docs/            README 截图等文档素材
 
 - 重大改动（新模块、架构调整、新增依赖、依赖大版本升级）先讨论方案，确认后再动手。
 - 未经项目负责人明确要求，不执行 `git commit` / `git push` 等版本控制变更操作。提交信息使用英文，遵循 Conventional Commits。
+- Git 工作流（0.3.0 起严格执行）：
+  - `main` 始终等于最新发布的稳定版；push `main` 即触发 GitHub Pages 自动部署（见第 9 节），因此**日常开发绝不在 main 上直接提交**。
+  - 日常开发（新功能、bug 修复）一律在 `dev` 分支进行；push `dev` 不触发部署。
+  - 发布流程：在 `dev` 上将 `package.json` 的 `version` 改为目标版本号并提交（`chore(release): X.Y.Z`）→ 确认 lint / test / build 全绿 → 切到 `main` 执行 `git merge --no-ff dev`（保留发布节点）→ `git tag vX.Y.Z` → `git push origin main vX.Y.Z`。
+  - 每个发布版本必须打 tag（`v0.2.0`、`v0.3.0`……）；线上紧急修复可基于对应 tag 开 hotfix 分支，修复后合回 `main` 与 `dev`。
+  - 版本号显示在设置面板（`SettingsPanel.tsx` 从 `package.json` 读取），改 `package.json` 的 `version` 即全局生效，无其他硬编码位置。
 - 每次任务完成后汇报：改动了哪些文件、如何验证、验证结果如何。
 - 开发顺序（既定路线，已全部完成）：
   1. ~~项目骨架 + 单页 canvas 书写~~
