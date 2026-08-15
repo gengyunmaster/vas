@@ -4,6 +4,7 @@ import { PAGE_PATTERNS, type PagePattern } from "../model/page";
 import { SHAPE_KINDS, type ShapeKind } from "../model/stroke";
 import { exportPagePng } from "../persistence/exportImage";
 import { exportNotebookPdf } from "../persistence/exportPdf";
+import { exportPageSvg } from "../persistence/exportSvg";
 import { rasterizePdf, saveRasterizedImages } from "../persistence/importPdf";
 import { insertImageFile } from "../persistence/insertImage";
 import { COLORS, PAPER_COLORS, SIZES, useBoardStore } from "../store/useBoardStore";
@@ -109,6 +110,18 @@ export function SettingsPanel() {
     } catch (error) {
       console.error("PNG export failed", error);
       window.alert("PNG export failed.");
+    }
+  };
+
+  const exportSvg = async () => {
+    const { notebookTitle: title, pages, viewPageIndex } = useBoardStore.getState();
+    const page = pages[viewPageIndex];
+    if (!page) return;
+    try {
+      await exportPageSvg(title || "vas notebook", viewPageIndex, page);
+    } catch (error) {
+      console.error("SVG export failed", error);
+      window.alert("SVG export failed.");
     }
   };
 
@@ -369,6 +382,9 @@ export function SettingsPanel() {
           </button>
           <button type="button" className="text-option" onClick={() => void exportPng()}>
             PNG (this page)
+          </button>
+          <button type="button" className="text-option" onClick={() => void exportSvg()}>
+            SVG (this page)
           </button>
         </div>
       </section>

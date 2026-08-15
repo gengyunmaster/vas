@@ -9,6 +9,7 @@ import { arrowHead } from "../model/shapeGeometry";
 import type { Stroke } from "../model/stroke";
 import { getImage } from "./images";
 import { rasterizeToPng } from "./rasterize";
+import { outlineToSvgPath } from "./svgPath";
 import { downloadBlob } from "./transfer";
 
 const PT_PER_UNIT = 72 / 96;
@@ -35,7 +36,7 @@ export async function exportNotebookPdf(title: string, pages: Page[]): Promise<v
       }
       const outline = getOutlinePoints(stroke, true);
       if (outline.length < 3) continue;
-      pdfPage.drawSvgPath(outlineToSvgPath(outline), {
+      pdfPage.drawSvgPath(outlineToSvgPath(outline, PT_PER_UNIT), {
         y: height,
         color: toPdfRgb(stroke.color, rgb),
         opacity: stroke.pen === "highlighter" ? HIGHLIGHTER_ALPHA : 1,
@@ -87,14 +88,6 @@ async function embedImage(doc: PDFDocument, imageId: string): Promise<PDFImage |
 function toPdfRgb(hex: string, rgb: (r: number, g: number, b: number) => RGB): RGB {
   const parsed = hexToRgb(hex);
   return parsed ? rgb(parsed.r, parsed.g, parsed.b) : rgb(0, 0, 0);
-}
-
-function outlineToSvgPath(outline: number[][]): string {
-  const segments = outline.map(([x, y], index) => {
-    const command = index === 0 ? "M" : "L";
-    return `${command}${(x * PT_PER_UNIT).toFixed(2)} ${(y * PT_PER_UNIT).toFixed(2)}`;
-  });
-  return `${segments.join(" ")} Z`;
 }
 
 function toY(y: number): number {
