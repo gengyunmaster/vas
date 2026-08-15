@@ -1,0 +1,7 @@
+services:
+  vas:
+    build: .
+    image: vas:latest
+    ports:
+      - "8080:8080"
+    restart: unless-stopped

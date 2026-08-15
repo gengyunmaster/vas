@@ -1,0 +1,14 @@
+node_modules
+dist
+.git
+.github
+*.log
+.gitignore
+Dockerfile
+.dockerignore
+docker-compose.yml
+AGENTS.md
+README.md
+LICENSE
+docs
+scripts

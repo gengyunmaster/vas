@@ -1,0 +1,69 @@
+import { PAGE_HEIGHT, PAGE_WIDTH, PLACEMENT_MARGIN } from "./page";
+import { newId } from "./stroke";
+
+export interface ImageItem {
+  id: string;
+  imageId: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  locked?: boolean;
+}
+
+export function placeImageSize(
+  naturalWidth: number,
+  naturalHeight: number,
+): { width: number; height: number } {
+  const safeWidth = naturalWidth > 0 && Number.isFinite(naturalWidth) ? naturalWidth : 300;
+  const safeHeight = naturalHeight > 0 && Number.isFinite(naturalHeight) ? naturalHeight : 150;
+  const maxWidth = PAGE_WIDTH - PLACEMENT_MARGIN * 2;
+  const maxHeight = PAGE_HEIGHT - PLACEMENT_MARGIN * 2;
+  const scale = Math.min(1, maxWidth / safeWidth, maxHeight / safeHeight);
+  return { width: safeWidth * scale, height: safeHeight * scale };
+}
+
+export function placeImageCentered(
+  naturalWidth: number,
+  naturalHeight: number,
+): { x: number; y: number; width: number; height: number } {
+  const safeWidth = naturalWidth > 0 && Number.isFinite(naturalWidth) ? naturalWidth : 300;
+  const safeHeight = naturalHeight > 0 && Number.isFinite(naturalHeight) ? naturalHeight : 150;
+  const scale = Math.min(PAGE_WIDTH / safeWidth, PAGE_HEIGHT / safeHeight);
+  const width = safeWidth * scale;
+  const height = safeHeight * scale;
+  return {
+    x: (PAGE_WIDTH - width) / 2,
+    y: (PAGE_HEIGHT - height) / 2,
+    width,
+    height,
+  };
+}
+
+export function createImageItem(
+  imageId: string,
+  naturalWidth: number,
+  naturalHeight: number,
+): ImageItem {
+  const { width, height } = placeImageSize(naturalWidth, naturalHeight);
+  return { id: newId(), imageId, x: PLACEMENT_MARGIN, y: PLACEMENT_MARGIN, width, height };
+}
+
+export function imageExtension(mimeType: string): string {
+  switch (mimeType) {
+    case "image/jpeg":
+      return "jpg";
+    case "image/png":
+      return "png";
+    case "image/svg+xml":
+      return "svg";
+    case "image/webp":
+      return "webp";
+    case "image/gif":
+      return "gif";
+    case "image/avif":
+      return "avif";
+    default:
+      return "bin";
+  }
+}
