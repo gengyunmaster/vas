@@ -14,6 +14,7 @@ import {
   AddPageIcon,
   DeletePageIcon,
   ImageIcon,
+  ImportPdfIcon,
   PasteIcon,
   PresentIcon,
   RedoIcon,
@@ -215,7 +216,7 @@ export function SettingsPanel() {
             <button
               key={c}
               type="button"
-              title={`Color ${c}`}
+              title={`Ink ${c}`}
               aria-pressed={inkColor === c}
               className={inkColor === c ? "swatch active" : "swatch"}
               style={{ "--swatch": c } as CSSProperties}
@@ -334,6 +335,30 @@ export function SettingsPanel() {
               e.target.value = "";
             }}
           />
+          <button
+            type="button"
+            title={
+              pdfImporting
+                ? pdfImporting.total > 0
+                  ? `Importing PDF… ${pdfImporting.done}/${pdfImporting.total}`
+                  : "Importing PDF…"
+                : "Import PDF"
+            }
+            disabled={pdfImporting !== null}
+            onClick={() => pdfInputRef.current?.click()}
+          >
+            <ImportPdfIcon />
+          </button>
+          <input
+            ref={pdfInputRef}
+            type="file"
+            accept=".pdf,application/pdf"
+            hidden
+            onChange={(e) => {
+              void importPdf(e.target.files?.[0]);
+              e.target.value = "";
+            }}
+          />
           <button type="button" title="Present" onClick={() => setPresentation(true)}>
             <PresentIcon />
           </button>
@@ -349,31 +374,7 @@ export function SettingsPanel() {
         </div>
       </section>
       <section className="settings-section">
-        <div className="settings-label">File</div>
-        <div className="settings-row">
-          <button
-            type="button"
-            className="text-option"
-            disabled={pdfImporting !== null}
-            onClick={() => pdfInputRef.current?.click()}
-          >
-            {pdfImporting
-              ? pdfImporting.total > 0
-                ? `Importing… ${pdfImporting.done}/${pdfImporting.total}`
-                : "Importing…"
-              : "Import PDF"}
-          </button>
-          <input
-            ref={pdfInputRef}
-            type="file"
-            accept=".pdf,application/pdf"
-            hidden
-            onChange={(e) => {
-              void importPdf(e.target.files?.[0]);
-              e.target.value = "";
-            }}
-          />
-        </div>
+        <div className="settings-label">Export</div>
         <div className="settings-row">
           <button
             type="button"
