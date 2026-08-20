@@ -38,9 +38,10 @@ self-hosted instance keep separate data; use export / import to move notebooks a
   and zoom restored on reopen, also carried in exports), JSON export for image-less
   notebooks and zip export (JSON + image files) for notebooks with images, both
   re-importable
-- **Vector PDF export** — strokes stay sharp at any zoom level, images embedded from the
-  original bytes (JPEG/PNG); plus PNG export of the current page and vector SVG export
-  of the current page (raster/SVG images embedded inline as data URIs)
+- **Vector PDF export** — strokes stay sharp at any zoom level, inserted SVG images stay
+  vector too, raster images embedded from the original bytes (JPEG/PNG); plus PNG export
+  of the current page and vector SVG export of the current page (raster/SVG images
+  embedded inline as data URIs)
 - **PWA** — installable and fully offline; all assets (including the on-demand PDF
   engine) are precached
 
@@ -52,9 +53,9 @@ self-hosted instance keep separate data; use export / import to move notebooks a
 
 ## Tech stack
 
-React 19 · TypeScript · Vite · zustand · perfect-freehand · idb · pdf-lib (lazy-loaded)
-· pdfjs-dist (lazy-loaded) · fflate · vite-plugin-pwa · Biome · Vitest — no UI component
-library, no backend.
+React 19 · TypeScript · Vite · zustand · perfect-freehand · idb · jsPDF + svg2pdf.js
+(lazy-loaded) · pdfjs-dist (lazy-loaded) · pdf-lib (lazy-loaded) · fflate ·
+vite-plugin-pwa · Biome · Vitest — no UI component library, no backend.
 
 ## Project structure
 

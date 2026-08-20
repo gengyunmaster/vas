@@ -4,19 +4,12 @@ import { PAGE_HEIGHT, PAGE_WIDTH, type Page } from "../model/page";
 import { PATTERN_DASH, patternLayout } from "../model/patternLayout";
 import { arrowHead } from "../model/shapeGeometry";
 import type { Stroke } from "../model/stroke";
-import { getImage } from "./images";
+import { collectImageDataUris } from "./imageDataUri";
 import { outlineToSvgPath } from "./svgPath";
 import { downloadBlob } from "./transfer";
 
 export async function exportPageSvg(title: string, pageIndex: number, page: Page): Promise<void> {
-  const imageData = new Map<string, string>();
-  await Promise.all(
-    page.images.map(async (image) => {
-      if (imageData.has(image.imageId)) return;
-      const dataUri = await loadImageDataUri(image.imageId);
-      if (dataUri) imageData.set(image.imageId, dataUri);
-    }),
-  );
+  const imageData = await collectImageDataUris(page.images.map((image) => image.imageId));
   const svg = pageToSvg(page, imageData);
   downloadBlob(new Blob([svg], { type: "image/svg+xml" }), `${title}-page-${pageIndex + 1}.svg`);
 }
@@ -97,26 +90,6 @@ function patternToSvg(page: Page): string[] {
     );
   }
   return elements;
-}
-
-async function loadImageDataUri(imageId: string): Promise<string | null> {
-  try {
-    const record = await getImage(imageId);
-    if (!record) return null;
-    const bytes = new Uint8Array(await record.blob.arrayBuffer());
-    return `data:${record.mimeType};base64,${bytesToBase64(bytes)}`;
-  } catch {
-    return null;
-  }
-}
-
-function bytesToBase64(bytes: Uint8Array): string {
-  let binary = "";
-  const chunkSize = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
-  }
-  return btoa(binary);
 }
 
 function escapeXml(value: string): string {
