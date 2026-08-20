@@ -57,6 +57,7 @@ export interface ToolSettings {
   tool: ToolKind;
   color: string;
   size: number;
+  exporting: boolean;
 }
 
 export interface SelectionSnapshot {
@@ -804,6 +805,7 @@ export class Board {
 
   private handlePointerDown = (event: PointerEvent): void => {
     if (event.button === 2) return;
+    if (this.callbacks.getTool().exporting) return;
     this.activeCanvas.setPointerCapture(event.pointerId);
     const pos = this.eventPos(event);
     this.pointers.set(event.pointerId, { ...pos, type: event.pointerType });

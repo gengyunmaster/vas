@@ -22,8 +22,8 @@ export function BoardCanvas() {
     if (!container) return;
     const board = new Board(container, {
       getTool: () => {
-        const { tool, color, size } = useBoardStore.getState();
-        return { tool, color, size };
+        const { tool, color, size, exporting } = useBoardStore.getState();
+        return { tool, color, size, exporting };
       },
       onCommitStroke: (pageId, stroke) => useBoardStore.getState().addStroke(pageId, stroke),
       onEraseStroke: (pageId, strokeId) => useBoardStore.getState().removeStroke(pageId, strokeId),

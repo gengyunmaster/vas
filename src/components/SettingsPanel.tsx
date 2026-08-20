@@ -65,7 +65,7 @@ export function SettingsPanel() {
     state.notebookId ? (state.pdfImports[state.notebookId] ?? null) : null,
   );
   const hasSelection = useBoardStore((state) => state.selection !== null);
-  const [exporting, setExporting] = useState(false);
+  const exporting = useBoardStore((state) => state.exporting);
   const [exportRange, setExportRange] = useState<"selection" | "page" | "notebook">("page");
   const imageInputRef = useRef<HTMLInputElement>(null);
   const pdfInputRef = useRef<HTMLInputElement>(null);
@@ -98,7 +98,7 @@ export function SettingsPanel() {
   const doExport = async (format: "pdf" | "svg" | "png") => {
     const state = useBoardStore.getState();
     const title = state.notebookTitle || "vas notebook";
-    setExporting(true);
+    state.setExporting(true);
     try {
       if (exportRange === "selection") {
         const selection = state.selection;
@@ -125,7 +125,7 @@ export function SettingsPanel() {
       console.error(`${format.toUpperCase()} export failed`, error);
       window.alert(`${format.toUpperCase()} export failed.`);
     } finally {
-      setExporting(false);
+      useBoardStore.getState().setExporting(false);
     }
   };
 
@@ -301,30 +301,45 @@ export function SettingsPanel() {
       <section className="settings-section">
         <div className="settings-label">Actions</div>
         <div className="settings-row">
-          <button type="button" title="Undo" disabled={!canUndo} onClick={undo}>
+          <button type="button" title="Undo" disabled={!canUndo || exporting} onClick={undo}>
             <UndoIcon />
           </button>
-          <button type="button" title="Redo" disabled={!canRedo} onClick={redo}>
+          <button type="button" title="Redo" disabled={!canRedo || exporting} onClick={redo}>
             <RedoIcon />
           </button>
-          <button type="button" title="Clear page" disabled={!canClear} onClick={confirmClear}>
+          <button
+            type="button"
+            title="Clear page"
+            disabled={!canClear || exporting}
+            onClick={confirmClear}
+          >
             <TrashIcon />
           </button>
-          <button type="button" title="Add page" onClick={addPage}>
+          <button type="button" title="Add page" disabled={exporting} onClick={addPage}>
             <AddPageIcon />
           </button>
           <button
             type="button"
             title="Delete page"
-            disabled={!canDeletePage}
+            disabled={!canDeletePage || exporting}
             onClick={confirmDelete}
           >
             <DeletePageIcon />
           </button>
-          <button type="button" title="Paste" disabled={!canPaste} onClick={pasteClipboard}>
+          <button
+            type="button"
+            title="Paste"
+            disabled={!canPaste || exporting}
+            onClick={pasteClipboard}
+          >
             <PasteIcon />
           </button>
-          <button type="button" title="Insert image" onClick={() => imageInputRef.current?.click()}>
+          <button
+            type="button"
+            title="Insert image"
+            disabled={exporting}
+            onClick={() => imageInputRef.current?.click()}
+          >
             <ImageIcon />
           </button>
           <input
@@ -340,7 +355,7 @@ export function SettingsPanel() {
           <button
             type="button"
             title="Import PDF"
-            disabled={pdfImporting !== null}
+            disabled={exporting || pdfImporting !== null}
             onClick={() => pdfInputRef.current?.click()}
           >
             <ImportPdfIcon />
@@ -431,7 +446,7 @@ export function SettingsPanel() {
               disabled={exporting || (exportRange === "selection" && !hasSelection)}
               onClick={() => void doExport(format)}
             >
-              {exporting ? "Exporting…" : format.toUpperCase()}
+              {format.toUpperCase()}
             </button>
           ))}
         </div>

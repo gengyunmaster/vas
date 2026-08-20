@@ -59,6 +59,7 @@ export default function App() {
         return;
       }
       if (typing) return;
+      if (useBoardStore.getState().exporting) return;
       if (event.key === "Delete") {
         const state = useBoardStore.getState();
         if (state.selection) {
@@ -101,7 +102,7 @@ export default function App() {
         return;
       }
       const state = useBoardStore.getState();
-      if (!state.notebookId) return;
+      if (!state.notebookId || state.exporting) return;
       const file = [...(event.clipboardData?.files ?? [])].find((f) => f.type.startsWith("image/"));
       if (file) {
         event.preventDefault();

@@ -143,6 +143,7 @@ interface ImageItem {
 - 撤销/重做：编辑历史栈（add-stroke / remove-stroke / clear-page / add-elements / remove-elements / replace-elements），删页时清空历史；elements 类操作同时携带笔画与图片（clear-page 也含 images），replace-elements 以"前/后"快照统一承载移动、缩放与改色，一次手势提交只产生一条历史。
 - 页面级操作（addPage / deletePage / movePage / insertPdfPages）不进撤销历史：addPage 与 insertPdfPages 本就不产生历史，deletePage 清空历史；movePage 重排页面时当前浏览页按页 id 跟随。
 - 选区（selection）与剪贴板（clipboard，结构为 `{ strokes, images }`）为内存态，不进 IndexedDB；剪贴板可跨页、跨笔记本粘贴，粘贴时重建笔画与图片条目的 id（图片 blob 引用共享，不复制字节）。
+- 任务态：`pdfImports`（按 notebookId 的在途 PDF 导入进度）与 `exporting`（导出进行中）存于 store，跨组件卸载存活；导出期间引擎 pointerdown、键盘编辑快捷键、系统粘贴与设置面板的文档变更按钮统一闸门禁用（导出本身基于点击时的不可变快照，闸门是为杜绝并发变更的隐患）。
 - 选区的实时交互（套索轨迹、拖动/缩放手势预览）由渲染引擎持有，store 只保留选区快照供浮动工具条定位；选中期间页面缓存按"剔除选中元素"渲染，选中元素改在活动层绘制。
 - 高频数据（当前笔画的采样点、激光轨迹）不进 store，由渲染引擎内部持有。
 

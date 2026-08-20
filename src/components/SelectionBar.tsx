@@ -12,7 +12,8 @@ export function SelectionBar() {
     const page = state.pages.find((p) => p.id === sel.pageId);
     return page?.strokes.find((s) => s.id === sel.strokeIds[0])?.color ?? null;
   });
-  if (!selection || !anchor || tool !== "select") return null;
+  const exporting = useBoardStore((state) => state.exporting);
+  if (!selection || !anchor || tool !== "select" || exporting) return null;
 
   const { recolorSelection, cutSelection, copySelection, deleteSelection } =
     useBoardStore.getState();
