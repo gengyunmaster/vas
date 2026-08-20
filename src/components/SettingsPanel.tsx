@@ -6,7 +6,7 @@ import { SHAPE_KINDS, type ShapeKind } from "../model/stroke";
 import { exportNotebookPng, exportPagePng, exportSelectionPng } from "../persistence/exportImage";
 import { exportNotebookPdf, exportSelectionPdf } from "../persistence/exportPdf";
 import { exportNotebookSvg, exportPageSvg, exportSelectionSvg } from "../persistence/exportSvg";
-import { rasterizePdf, saveRasterizedImages, saveSourcePdf } from "../persistence/importPdf";
+import { importPdfIntoNotebook } from "../persistence/importPdf";
 import { insertImageFile } from "../persistence/insertImage";
 import { COLORS, PAPER_COLORS, SIZES, useBoardStore } from "../store/useBoardStore";
 import { ColorField } from "./ColorField";
@@ -61,10 +61,12 @@ export function SettingsPanel() {
   );
   const sidebarOpen = useBoardStore((state) => state.sidebarOpen);
   const presentation = useBoardStore((state) => state.presentation);
+  const pdfImporting = useBoardStore((state) =>
+    state.notebookId ? (state.pdfImports[state.notebookId] ?? null) : null,
+  );
   const hasSelection = useBoardStore((state) => state.selection !== null);
   const [exporting, setExporting] = useState(false);
   const [exportRange, setExportRange] = useState<"selection" | "page" | "notebook">("page");
-  const [pdfImporting, setPdfImporting] = useState<{ done: number; total: number } | null>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const pdfInputRef = useRef<HTMLInputElement>(null);
   const {
@@ -138,20 +140,19 @@ export function SettingsPanel() {
   };
 
   const importPdf = async (file: File | undefined) => {
-    if (!file) return;
-    setPdfImporting({ done: 0, total: 0 });
+    const notebookId = useBoardStore.getState().notebookId;
+    if (!file || !notebookId) return;
+    const { setPdfImport } = useBoardStore.getState();
+    setPdfImport(notebookId, { done: 0, total: 0 });
     try {
-      const { pages, sourceBytes } = await rasterizePdf(file, (done, total) =>
-        setPdfImporting({ done, total }),
+      await importPdfIntoNotebook(notebookId, file, (done, total) =>
+        setPdfImport(notebookId, { done, total }),
       );
-      const docId = await saveSourcePdf(sourceBytes);
-      await saveRasterizedImages(pages);
-      useBoardStore.getState().insertPdfPages(pages, { docId });
     } catch (error) {
       console.error("PDF import failed", error);
       window.alert(error instanceof Error ? error.message : "PDF import failed");
     } finally {
-      setPdfImporting(null);
+      setPdfImport(notebookId, null);
     }
   };
 
@@ -338,13 +339,7 @@ export function SettingsPanel() {
           />
           <button
             type="button"
-            title={
-              pdfImporting
-                ? pdfImporting.total > 0
-                  ? `Importing PDF… ${pdfImporting.done}/${pdfImporting.total}`
-                  : "Importing PDF…"
-                : "Import PDF"
-            }
+            title="Import PDF"
             disabled={pdfImporting !== null}
             onClick={() => pdfInputRef.current?.click()}
           >
@@ -380,6 +375,23 @@ export function SettingsPanel() {
           </button>
         </div>
       </section>
+      {pdfImporting && (
+        <div className="settings-progress" role="status">
+          <span>
+            {pdfImporting.total > 0
+              ? `Importing PDF… ${pdfImporting.done}/${pdfImporting.total}`
+              : "Importing PDF…"}
+          </span>
+          {pdfImporting.total > 0 && (
+            <div className="settings-progress-track">
+              <div
+                className="settings-progress-fill"
+                style={{ width: `${(pdfImporting.done / pdfImporting.total) * 100}%` }}
+              />
+            </div>
+          )}
+        </div>
+      )}
       <section className="settings-section">
         <div className="settings-label">Export</div>
         <div className="settings-row">

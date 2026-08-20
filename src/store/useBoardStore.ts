@@ -1,6 +1,7 @@
 import { create } from "zustand";
-import { createImageItem, type ImageItem, placeImageCentered } from "../model/image";
+import { createImageItem, type ImageItem } from "../model/image";
 import { createPage, type Page, type PagePattern, PLACEMENT_MARGIN } from "../model/page";
+import { buildPdfPages, type PdfPageImage } from "../model/pdfPage";
 import { newId, type PenKind, type Stroke, type ToolKind } from "../model/stroke";
 import {
   imagesBounds,
@@ -71,6 +72,7 @@ interface BoardState {
   lastPenKind: PenKind;
   presentation: boolean;
   sidebarOpen: boolean;
+  pdfImports: Record<string, { done: number; total: number }>;
   color: string;
   size: number;
   paperColor: string;
@@ -111,10 +113,8 @@ interface BoardState {
   cutSelection: () => void;
   pasteClipboard: () => void;
   insertImage: (imageId: string, naturalWidth: number, naturalHeight: number) => void;
-  insertPdfPages: (
-    pdfPages: { imageId: string; naturalWidth: number; naturalHeight: number }[],
-    pdfSource?: { docId: string },
-  ) => void;
+  insertPdfPages: (pdfPages: PdfPageImage[], pdfSource?: { docId: string }) => void;
+  setPdfImport: (notebookId: string, progress: { done: number; total: number } | null) => void;
 }
 
 function withStroke(pages: Page[], pageId: string, stroke: Stroke): Page[] {
@@ -266,6 +266,7 @@ export const useBoardStore = create<BoardState>()((set) => ({
   lastPenKind: "pen",
   presentation: false,
   sidebarOpen: false,
+  pdfImports: {},
   color: COLORS[0],
   size: SIZES[1],
   paperColor: PAPER_COLORS[0],
@@ -404,6 +405,13 @@ export const useBoardStore = create<BoardState>()((set) => ({
     set(
       on ? { presentation: true, selection: null, selectionAnchor: null } : { presentation: false },
     ),
+  setPdfImport: (notebookId, progress) =>
+    set((state) => {
+      const pdfImports = { ...state.pdfImports };
+      if (progress) pdfImports[notebookId] = progress;
+      else delete pdfImports[notebookId];
+      return { pdfImports };
+    }),
   toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
   requestScrollToPage: (index) => set({ pendingScrollToPage: index }),
   setColor: (color) => set({ color }),
@@ -649,21 +657,12 @@ export const useBoardStore = create<BoardState>()((set) => ({
       const current = state.pages[state.viewPageIndex];
       if (!current) return state;
       const insertIndex = state.viewPageIndex + 1;
-      const inserted: Page[] = pdfPages.map((pdfPage, index) => ({
-        id: newId(),
-        strokes: [],
-        images: [
-          {
-            id: newId(),
-            imageId: pdfPage.imageId,
-            ...placeImageCentered(pdfPage.naturalWidth, pdfPage.naturalHeight),
-            locked: true,
-          },
-        ],
-        paperColor: current.paperColor,
-        pattern: current.pattern,
-        ...(pdfSource ? { pdfSource: { docId: pdfSource.docId, pageIndex: index } } : {}),
-      }));
+      const inserted = buildPdfPages(
+        pdfPages,
+        current.paperColor,
+        current.pattern,
+        pdfSource?.docId,
+      );
       const pages = [...state.pages];
       pages.splice(insertIndex, 0, ...inserted);
       return { pages, pendingScrollToPage: insertIndex };

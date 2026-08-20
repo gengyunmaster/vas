@@ -16,6 +16,15 @@ export async function deletePdfs(ids: string[]): Promise<void> {
   await tx.done;
 }
 
+const retained = new Set<string>();
+
+export function retainPdfs(ids: string[]): () => void {
+  for (const id of ids) retained.add(id);
+  return () => {
+    for (const id of ids) retained.delete(id);
+  };
+}
+
 export async function gcUnreferencedPdfs(): Promise<void> {
   const database = await db();
   const keep = new Set<string>();
@@ -25,6 +34,7 @@ export async function gcUnreferencedPdfs(): Promise<void> {
   for (const page of useBoardStore.getState().pages) {
     if (page.pdfSource) keep.add(page.pdfSource.docId);
   }
+  for (const id of retained) keep.add(id);
   const tx = database.transaction("pdfs", "readwrite");
   const keys = await tx.store.getAllKeys();
   for (const key of keys) {

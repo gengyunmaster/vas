@@ -23,6 +23,15 @@ export async function deleteImages(ids: string[]): Promise<void> {
   await tx.done;
 }
 
+const retained = new Set<string>();
+
+export function retainImages(ids: string[]): () => void {
+  for (const id of ids) retained.add(id);
+  return () => {
+    for (const id of ids) retained.delete(id);
+  };
+}
+
 export async function gcUnreferencedImages(): Promise<void> {
   const database = await db();
   const keep = new Set<string>();
@@ -34,6 +43,7 @@ export async function gcUnreferencedImages(): Promise<void> {
     for (const image of page.images) keep.add(image.imageId);
   }
   for (const image of state.clipboard.images) keep.add(image.imageId);
+  for (const id of retained) keep.add(id);
   const tx = database.transaction("images", "readwrite");
   const keys = await tx.store.getAllKeys();
   for (const key of keys) {

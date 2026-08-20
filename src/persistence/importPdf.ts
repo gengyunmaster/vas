@@ -1,10 +1,11 @@
 import { placeImageCentered } from "../model/image";
-import { createPage, type Page } from "../model/page";
+import { buildPdfPages, pdfInsertIndex } from "../model/pdfPage";
 import { newId } from "../model/stroke";
+import { useBoardStore } from "../store/useBoardStore";
 import { decryptPdf } from "./decryptPdf";
-import { deleteImages, saveImages } from "./images";
-import { createNotebook, deleteNotebook, replacePages } from "./notebooks";
-import { deletePdfs, savePdf } from "./pdfs";
+import { deleteImages, retainImages, saveImages } from "./images";
+import { createNotebook, deleteNotebook, loadNotebook, replacePages } from "./notebooks";
+import { deletePdfs, retainPdfs, savePdf } from "./pdfs";
 
 const PDF_RENDER_SCALE = 3;
 const JPEG_QUALITY = 0.9;
@@ -109,32 +110,56 @@ export async function importPdfFile(
   onProgress?: (done: number, total: number) => void,
 ): Promise<string> {
   const { pages: rasterizedPages, sourceBytes } = await rasterizePdf(file, onProgress);
+  const releaseImages = retainImages(rasterizedPages.map((raster) => raster.imageId));
   const docId = await saveSourcePdf(sourceBytes);
-  const pages: Page[] = rasterizedPages.map((raster, index) => {
-    const page = createPage("#ffffff", "blank");
-    page.images = [
-      {
-        id: newId(),
-        imageId: raster.imageId,
-        ...placeImageCentered(raster.naturalWidth, raster.naturalHeight),
-        locked: true,
-      },
-    ];
-    page.pdfSource = { docId, pageIndex: index };
-    return page;
-  });
+  const releasePdf = retainPdfs([docId]);
   const title = file.name.replace(/\.pdf$/i, "").trim() || "Imported PDF";
   const meta = await createNotebook(title);
   try {
     await saveRasterizedImages(rasterizedPages);
-    await replacePages(meta.id, pages);
+    await replacePages(meta.id, buildPdfPages(rasterizedPages, "#ffffff", "blank", docId));
   } catch (error) {
     await deleteNotebook(meta.id);
     await deleteImages(rasterizedPages.map((raster) => raster.imageId));
     await deletePdfs([docId]);
     throw error;
+  } finally {
+    releaseImages();
+    releasePdf();
   }
   return meta.id;
+}
+
+export async function importPdfIntoNotebook(
+  notebookId: string,
+  file: File,
+  onProgress?: (done: number, total: number) => void,
+): Promise<void> {
+  const { pages, sourceBytes } = await rasterizePdf(file, onProgress);
+  const releaseImages = retainImages(pages.map((page) => page.imageId));
+  const docId = await saveSourcePdf(sourceBytes);
+  const releasePdf = retainPdfs([docId]);
+  try {
+    await saveRasterizedImages(pages);
+    const state = useBoardStore.getState();
+    if (state.notebookId === notebookId) {
+      state.insertPdfPages(pages, { docId });
+      return;
+    }
+    const { meta, pages: existing } = await loadNotebook(notebookId);
+    const insertIndex = pdfInsertIndex(meta.viewState, existing.length);
+    const base = existing[insertIndex - 1] ?? existing[existing.length - 1];
+    const next = [...existing];
+    next.splice(insertIndex, 0, ...buildPdfPages(pages, base.paperColor, base.pattern, docId));
+    await replacePages(notebookId, next);
+  } catch (error) {
+    await deleteImages(pages.map((page) => page.imageId)).catch(() => {});
+    await deletePdfs([docId]).catch(() => {});
+    throw error;
+  } finally {
+    releaseImages();
+    releasePdf();
+  }
 }
 
 async function rasterizePage(

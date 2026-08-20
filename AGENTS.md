@@ -119,7 +119,7 @@ interface ImageItem {
 - 套索命中（`model/selection.ts`）：圈自动闭合（首尾连边），笔画与圈相交、落入圈内、或圈整体落在粗笔迹墨迹内均算选中；图形按其轮廓几何判定（椭圆以 32 段折线近似）；图片按矩形与圈的相交/包含判定。
 - 选区变换（`model/transform.ts`）：移动/缩放为纯函数仿射变换，松手提交时才把新坐标写回笔画（bake）；笔迹粗细按 √(sx·sy) 几何均值跟随缩放；移动与缩放均被约束在当前页边界内，不支持跨页拖拽与旋转。
 - 图片（`model/image.ts`）：插入/粘贴时若超出页面可用区域则等比缩小到页内，初始位置为页内左上角（`PLACEMENT_MARGIN`）；一律渲染于纸色/模板之上、笔迹之下，橡皮不命中图片；只含图片的页面不算空白页（`trimTrailingBlankPages`）。图片可带 `locked: true`（PDF 底图）：套索跳过（`imagesInLasso` 过滤）、Clear page 豁免、不参与选中变换；普通插入图片不锁定。
-- PDF 导入（`persistence/importPdf.ts`）：pdf.js 懒加载（库与 worker 均按需），`rasterizePdf` 逐页按 3 倍清晰度栅格化为 JPEG 为共享入口——主页导入据此生成新笔记本（白纸空白模板）；笔记本内导入经 `insertPdfPages` 插入到当前页之后（新页继承当前页纸色与模板，页面级插入不进撤销历史，与 addPage 一致）并滚动到首个新页。图片按**整页**适配（`placeImageCentered`：允许放大，一个方向顶到页边、另一方向居中，至多一侧留白）并带 `locked`；密码保护文件经 `onPassword` 弹窗输入，取消时报友好提示；主页导入在全部页渲染完成后才建库落库，失败回滚。**原始 PDF 字节整份保留**：导入时先经 qpdf wasm（`decryptPdf.ts`，动态加载）跑 `--decrypt` 去除密码保护（密码来自 pdf.js `onPassword` 弹窗捕获，解密失败回退存原字节），再由 `saveSourcePdf` 存入全局 `pdfs` 表（不裁剪、与 images 表同款的按引用共享）——库内与 zip 备份中的 PDF 均为无密码版本；每页记录 `pdfSource: { docId, pageIndex }`（0 基页码）；合并笔记本时 `clonePageWithNewIds` 原样携带该引用；打开笔记本时 GC 无引用的 PDF。
+- PDF 导入（`persistence/importPdf.ts`）：pdf.js 懒加载（库与 worker 均按需），`rasterizePdf` 逐页按 3 倍清晰度栅格化为 JPEG 为共享入口——主页导入据此生成新笔记本（白纸空白模板）；笔记本内导入走 `importPdfIntoNotebook`：任务**绑定 notebookId**，完成时若该笔记本仍打开则经 `insertPdfPages` 插入到当前浏览页之后并滚动到首个新页，若已关闭或切走则按该笔记本持久化的视图状态定位"当前页"（`pdfInsertIndex`），在 DB 层直接插入到该页之后（`replacePages`）。新页纸色与模板继承插入点前一页；页面级插入不进撤销历史，与 addPage 一致。页面构建统一由 `model/pdfPage.ts` 的 `buildPdfPages` 承担（两条导入路径与 store 共用）。导入进度存于 store 的 `pdfImports`（按 notebookId 记录），设置面板的进度行据此跨组件卸载存活。图片按**整页**适配（`placeImageCentered`：允许放大，一个方向顶到页边、另一方向居中，至多一侧留白）并带 `locked`；密码保护文件经 `onPassword` 弹窗输入，取消时报友好提示；主页导入在全部页渲染完成后才建库落库，失败回滚。**原始 PDF 字节整份保留**：导入时先经 qpdf wasm（`decryptPdf.ts`，动态加载）跑 `--decrypt` 去除密码保护（密码来自 pdf.js `onPassword` 弹窗捕获，解密失败回退存原字节），再由 `saveSourcePdf` 存入全局 `pdfs` 表（不裁剪、与 images 表同款的按引用共享）——库内与 zip 备份中的 PDF 均为无密码版本；每页记录 `pdfSource: { docId, pageIndex }`（0 基页码）；合并笔记本时 `clonePageWithNewIds` 原样携带该引用；打开笔记本时 GC 无引用的 PDF。
 - 橡皮为笔画级（命中哪条删哪条），命中判定计入马克笔的宽度系数；椭圆命中按 32 段折线轮廓测距（`shapeGeometry.ellipseOutline`，与套索共享）。
 - 新增页的颜色与模板继承自源页（手动加页跟随当前页、自动补页跟随最后一页）。
 - 背景模板几何由 `model/patternLayout.ts` 统一产出（Canvas 渲染与 PDF 导出共用）：只画完整格子、整页居中；横线模板首行下移一个行距。
@@ -127,7 +127,7 @@ interface ImageItem {
 ### 3.6 持久化
 
 - 实现于 `src/persistence/`。IndexedDB（版本 3）四张表：`notebooks`（元信息：标题、时间戳、页数）、`pages`（整页记录：paperColor + pattern + strokes + images + pdfSource，按 notebookId 索引）、`images`（imageId → 原始图片 blob + mimeType，全局共享，不按笔记本隔离）与 `pdfs`（docId → 原始 PDF blob，全局共享）。旧库经 upgrade 自动补建 images/pdfs 表；老的 pages 记录没有 images/pdfSource 字段，读取时归一化。
-- 图片字节一律存原图（不重编码）；页记录只存引用，保证自动保存轻量。渲染位图由 `engine/imageCache.ts` 按需异步解码并缓存，解码完成后通知引擎/缩略图重绘。打开笔记本时做图片 GC：全库扫描引用（含内存中当前页与剪贴板），删除无主 blob。
+- 图片字节一律存原图（不重编码）；页记录只存引用，保证自动保存轻量。渲染位图由 `engine/imageCache.ts` 按需异步解码并缓存，解码完成后通知引擎/缩略图重绘。打开笔记本时做图片 GC：全库扫描引用（含内存中当前页与剪贴板），删除无主 blob。在途 PDF 导入的 blob 由 `retainImages`/`retainPdfs` 豁免名单保护，GC 不会误删尚未挂上页面的导入产物。
 - 自动保存：`autosave.ts` 订阅 store，页面引用变化即增量写入对应页；页数减少时整本重写（保持索引连续）。无"保存"按钮，任何时刻关闭页面都不应丢数据；写入失败会捕获并一次性弹提示。
 - 笔记本合并：`notebooks.ts` 的 `mergeNotebooks` 按用户勾选顺序拼接各笔记本的页面（单选即整本复制），页/笔画/图片条目 id 经 `clonePageWithNewIds` 重建（页 id 是 pages 表主键，必须重建），**imageId 保持不变**——全局 images 表按引用共享 blob，相同图片天然只存一份。
 - 导入/导出：`transfer.ts`。无图片的笔记导出为纯 JSON；含图片或 PDF 的导出为 zip（`notebook.json` + `images/<imageId>.<ext>` + `pdfs/<docId>.pdf`，fflate）。文件格式 `version: 3`，导入兼容 version 1/2；按文件头嗅探 zip/JSON；导入做严格运行时校验（拒绝 NaN/Infinity、页面引用必须在图片/PDF 清单内）并重建全部 id（含 imageId 与 docId 重映射）；全部校验通过后才落库，失败回滚不留残本与孤儿 blob。
@@ -165,7 +165,7 @@ src/
   model/         数据模型与纯函数：stroke（笔画与工具枚举）、page（页面几何）、
                  color（颜色）、hitTest（橡皮命中检测）、patternLayout（背景模板布局）、
                  shapeGeometry（图形几何）、selection（套索命中）、transform（选区仿射变换）、
-                 image（图片条目与版面放置）、viewState（视图状态）
+                 image（图片条目与版面放置）、pdfPage（PDF 页面构建与插入位置）、viewState（视图状态）
   store/         zustand stores
   persistence/   持久化：db（IndexedDB 连接）、notebooks（CRUD）、transfer（导入导出，zip/JSON）、
                  images（图片 blob 存取与 GC）、pdfs（原始 PDF blob 存取与 GC）、
