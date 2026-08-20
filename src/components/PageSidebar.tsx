@@ -100,6 +100,18 @@ export function PageSidebar() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!open || interactionRef.current) return;
+    const aside = asideRef.current;
+    const item = listRef.current?.querySelectorAll(".thumbnail")[viewPageIndex];
+    if (!aside || !(item instanceof HTMLElement)) return;
+    const asideRect = aside.getBoundingClientRect();
+    const itemRect = item.getBoundingClientRect();
+    if (itemRect.top < asideRect.top) aside.scrollTop -= asideRect.top - itemRect.top;
+    else if (itemRect.bottom > asideRect.bottom)
+      aside.scrollTop += itemRect.bottom - asideRect.bottom;
+  }, [open, viewPageIndex]);
+
   const handlePointerDown = (event: ReactPointerEvent<HTMLElement>, index: number) => {
     suppressClickRef.current = false;
     if (interactionRef.current) return;
