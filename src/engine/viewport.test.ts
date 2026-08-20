@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { contentHeight, PAGE_WIDTH } from "../model/page";
+import { contentHeight, PAGE_GAP, PAGE_HEIGHT, PAGE_WIDTH, pageTopY } from "../model/page";
 import {
   clampScale,
   createViewport,
   fitScale,
   panBy,
+  presentationViewport,
   type ScreenSize,
   screenToWorld,
   type Viewport,
@@ -59,5 +60,33 @@ describe("viewport", () => {
     expect(range.first).toBe(0);
     expect(range.last).toBeGreaterThanOrEqual(0);
     expect(range.last).toBeLessThan(10);
+  });
+
+  it("fills a landscape screen height and centers horizontally", () => {
+    const landscape: ScreenSize = { width: 1920, height: 1080 };
+    const vp = presentationViewport(landscape, 0);
+    expect(vp.scale).toBeCloseTo(landscape.height / PAGE_HEIGHT);
+    expect((PAGE_WIDTH - vp.x) * vp.scale).toBeCloseTo(
+      (PAGE_WIDTH * vp.scale + landscape.width) / 2,
+    );
+    expect(vp.y).toBeCloseTo(pageTopY(0));
+  });
+
+  it("fills a portrait screen width and centers vertically", () => {
+    const portrait: ScreenSize = { width: 390, height: 844 };
+    const vp = presentationViewport(portrait, 0);
+    expect(vp.scale).toBeCloseTo(portrait.width / PAGE_WIDTH);
+    expect(vp.x).toBeCloseTo(0);
+    const pageTopOnScreen = (pageTopY(0) - vp.y) * vp.scale;
+    const pageBottomOnScreen = pageTopOnScreen + PAGE_HEIGHT * vp.scale;
+    expect(pageTopOnScreen).toBeCloseTo(portrait.height - pageBottomOnScreen);
+  });
+
+  it("steps one page per index", () => {
+    const vp0 = presentationViewport(screen, 0);
+    const vp2 = presentationViewport(screen, 2);
+    expect(vp2.scale).toBeCloseTo(vp0.scale);
+    expect(vp2.x).toBeCloseTo(vp0.x);
+    expect(vp2.y - vp0.y).toBeCloseTo(2 * (PAGE_HEIGHT + PAGE_GAP));
   });
 });

@@ -45,6 +45,7 @@ import {
   fitScale,
   type Point,
   panBy,
+  presentationViewport,
   type ScreenSize,
   screenToWorld,
   type Viewport,
@@ -143,6 +144,10 @@ const LASER_LIFETIME_MS = 1200;
 
 const PEN_SEEN_KEY = "vas.penSeen";
 const WHEEL_ZOOM_SETTLE_MS = 150;
+const PAGE_TURN_MS = 280;
+const WHEEL_PAGE_THRESHOLD = 120;
+const WHEEL_ACCUM_RESET_MS = 250;
+const SWIPE_PAGE_THRESHOLD = 80;
 const HANDLE_SIZE = 10;
 const HANDLE_HIT_RADIUS = 12;
 const MIN_SELECTION_SCALE = 0.05;
@@ -183,6 +188,13 @@ export class Board {
   private pinching = false;
   private wheelZooming = false;
   private wheelTimer: number | undefined;
+  private presenting = false;
+  private presentationPage = 0;
+  private pageTurn: { from: number; to: number; start: number } | null = null;
+  private wheelAccum = 0;
+  private wheelAccumTimer: number | undefined;
+  private swipeStartY = 0;
+  private swipeUsed = false;
   private rafId = 0;
   private lastReportedPage = -1;
   private lastReportedView: { x: number; y: number; scale: number } | null = null;
@@ -205,6 +217,7 @@ export class Board {
     this.activeCanvas.addEventListener("contextmenu", preventDefault);
     this.activeCanvas.addEventListener("wheel", this.handleWheel, { passive: false });
     document.addEventListener("gesturestart", preventDefault);
+    window.addEventListener("keydown", this.handleKeyDown);
 
     this.stopImageListener = onImageLoaded((imageId) => this.handleImageLoaded(imageId));
     this.observer = new ResizeObserver(() => this.resize());
@@ -234,7 +247,12 @@ export class Board {
         this.selection = { pageId: page.id, strokes, images, bounds };
       }
     }
-    this.viewport = clampViewport(this.viewport, this.screen, next.length);
+    if (this.presenting) {
+      this.pageTurn = null;
+      this.lockPresentation();
+    } else {
+      this.viewport = clampViewport(this.viewport, this.screen, next.length);
+    }
     this.scheduleComposite();
   }
 
@@ -275,6 +293,13 @@ export class Board {
   }
 
   scrollToPage(index: number): void {
+    if (this.presenting) {
+      this.pageTurn = null;
+      this.presentationPage = Math.min(Math.max(0, index), Math.max(0, this.pages.length - 1));
+      this.lockPresentation();
+      this.scheduleComposite();
+      return;
+    }
     this.viewport = clampViewport(
       { ...this.viewport, y: pageTopY(index) },
       this.screen,
@@ -306,6 +331,7 @@ export class Board {
   destroy(): void {
     cancelAnimationFrame(this.rafId);
     window.clearTimeout(this.wheelTimer);
+    window.clearTimeout(this.wheelAccumTimer);
     this.observer.disconnect();
     this.stopImageListener();
     this.activeCanvas.removeEventListener("pointerdown", this.handlePointerDown);
@@ -315,9 +341,73 @@ export class Board {
     this.activeCanvas.removeEventListener("contextmenu", preventDefault);
     this.activeCanvas.removeEventListener("wheel", this.handleWheel);
     document.removeEventListener("gesturestart", preventDefault);
+    window.removeEventListener("keydown", this.handleKeyDown);
     this.baseCanvas.remove();
     this.activeCanvas.remove();
   }
+
+  setPresentation(on: boolean): void {
+    if (this.presenting === on) return;
+    this.presenting = on;
+    this.pageTurn = null;
+    this.wheelAccum = 0;
+    this.panPointerId = null;
+    this.lasso = null;
+    if (on) {
+      const midY = this.viewport.y + this.screen.height / this.viewport.scale / 2;
+      this.presentationPage = Math.max(0, pageIndexAtY(midY, Math.max(1, this.pages.length)));
+      this.lockPresentation();
+    } else {
+      this.viewport = this.browseViewport();
+      this.fitted = true;
+    }
+    this.scheduleComposite();
+  }
+
+  private browseViewport(): Viewport {
+    return clampViewport(
+      { x: 0, y: pageTopY(this.presentationPage), scale: fitScale(this.screen.width) },
+      this.screen,
+      Math.max(1, this.pages.length),
+    );
+  }
+
+  private lockPresentation(): void {
+    if (this.screen.width === 0 || this.screen.height === 0) return;
+    this.presentationPage = Math.min(this.presentationPage, Math.max(0, this.pages.length - 1));
+    this.viewport = presentationViewport(this.screen, this.presentationPage);
+  }
+
+  private turnPage(delta: number): void {
+    if (!this.presenting || this.pageTurn || this.screen.width === 0) return;
+    const next = this.presentationPage + delta;
+    if (next < 0 || next >= this.pages.length) return;
+    this.presentationPage = next;
+    this.pageTurn = {
+      from: this.viewport.y,
+      to: presentationViewport(this.screen, next).y,
+      start: performance.now(),
+    };
+    this.scheduleComposite();
+  }
+
+  private handleKeyDown = (event: KeyboardEvent): void => {
+    if (!this.presenting) return;
+    const target = event.target;
+    if (
+      target instanceof HTMLElement &&
+      (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)
+    ) {
+      return;
+    }
+    if (["ArrowDown", "ArrowRight", "PageDown", " "].includes(event.key)) {
+      event.preventDefault();
+      this.turnPage(1);
+    } else if (["ArrowUp", "ArrowLeft", "PageUp"].includes(event.key)) {
+      event.preventDefault();
+      this.turnPage(-1);
+    }
+  };
 
   private handleImageLoaded(imageId: string): void {
     let dirty = false;
@@ -343,7 +433,9 @@ export class Board {
       canvas.style.height = `${this.screen.height}px`;
     }
     if (this.screen.width === 0 || this.screen.height === 0) return;
-    if (this.viewport.scale === 1 && this.pages.length === 0) {
+    if (this.presenting) {
+      this.lockPresentation();
+    } else if (this.viewport.scale === 1 && this.pages.length === 0) {
       this.viewport = createViewport(this.screen, Math.max(1, this.pages.length));
     } else {
       if (this.fitted) this.viewport.scale = fitScale(this.screen.width);
@@ -365,6 +457,13 @@ export class Board {
     if (dpr !== this.lastDpr) {
       this.resize();
       return;
+    }
+    if (this.pageTurn) {
+      const { from, to, start } = this.pageTurn;
+      const t = Math.min(1, (performance.now() - start) / PAGE_TURN_MS);
+      this.viewport = { ...this.viewport, y: from + (to - from) * easeOutCubic(t) };
+      if (t >= 1) this.pageTurn = null;
+      else this.scheduleComposite();
     }
     const vp = this.viewport;
     const ctx = this.baseCtx;
@@ -410,7 +509,7 @@ export class Board {
   }
 
   private reportViewport(): void {
-    const vp = this.viewport;
+    const vp = this.presenting ? this.browseViewport() : this.viewport;
     const last = this.lastReportedView;
     if (last && last.x === vp.x && last.y === vp.y && last.scale === vp.scale) return;
     this.lastReportedView = { x: vp.x, y: vp.y, scale: vp.scale };
@@ -718,6 +817,11 @@ export class Board {
       this.gesture = null;
       this.pinching = true;
       this.panPointerId = null;
+      if (this.presenting) {
+        const touches = [...this.pointers.values()].filter((p) => p.type === "touch");
+        this.swipeStartY = (touches[0].y + touches[1].y) / 2;
+        this.swipeUsed = false;
+      }
       return;
     }
 
@@ -736,7 +840,7 @@ export class Board {
         this.eraseAt(pos);
         return;
       }
-      if (this.panPointerId === null) this.panPointerId = event.pointerId;
+      if (!this.presenting && this.panPointerId === null) this.panPointerId = event.pointerId;
       return;
     }
 
@@ -746,14 +850,14 @@ export class Board {
         this.scheduleComposite();
         return;
       }
-      if (this.panPointerId === null) this.panPointerId = event.pointerId;
+      if (!this.presenting && this.panPointerId === null) this.panPointerId = event.pointerId;
       return;
     }
 
     if (toolKind === "select") {
       if (this.canDraw(event) && !this.lasso && !this.gesture) {
         this.beginSelect(event, world);
-      } else if (this.panPointerId === null) {
+      } else if (!this.presenting && this.panPointerId === null) {
         this.panPointerId = event.pointerId;
       }
       return;
@@ -765,7 +869,7 @@ export class Board {
         return;
       }
     }
-    if (this.panPointerId === null) this.panPointerId = event.pointerId;
+    if (!this.presenting && this.panPointerId === null) this.panPointerId = event.pointerId;
   };
 
   private handlePointerMove = (event: PointerEvent): void => {
@@ -775,7 +879,8 @@ export class Board {
     this.pointers.set(event.pointerId, { ...pos, type: event.pointerType });
 
     if (this.pinching && event.pointerType === "touch") {
-      this.applyPinch(event.pointerId, prev, pos);
+      if (this.presenting) this.applySwipe(event.pointerId, pos);
+      else this.applyPinch(event.pointerId, prev, pos);
     } else if (this.panPointerId === event.pointerId) {
       this.viewport = panBy(
         this.viewport,
@@ -865,8 +970,10 @@ export class Board {
     if (this.panPointerId === event.pointerId) this.panPointerId = null;
     if (this.pinching && this.touchCount() < 2) {
       this.pinching = false;
-      const remaining = [...this.pointers.entries()].find(([, p]) => p.type === "touch");
-      this.panPointerId = remaining ? remaining[0] : null;
+      if (!this.presenting) {
+        const remaining = [...this.pointers.entries()].find(([, p]) => p.type === "touch");
+        this.panPointerId = remaining ? remaining[0] : null;
+      }
     }
     this.scheduleComposite();
   };
@@ -874,6 +981,19 @@ export class Board {
   private handleWheel = (event: WheelEvent): void => {
     event.preventDefault();
     const unit = event.deltaMode === 2 ? this.screen.height : event.deltaMode === 1 ? 16 : 1;
+    if (this.presenting) {
+      this.wheelAccum += event.deltaY * unit;
+      window.clearTimeout(this.wheelAccumTimer);
+      this.wheelAccumTimer = window.setTimeout(() => {
+        this.wheelAccum = 0;
+      }, WHEEL_ACCUM_RESET_MS);
+      if (!this.pageTurn && Math.abs(this.wheelAccum) >= WHEEL_PAGE_THRESHOLD) {
+        const delta = this.wheelAccum > 0 ? 1 : -1;
+        this.wheelAccum = 0;
+        this.turnPage(delta);
+      }
+      return;
+    }
     if (event.ctrlKey || event.metaKey) {
       const pos = this.eventPos(event);
       const factor = Math.exp(-event.deltaY * unit * 0.0022);
@@ -902,6 +1022,19 @@ export class Board {
       this.scheduleComposite();
     }, WHEEL_ZOOM_SETTLE_MS);
   };
+
+  private applySwipe(pointerId: number, pos: Point): void {
+    if (this.swipeUsed) return;
+    const other = [...this.pointers.entries()].find(
+      ([id, p]) => id !== pointerId && p.type === "touch",
+    );
+    if (!other) return;
+    const midY = (pos.y + other[1].y) / 2;
+    const dy = midY - this.swipeStartY;
+    if (Math.abs(dy) < SWIPE_PAGE_THRESHOLD) return;
+    this.swipeUsed = true;
+    this.turnPage(dy < 0 ? 1 : -1);
+  }
 
   private applyPinch(pointerId: number, prev: TrackedPointer, pos: Point): void {
     const touches = [...this.pointers.entries()].filter(([, p]) => p.type === "touch");
@@ -1016,7 +1149,7 @@ export class Board {
     }
     const hit = pageAt(world.x, world.y, this.pages.length);
     if (!hit) {
-      if (this.panPointerId === null) this.panPointerId = event.pointerId;
+      if (!this.presenting && this.panPointerId === null) this.panPointerId = event.pointerId;
       return;
     }
     const clamped = clampToPage(hit.x, hit.y);
@@ -1251,6 +1384,10 @@ function pressureOf(event: PointerEvent): number {
 
 function midpoint(a: Point, b: Point): Point {
   return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+}
+
+function easeOutCubic(t: number): number {
+  return 1 - (1 - t) ** 3;
 }
 
 function distance(a: Point, b: Point): number {

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { closeNotebook } from "../persistence/session";
 import { useBoardStore } from "../store/useBoardStore";
 import { BackIcon, EraserIcon, HighlighterIcon, PenIcon, SettingsIcon } from "./icons";
@@ -8,10 +8,15 @@ export function Toolbar() {
   const [panelOpen, setPanelOpen] = useState(false);
   const tool = useBoardStore((state) => state.tool);
   const lastPenKind = useBoardStore((state) => state.lastPenKind);
+  const presentation = useBoardStore((state) => state.presentation);
   const { setTool } = useBoardStore.getState();
 
   const penActive = tool === "pen" || tool === "highlighter";
   const shownKind = penActive ? tool : lastPenKind;
+
+  useEffect(() => {
+    if (presentation) setPanelOpen(false);
+  }, [presentation]);
 
   return (
     <>

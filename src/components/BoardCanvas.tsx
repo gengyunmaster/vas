@@ -49,6 +49,7 @@ export function BoardCanvas() {
     const unsubscribe = useBoardStore.subscribe((state, prev) => {
       if (state.pages !== prev.pages) board.syncPages(state.pages);
       if (state.selection !== prev.selection) board.syncSelection(state.selection);
+      if (state.presentation !== prev.presentation) board.setPresentation(state.presentation);
       if (state.tool !== prev.tool) {
         container.style.cursor = cursorForTool(state.tool);
         if (state.tool !== "select" && state.selection) {
@@ -70,6 +71,12 @@ export function BoardCanvas() {
     };
   }, []);
 
-  const shifted = sidebarOpen && !presentation;
-  return <div ref={containerRef} className={shifted ? "board board-shifted" : "board"} />;
+  const className = [
+    "board",
+    sidebarOpen ? "board-shifted" : "",
+    presentation ? "board-presenting" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+  return <div ref={containerRef} className={className} />;
 }

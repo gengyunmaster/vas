@@ -299,6 +299,7 @@ export const useBoardStore = create<BoardState>()((set) => ({
       selection: null,
       selectionAnchor: null,
       viewState: null,
+      presentation: false,
     }),
   addStroke: (pageId, stroke) =>
     set((state) => {

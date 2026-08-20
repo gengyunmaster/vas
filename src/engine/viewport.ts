@@ -1,4 +1,11 @@
-import { contentHeight, PAGE_GAP, PAGE_HEIGHT, PAGE_TOP_MARGIN, PAGE_WIDTH } from "../model/page";
+import {
+  contentHeight,
+  PAGE_GAP,
+  PAGE_HEIGHT,
+  PAGE_TOP_MARGIN,
+  PAGE_WIDTH,
+  pageTopY,
+} from "../model/page";
 
 export interface Viewport {
   x: number;
@@ -74,6 +81,15 @@ export function zoomAt(
     screen,
     pageCount,
   );
+}
+
+export function presentationViewport(screen: ScreenSize, pageIndex: number): Viewport {
+  const scale = Math.min(screen.width / PAGE_WIDTH, screen.height / PAGE_HEIGHT);
+  return {
+    scale,
+    x: (PAGE_WIDTH - screen.width / scale) / 2,
+    y: pageTopY(pageIndex) - (screen.height / scale - PAGE_HEIGHT) / 2,
+  };
 }
 
 export function screenToWorld(vp: Viewport, screenX: number, screenY: number): Point {

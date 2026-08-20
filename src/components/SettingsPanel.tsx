@@ -60,6 +60,7 @@ export function SettingsPanel() {
     (state) => state.clipboard.strokes.length > 0 || state.clipboard.images.length > 0,
   );
   const sidebarOpen = useBoardStore((state) => state.sidebarOpen);
+  const presentation = useBoardStore((state) => state.presentation);
   const hasSelection = useBoardStore((state) => state.selection !== null);
   const [exporting, setExporting] = useState(false);
   const [exportRange, setExportRange] = useState<"selection" | "page" | "notebook">("page");
@@ -359,7 +360,13 @@ export function SettingsPanel() {
               e.target.value = "";
             }}
           />
-          <button type="button" title="Present" onClick={() => setPresentation(true)}>
+          <button
+            type="button"
+            title="Present"
+            aria-pressed={presentation}
+            className={presentation ? "active" : ""}
+            onClick={() => setPresentation(!presentation)}
+          >
             <PresentIcon />
           </button>
           <button
