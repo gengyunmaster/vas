@@ -1,8 +1,10 @@
 import { placeImageCentered } from "../model/image";
 import { createPage, type Page } from "../model/page";
 import { newId } from "../model/stroke";
+import { decryptPdf } from "./decryptPdf";
 import { deleteImages, saveImages } from "./images";
 import { createNotebook, deleteNotebook, replacePages } from "./notebooks";
+import { deletePdfs, savePdf } from "./pdfs";
 
 const PDF_RENDER_SCALE = 3;
 const JPEG_QUALITY = 0.9;
@@ -13,6 +15,11 @@ export interface RasterizedPdfPage {
   blob: Blob;
   naturalWidth: number;
   naturalHeight: number;
+}
+
+export interface RasterizedPdf {
+  pages: RasterizedPdfPage[];
+  sourceBytes: Uint8Array;
 }
 
 type PdfJs = typeof import("pdfjs-dist");
@@ -38,14 +45,25 @@ export async function saveRasterizedImages(rasterized: RasterizedPdfPage[]): Pro
   await saveImages(rasterized.map((raster) => ({ ...raster, id: raster.imageId })));
 }
 
+export async function saveSourcePdf(sourceBytes: Uint8Array): Promise<string> {
+  const docId = newId();
+  await savePdf({
+    id: docId,
+    blob: new Blob([sourceBytes.buffer as ArrayBuffer], { type: "application/pdf" }),
+  });
+  return docId;
+}
+
 export async function rasterizePdf(
   file: File,
   onProgress?: (done: number, total: number) => void,
-): Promise<RasterizedPdfPage[]> {
+): Promise<RasterizedPdf> {
   const pdfjs = await loadPdfJs();
   const data = new Uint8Array(await file.arrayBuffer());
   let cancelled = false;
-  const task = pdfjs.getDocument({ data });
+  let capturedPassword: string | undefined;
+  // pdf.js detaches the buffer passed to getDocument; hand it a copy so `data` stays intact
+  const task = pdfjs.getDocument({ data: data.slice() });
   task.onPassword = (updatePassword: (password: string) => void, reason: number) => {
     const message =
       reason === pdfjs.PasswordResponses.INCORRECT_PASSWORD
@@ -57,6 +75,7 @@ export async function rasterizePdf(
       void task.destroy();
       return;
     }
+    capturedPassword = password;
     updatePassword(password);
   };
   let doc: import("pdfjs-dist").PDFDocumentProxy;
@@ -73,7 +92,13 @@ export async function rasterizePdf(
       pages.push(await rasterizePage(doc, index));
       onProgress?.(index, doc.numPages);
     }
-    return pages;
+    let sourceBytes: Uint8Array = data;
+    try {
+      sourceBytes = await decryptPdf(data, capturedPassword);
+    } catch {
+      // decryption failed: keep the original bytes, export falls back to the raster base image
+    }
+    return { pages, sourceBytes };
   } finally {
     void task.destroy();
   }
@@ -83,8 +108,9 @@ export async function importPdfFile(
   file: File,
   onProgress?: (done: number, total: number) => void,
 ): Promise<string> {
-  const rasterized = await rasterizePdf(file, onProgress);
-  const pages: Page[] = rasterized.map((raster) => {
+  const { pages: rasterizedPages, sourceBytes } = await rasterizePdf(file, onProgress);
+  const docId = await saveSourcePdf(sourceBytes);
+  const pages: Page[] = rasterizedPages.map((raster, index) => {
     const page = createPage("#ffffff", "blank");
     page.images = [
       {
@@ -94,16 +120,18 @@ export async function importPdfFile(
         locked: true,
       },
     ];
+    page.pdfSource = { docId, pageIndex: index };
     return page;
   });
   const title = file.name.replace(/\.pdf$/i, "").trim() || "Imported PDF";
   const meta = await createNotebook(title);
   try {
-    await saveRasterizedImages(rasterized);
+    await saveRasterizedImages(rasterizedPages);
     await replacePages(meta.id, pages);
   } catch (error) {
     await deleteNotebook(meta.id);
-    await deleteImages(rasterized.map((raster) => raster.imageId));
+    await deleteImages(rasterizedPages.map((raster) => raster.imageId));
+    await deletePdfs([docId]);
     throw error;
   }
   return meta.id;

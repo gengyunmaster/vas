@@ -3,6 +3,7 @@ import {
   clampToPage,
   clonePageWithNewIds,
   contentHeight,
+  createPage,
   PAGE_GAP,
   PAGE_HEIGHT,
   PAGE_TOP_MARGIN,
@@ -153,5 +154,15 @@ describe("clonePageWithNewIds", () => {
     expect(clone.images[0].locked).toBe(true);
     expect(source.strokes[0].id).toBe("s1");
     expect(source.images[0].id).toBe("i1");
+  });
+
+  it("keeps the pdf source reference", () => {
+    const source = {
+      ...createPage("#ffffff"),
+      pdfSource: { docId: "pdf-1", pageIndex: 3 },
+    };
+    const clone = clonePageWithNewIds(source);
+    expect(clone.pdfSource).toEqual({ docId: "pdf-1", pageIndex: 3 });
+    expect(clonePageWithNewIds(createPage("#ffffff")).pdfSource).toBeUndefined();
   });
 });

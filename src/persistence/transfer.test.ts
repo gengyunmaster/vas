@@ -6,7 +6,9 @@ import {
   imageEntryPath,
   NOTEBOOK_JSON_ENTRY,
   parseNotebookFile,
+  pdfEntryPath,
   resolveImageEntries,
+  resolvePdfEntries,
   serializeNotebook,
 } from "./transfer";
 
@@ -242,5 +244,66 @@ describe("notebook images and zip packaging", () => {
     const entries = unzipSync(zip);
     const parsed = parseNotebookFile(strFromU8(entries[NOTEBOOK_JSON_ENTRY]));
     expect(() => resolveImageEntries(entries, parsed.images)).toThrow("Missing image data");
+  });
+});
+
+describe("notebook pdf sources", () => {
+  function sourcedPage(): Page {
+    return { ...samplePage(), pdfSource: { docId: "pdf-1", pageIndex: 2 } };
+  }
+
+  it("round-trips the pdf source and remaps the doc id", () => {
+    const text = serializeNotebook("With pdf", [sourcedPage()], [], undefined, [
+      { docId: "pdf-1" },
+    ]);
+    const parsed = parseNotebookFile(text);
+    expect(parsed.pdfs).toHaveLength(1);
+    expect(parsed.pdfs[0].sourceId).toBe("pdf-1");
+    expect(parsed.pdfs[0].docId).not.toBe("pdf-1");
+    expect(parsed.pages[0].pdfSource).toEqual({ docId: parsed.pdfs[0].docId, pageIndex: 2 });
+  });
+
+  it("omits the pdfs manifest when no page has a pdf source", () => {
+    const text = serializeNotebook("Plain", [samplePage()]);
+    expect(parseNotebookFile(text).pdfs).toEqual([]);
+    expect(text).not.toContain("pdfs");
+  });
+
+  it("rejects a page referencing a pdf missing from the manifest", () => {
+    const text = JSON.stringify({
+      format: "vas-notebook",
+      version: 3,
+      pages: [{ strokes: [], pdfSource: { docId: "ghost", pageIndex: 0 } }],
+    });
+    expect(() => parseNotebookFile(text)).toThrow("unknown pdf");
+  });
+
+  it("rejects an invalid pdf source page index", () => {
+    const text = JSON.stringify({
+      format: "vas-notebook",
+      version: 3,
+      pdfs: [{ docId: "pdf-1" }],
+      pages: [{ strokes: [], pdfSource: { docId: "pdf-1", pageIndex: -1 } }],
+    });
+    expect(() => parseNotebookFile(text)).toThrow("Invalid pdf source page index");
+  });
+
+  it("resolves pdf bytes from the zip archive", () => {
+    const json = serializeNotebook("Zip", [sourcedPage()], [], undefined, [{ docId: "pdf-1" }]);
+    const zip = buildNotebookZip(json, [
+      { path: pdfEntryPath("pdf-1"), data: new Uint8Array([9, 8, 7]) },
+    ]);
+    const entries = unzipSync(zip);
+    const parsed = parseNotebookFile(strFromU8(entries[NOTEBOOK_JSON_ENTRY]));
+    const resolved = resolvePdfEntries(entries, parsed.pdfs);
+    expect([...resolved[0]]).toEqual([9, 8, 7]);
+    expect(entries[pdfEntryPath("pdf-1")]).toBeDefined();
+  });
+
+  it("resolvePdfEntries throws when a pdf file is missing", () => {
+    const json = serializeNotebook("Zip", [sourcedPage()], [], undefined, [{ docId: "pdf-1" }]);
+    const entries = unzipSync(buildNotebookZip(json, []));
+    const parsed = parseNotebookFile(strFromU8(entries[NOTEBOOK_JSON_ENTRY]));
+    expect(() => resolvePdfEntries(entries, parsed.pdfs)).toThrow("Missing PDF data");
   });
 });

@@ -5,7 +5,7 @@ import { SHAPE_KINDS, type ShapeKind } from "../model/stroke";
 import { exportPagePng } from "../persistence/exportImage";
 import { exportNotebookPdf } from "../persistence/exportPdf";
 import { exportPageSvg } from "../persistence/exportSvg";
-import { rasterizePdf, saveRasterizedImages } from "../persistence/importPdf";
+import { rasterizePdf, saveRasterizedImages, saveSourcePdf } from "../persistence/importPdf";
 import { insertImageFile } from "../persistence/insertImage";
 import { COLORS, PAPER_COLORS, SIZES, useBoardStore } from "../store/useBoardStore";
 import { ColorField } from "./ColorField";
@@ -139,11 +139,12 @@ export function SettingsPanel() {
     if (!file) return;
     setPdfImporting({ done: 0, total: 0 });
     try {
-      const rasterized = await rasterizePdf(file, (done, total) =>
+      const { pages, sourceBytes } = await rasterizePdf(file, (done, total) =>
         setPdfImporting({ done, total }),
       );
-      await saveRasterizedImages(rasterized);
-      useBoardStore.getState().insertPdfPages(rasterized);
+      const docId = await saveSourcePdf(sourceBytes);
+      await saveRasterizedImages(pages);
+      useBoardStore.getState().insertPdfPages(pages, { docId });
     } catch (error) {
       console.error("PDF import failed", error);
       window.alert(error instanceof Error ? error.message : "PDF import failed");

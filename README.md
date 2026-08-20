@@ -24,7 +24,9 @@ self-hosted instance keep separate data; use export / import to move notebooks a
 - **PDF import** — import a PDF from the home screen to create a notebook, or into the
   open notebook (pages inserted after the current one, inheriting its style); every page
   is rendered at 3x clarity, scaled to fill the sheet, and locked in place (lasso can't
-  select it); annotate freely on top; password-protected PDFs supported
+  select it); annotate freely on top; password-protected PDFs are decrypted in the
+  browser on import (qpdf-wasm, password prompted once) and stored without a password,
+  so exports can re-embed them as true vector pages
 - **Per-page paper** — paper colors (presets incl. blackboard green and calligraphy tan,
   plus custom hex) and background templates (blank / lined / grid / dots / rice grid),
   with contrast-aware guide lines
@@ -39,7 +41,9 @@ self-hosted instance keep separate data; use export / import to move notebooks a
   notebooks and zip export (JSON + image files) for notebooks with images, both
   re-importable
 - **Vector PDF export** — strokes stay sharp at any zoom level, inserted SVG images stay
-  vector too, raster images embedded from the original bytes (JPEG/PNG); plus PNG export
+  vector too, raster images embedded from the original bytes (JPEG/PNG); imported PDF
+  pages keep their original bytes, which are re-embedded as a true vector layer beneath
+  your annotations on export (with raster fallback for encrypted files); plus PNG export
   of the current page and vector SVG export of the current page (raster/SVG images
   embedded inline as data URIs)
 - **PWA** — installable and fully offline; all assets (including the on-demand PDF
@@ -54,7 +58,8 @@ self-hosted instance keep separate data; use export / import to move notebooks a
 ## Tech stack
 
 React 19 · TypeScript · Vite · zustand · perfect-freehand · idb · jsPDF + svg2pdf.js
-(lazy-loaded) · pdfjs-dist (lazy-loaded) · pdf-lib (lazy-loaded) · fflate ·
+(lazy-loaded) · pdfjs-dist (lazy-loaded) · pdf-lib (lazy-loaded) · @neslinesli93/qpdf-wasm
+(lazy-loaded) · fflate ·
 vite-plugin-pwa · Biome · Vitest — no UI component library, no backend.
 
 ## Project structure

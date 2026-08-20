@@ -12,12 +12,18 @@ export const PAGE_PATTERNS = ["blank", "lined", "grid", "dots", "rice"] as const
 
 export type PagePattern = (typeof PAGE_PATTERNS)[number];
 
+export interface PdfSource {
+  docId: string;
+  pageIndex: number;
+}
+
 export interface Page {
   id: string;
   strokes: Stroke[];
   images: ImageItem[];
   paperColor: string;
   pattern: PagePattern;
+  pdfSource?: PdfSource;
 }
 
 export interface PageHit {
@@ -81,5 +87,6 @@ export function clonePageWithNewIds(page: Page): Page {
       points: stroke.points.map((point) => ({ ...point })),
     })),
     images: page.images.map((image) => ({ ...image, id: newId() })),
+    ...(page.pdfSource ? { pdfSource: { ...page.pdfSource } } : {}),
   };
 }

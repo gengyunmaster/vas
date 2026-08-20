@@ -593,8 +593,26 @@ describe("insertPdfPages", () => {
     expect(inserted.images[0].x).toBeCloseTo(0);
     expect(inserted.images[0].width).toBeCloseTo(794);
     expect(state.pages[2].images[0].imageId).toBe("blob-2");
+    expect(state.pages[1].pdfSource).toBeUndefined();
     expect(state.pendingScrollToPage).toBe(1);
     expect(state.past).toHaveLength(0);
+  });
+
+  it("attaches the pdf source when a doc id is given", () => {
+    useBoardStore.setState({
+      pages: [createPage("#ffffff")],
+      viewPageIndex: 0,
+    });
+    useBoardStore.getState().insertPdfPages(
+      [
+        { imageId: "blob-1", naturalWidth: 200, naturalHeight: 100 },
+        { imageId: "blob-2", naturalWidth: 100, naturalHeight: 100 },
+      ],
+      { docId: "doc-1" },
+    );
+    const state = useBoardStore.getState();
+    expect(state.pages[1].pdfSource).toEqual({ docId: "doc-1", pageIndex: 0 });
+    expect(state.pages[2].pdfSource).toEqual({ docId: "doc-1", pageIndex: 1 });
   });
 
   it("insertPdfPages with an empty list is a no-op", () => {

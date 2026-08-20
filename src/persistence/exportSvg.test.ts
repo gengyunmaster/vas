@@ -137,4 +137,27 @@ describe("pageToSvg", () => {
     expect(svg).toContain("&quot;&gt;&lt;");
     expect(svg).not.toContain('fill="#fff"><"');
   });
+
+  it("annotation-only mode omits paper, pattern, and locked images", () => {
+    const page = makePage({
+      paperColor: "#003423",
+      pattern: "grid",
+      strokes: [penStroke()],
+      images: [
+        { id: "i1", imageId: "locked-img", x: 0, y: 0, width: 100, height: 100, locked: true },
+        { id: "i2", imageId: "free-img", x: 10, y: 10, width: 50, height: 50 },
+      ],
+    });
+    const imageData = new Map([
+      ["locked-img", "data:image/jpeg;base64,AAAA"],
+      ["free-img", "data:image/png;base64,BBBB"],
+    ]);
+    const svg = pageToSvg(page, imageData, { annotationOnly: true });
+    expect(svg).not.toContain("<rect");
+    expect(svg).not.toContain("<line");
+    expect(svg).not.toContain("locked-img");
+    expect(svg).not.toContain("AAAA");
+    expect(svg).toContain("data:image/png;base64,BBBB");
+    expect(svg).toContain('fill="#1a1a1a"');
+  });
 });

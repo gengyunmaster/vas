@@ -29,6 +29,7 @@ function toPageRecord(notebookId: string, index: number, page: Page) {
     pattern: page.pattern,
     strokes: page.strokes,
     images: page.images,
+    ...(page.pdfSource ? { pdfSource: page.pdfSource } : {}),
   };
 }
 
@@ -44,6 +45,7 @@ export async function loadNotebook(id: string): Promise<{ meta: NotebookRecord; 
     pattern: record.pattern ?? "blank",
     strokes: record.strokes,
     images: record.images ?? [],
+    ...(record.pdfSource ? { pdfSource: record.pdfSource } : {}),
   }));
   if (pages.length === 0) pages.push(createPage(DEFAULT_PAPER_COLOR));
   return { meta, pages };

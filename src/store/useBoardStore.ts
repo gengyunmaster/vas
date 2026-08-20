@@ -113,6 +113,7 @@ interface BoardState {
   insertImage: (imageId: string, naturalWidth: number, naturalHeight: number) => void;
   insertPdfPages: (
     pdfPages: { imageId: string; naturalWidth: number; naturalHeight: number }[],
+    pdfSource?: { docId: string },
   ) => void;
 }
 
@@ -641,13 +642,13 @@ export const useBoardStore = create<BoardState>()((set) => ({
         tool: "select",
       };
     }),
-  insertPdfPages: (pdfPages) =>
+  insertPdfPages: (pdfPages, pdfSource) =>
     set((state) => {
       if (pdfPages.length === 0) return state;
       const current = state.pages[state.viewPageIndex];
       if (!current) return state;
       const insertIndex = state.viewPageIndex + 1;
-      const inserted: Page[] = pdfPages.map((pdfPage) => ({
+      const inserted: Page[] = pdfPages.map((pdfPage, index) => ({
         id: newId(),
         strokes: [],
         images: [
@@ -660,6 +661,7 @@ export const useBoardStore = create<BoardState>()((set) => ({
         ],
         paperColor: current.paperColor,
         pattern: current.pattern,
+        ...(pdfSource ? { pdfSource: { docId: pdfSource.docId, pageIndex: index } } : {}),
       }));
       const pages = [...state.pages];
       pages.splice(insertIndex, 0, ...inserted);

@@ -14,13 +14,22 @@ export async function exportPageSvg(title: string, pageIndex: number, page: Page
   downloadBlob(new Blob([svg], { type: "image/svg+xml" }), `${title}-page-${pageIndex + 1}.svg`);
 }
 
-export function pageToSvg(page: Page, imageData: Map<string, string>): string {
+export function pageToSvg(
+  page: Page,
+  imageData: Map<string, string>,
+  options: { annotationOnly?: boolean } = {},
+): string {
   const parts = [
     `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 ${PAGE_WIDTH} ${PAGE_HEIGHT}" width="${PAGE_WIDTH}" height="${PAGE_HEIGHT}">`,
-    `<rect width="${PAGE_WIDTH}" height="${PAGE_HEIGHT}" fill="${escapeXml(page.paperColor)}"/>`,
-    ...patternToSvg(page),
   ];
+  if (!options.annotationOnly) {
+    parts.push(
+      `<rect width="${PAGE_WIDTH}" height="${PAGE_HEIGHT}" fill="${escapeXml(page.paperColor)}"/>`,
+      ...patternToSvg(page),
+    );
+  }
   for (const image of page.images) {
+    if (options.annotationOnly && image.locked) continue;
     const dataUri = imageData.get(image.imageId);
     if (!dataUri) continue;
     const href = escapeXml(dataUri);
