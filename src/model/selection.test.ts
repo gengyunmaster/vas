@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
+import type { Page } from "./page";
 import {
   imageInLasso,
   imagesInLasso,
+  pickElements,
   pointInPolygon,
   segmentsIntersect,
   strokeInLasso,
@@ -245,5 +247,25 @@ describe("imageInLasso", () => {
     const locked = { ...image, id: "i3", locked: true };
     expect(imageInLasso(locked, square)).toBe(true);
     expect(imagesInLasso([image, locked], square).map((i) => i.id)).toEqual(["i1"]);
+  });
+});
+
+describe("pickElements", () => {
+  it("returns only the referenced strokes and images, in page order", () => {
+    const a = penStroke("a", [{ x: 0, y: 0 }]);
+    const b = penStroke("b", [{ x: 10, y: 10 }]);
+    const page: Page = {
+      id: "p1",
+      paperColor: "#ffffff",
+      pattern: "blank",
+      strokes: [a, b],
+      images: [
+        { id: "i1", imageId: "m1", x: 0, y: 0, width: 10, height: 10 },
+        { id: "i2", imageId: "m2", x: 5, y: 5, width: 10, height: 10 },
+      ],
+    };
+    const picked = pickElements(page, ["b"], ["i2"]);
+    expect(picked.strokes).toEqual([b]);
+    expect(picked.images.map((image) => image.id)).toEqual(["i2"]);
   });
 });

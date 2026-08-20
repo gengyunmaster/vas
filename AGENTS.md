@@ -131,7 +131,8 @@ interface ImageItem {
 - 自动保存：`autosave.ts` 订阅 store，页面引用变化即增量写入对应页；页数减少时整本重写（保持索引连续）。无"保存"按钮，任何时刻关闭页面都不应丢数据；写入失败会捕获并一次性弹提示。
 - 笔记本合并：`notebooks.ts` 的 `mergeNotebooks` 按用户勾选顺序拼接各笔记本的页面（单选即整本复制），页/笔画/图片条目 id 经 `clonePageWithNewIds` 重建（页 id 是 pages 表主键，必须重建），**imageId 保持不变**——全局 images 表按引用共享 blob，相同图片天然只存一份。
 - 导入/导出：`transfer.ts`。无图片的笔记导出为纯 JSON；含图片或 PDF 的导出为 zip（`notebook.json` + `images/<imageId>.<ext>` + `pdfs/<docId>.pdf`，fflate）。文件格式 `version: 3`，导入兼容 version 1/2；按文件头嗅探 zip/JSON；导入做严格运行时校验（拒绝 NaN/Infinity、页面引用必须在图片/PDF 清单内）并重建全部 id（含 imageId 与 docId 重映射）；全部校验通过后才落库，失败回滚不留残本与孤儿 blob。
-- PDF 导出为**矢量**（`exportPdf.ts`）：每页先经 `pageToSvg` 序列化为 SVG，再由 svg2pdf.js + jsPDF 渲染进 PDF——笔画/图形/模板/纸色均为矢量；PNG/JPEG 图片按原字节嵌入，SVG 图片保持矢量（svg2pdf 直接解析渲染），其余格式（GIF/AVIF/WebP 等）经 `rasterizeToPng` 栅格化为 PNG 嵌入（GIF 动图只取静态帧）。含 `pdfSource` 的页改走 pdf-lib 分层组装：pdf-lib 原语画纸色与模板 → 底图矩形内铺白衬底 → `embedPage` 嵌入原始 PDF 矢量页 → 批注层（`pageToSvg` 的 `annotationOnly` 输出，跳过纸色/模板/锁定图片）经 jsPDF+svg2pdf 生成单页 PDF 后 `embedPdf` 叠加在最上层；原始 PDF 嵌入失败（如加密文件，pdf-lib 无解密能力）时该页回退为 JPEG 栅格底图。导出时裁掉末尾连续空白页。PNG 导出当前页为位图（`exportImage.ts`，导出前等待全部位图就绪）。SVG 导出当前页为**矢量**（`exportSvg.ts`）：笔画/图形/模板/纸色均为矢量元素，位图与 SVG 图片以 data URI（base64 原字节）内嵌进 `<image>`（同时写 `href` 与 `xlink:href` 兼容老查看器），缺失图片跳过；轮廓转路径的 `outlineToSvgPath` 抽在 `svgPath.ts`，图片字节转 data URI 的 `collectImageDataUris` 抽在 `imageDataUri.ts`，PDF 与 SVG 导出共用。
+- PDF 导出为**矢量**（`exportPdf.ts`）：每页先经 `pageToSvg` 序列化为 SVG，再由 svg2pdf.js + jsPDF 渲染进 PDF——笔画/图形/模板/纸色均为矢量；PNG/JPEG 图片按原字节嵌入，SVG 图片保持矢量（svg2pdf 直接解析渲染），其余格式（GIF/AVIF/WebP 等）经 `rasterizeToPng` 栅格化为 PNG 嵌入（GIF 动图只取静态帧）。含 `pdfSource` 的页改走 pdf-lib 分层组装：pdf-lib 原语画纸色与模板 → 底图矩形内铺白衬底 → `embedPage` 嵌入原始 PDF 矢量页 → 批注层（`pageToSvg` 的 `annotationOnly` 输出，跳过纸色/模板/锁定图片）经 jsPDF+svg2pdf 生成单页 PDF 后 `embedPdf` 叠加在最上层；原始 PDF 嵌入失败（如加密文件，pdf-lib 无解密能力）时该页回退为 JPEG 栅格底图。导出时裁掉末尾连续空白页。PNG 导出为位图（`exportImage.ts`，导出前等待全部位图就绪）。SVG 导出为**矢量**（`exportSvg.ts`）：笔画/图形/模板/纸色均为矢量元素，位图与 SVG 图片以 data URI（base64 原字节）内嵌进 `<image>`（同时写 `href` 与 `xlink:href` 兼容老查看器），缺失图片跳过；轮廓转路径的 `outlineToSvgPath` 抽在 `svgPath.ts`，图片字节转 data URI 的 `collectImageDataUris` 抽在 `imageDataUri.ts`，PDF 与 SVG 导出共用。
+- 导出范围统一为三档（设置面板，范围 × 格式两个维度）：**选中部分**只含选中的笔画与图片（`selection.pickElements` 按 id 提取），无纸色/模板/锁定图片，尺寸贴合选区包围盒（`transform.elementsBounds`）——SVG 经 `pageToSvg` 的 `clipTo` 裁剪 viewBox、PNG 经 `renderPage.paintElements` 平移渲染，二者背景透明；PDF 无透明概念，为包围盒尺寸的单页白底。**当前页**为单文件所见即所得（含背景与 PDF 底图）。**整本**导出时 SVG/PNG 若超过一页自动打 zip（`exportZip.ts`，fflate），单页直接下载；三格式整本导出均裁掉末尾连续空白页。
 - 工具偏好（工具/墨色/粗细/纸色/模板/侧栏）与"上次打开的笔记本"存于 localStorage（`prefs.ts`、`session.ts`）；偏好解析必须逐字段校验，只合并有效值。
 - 视图状态（`viewState: { x, y, zoom }`）：存于 notebooks 元信息记录（不动 updatedAt），浏览时视口稳定后 400ms 防抖写入，返回主页/切换/页面隐藏时冲刷；`zoom` 为相对适配倍率（scale / fitScale(屏宽)），跨设备恢复时不越界。打开笔记本时按记录恢复视口；导入/导出的 JSON/ZIP 顶层携带同名字段（可选，严格校验）。
 - 序列化与解析逻辑必须有单元测试覆盖。
@@ -171,8 +172,8 @@ src/
                  insertImage（插入管线）、rasterize（栅格化）、importPdf（PDF 导入管线）、
                  decryptPdf（qpdf wasm 去除 PDF 密码保护）、
                  autosave（页面自动保存）、prefs（工具偏好）、session（打开/关闭笔记本）、
-                 exportPdf（矢量 PDF）、exportImage（PNG）、exportSvg（矢量 SVG）、svgPath（轮廓转路径共用）
-                 与 imageDataUri（图片字节转 data URI 共用）
+                 exportPdf（矢量 PDF）、exportImage（PNG）、exportSvg（矢量 SVG）、exportZip（多页打包）、
+                 svgPath（轮廓转路径共用）与 imageDataUri（图片字节转 data URI 共用）
   pwa/           service worker 注册
 public/          PWA 图标（scripts/generate-icons.mjs 生成）
 scripts/         一次性工具脚本

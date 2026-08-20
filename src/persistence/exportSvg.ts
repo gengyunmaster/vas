@@ -1,9 +1,13 @@
 import { getOutlinePoints, HIGHLIGHTER_ALPHA } from "../engine/renderStroke";
 import { isDarkColor } from "../model/color";
-import { PAGE_HEIGHT, PAGE_WIDTH, type Page } from "../model/page";
+import type { Bounds } from "../model/hitTest";
+import type { ImageItem } from "../model/image";
+import { PAGE_HEIGHT, PAGE_WIDTH, type Page, trimTrailingBlankPages } from "../model/page";
 import { PATTERN_DASH, patternLayout } from "../model/patternLayout";
 import { arrowHead } from "../model/shapeGeometry";
 import type { Stroke } from "../model/stroke";
+import { elementsBounds } from "../model/transform";
+import { downloadZip } from "./exportZip";
 import { collectImageDataUris } from "./imageDataUri";
 import { outlineToSvgPath } from "./svgPath";
 import { downloadBlob } from "./transfer";
@@ -14,17 +18,54 @@ export async function exportPageSvg(title: string, pageIndex: number, page: Page
   downloadBlob(new Blob([svg], { type: "image/svg+xml" }), `${title}-page-${pageIndex + 1}.svg`);
 }
 
+export async function exportNotebookSvg(title: string, pages: Page[]): Promise<void> {
+  const kept = trimTrailingBlankPages(pages);
+  if (kept.length === 1 && kept[0]) {
+    await exportPageSvg(title, 0, kept[0]);
+    return;
+  }
+  const entries: { name: string; data: Uint8Array }[] = [];
+  const encoder = new TextEncoder();
+  for (const [index, page] of kept.entries()) {
+    const imageData = await collectImageDataUris(page.images.map((image) => image.imageId));
+    entries.push({
+      name: `${title}-page-${index + 1}.svg`,
+      data: encoder.encode(pageToSvg(page, imageData)),
+    });
+  }
+  downloadZip(title, entries);
+}
+
+export async function exportSelectionSvg(
+  title: string,
+  page: Page,
+  strokes: Stroke[],
+  images: ImageItem[],
+): Promise<void> {
+  const bounds = elementsBounds(strokes, images);
+  if (!bounds) return;
+  const imageData = await collectImageDataUris(images.map((image) => image.imageId));
+  const svg = pageToSvg({ ...page, strokes, images }, imageData, {
+    annotationOnly: true,
+    clipTo: bounds,
+  });
+  downloadBlob(new Blob([svg], { type: "image/svg+xml" }), `${title}-selection.svg`);
+}
+
 export function pageToSvg(
   page: Page,
   imageData: Map<string, string>,
-  options: { annotationOnly?: boolean } = {},
+  options: { annotationOnly?: boolean; clipTo?: Bounds } = {},
 ): string {
+  const view = options.clipTo ?? { minX: 0, minY: 0, maxX: PAGE_WIDTH, maxY: PAGE_HEIGHT };
+  const viewWidth = view.maxX - view.minX;
+  const viewHeight = view.maxY - view.minY;
   const parts = [
-    `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 ${PAGE_WIDTH} ${PAGE_HEIGHT}" width="${PAGE_WIDTH}" height="${PAGE_HEIGHT}">`,
+    `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="${fmt(view.minX)} ${fmt(view.minY)} ${fmt(viewWidth)} ${fmt(viewHeight)}" width="${fmt(viewWidth)}" height="${fmt(viewHeight)}">`,
   ];
   if (!options.annotationOnly) {
     parts.push(
-      `<rect width="${PAGE_WIDTH}" height="${PAGE_HEIGHT}" fill="${escapeXml(page.paperColor)}"/>`,
+      `<rect x="${fmt(view.minX)}" y="${fmt(view.minY)}" width="${fmt(viewWidth)}" height="${fmt(viewHeight)}" fill="${escapeXml(page.paperColor)}"/>`,
       ...patternToSvg(page),
     );
   }

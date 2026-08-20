@@ -1,10 +1,11 @@
 import { type CSSProperties, useRef, useState } from "react";
 import { version } from "../../package.json";
 import { PAGE_PATTERNS, type PagePattern } from "../model/page";
+import { pickElements } from "../model/selection";
 import { SHAPE_KINDS, type ShapeKind } from "../model/stroke";
-import { exportPagePng } from "../persistence/exportImage";
-import { exportNotebookPdf } from "../persistence/exportPdf";
-import { exportPageSvg } from "../persistence/exportSvg";
+import { exportNotebookPng, exportPagePng, exportSelectionPng } from "../persistence/exportImage";
+import { exportNotebookPdf, exportSelectionPdf } from "../persistence/exportPdf";
+import { exportNotebookSvg, exportPageSvg, exportSelectionSvg } from "../persistence/exportSvg";
 import { rasterizePdf, saveRasterizedImages, saveSourcePdf } from "../persistence/importPdf";
 import { insertImageFile } from "../persistence/insertImage";
 import { COLORS, PAPER_COLORS, SIZES, useBoardStore } from "../store/useBoardStore";
@@ -58,7 +59,9 @@ export function SettingsPanel() {
     (state) => state.clipboard.strokes.length > 0 || state.clipboard.images.length > 0,
   );
   const sidebarOpen = useBoardStore((state) => state.sidebarOpen);
+  const hasSelection = useBoardStore((state) => state.selection !== null);
   const [exporting, setExporting] = useState(false);
+  const [exportRange, setExportRange] = useState<"selection" | "page" | "notebook">("page");
   const [pdfImporting, setPdfImporting] = useState<{ done: number; total: number } | null>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const pdfInputRef = useRef<HTMLInputElement>(null);
@@ -88,40 +91,37 @@ export function SettingsPanel() {
     }
   };
 
-  const exportPdf = async () => {
-    const { notebookTitle: title, pages } = useBoardStore.getState();
+  const doExport = async (format: "pdf" | "svg" | "png") => {
+    const state = useBoardStore.getState();
+    const title = state.notebookTitle || "vas notebook";
     setExporting(true);
     try {
-      await exportNotebookPdf(title || "vas notebook", pages);
+      if (exportRange === "selection") {
+        const selection = state.selection;
+        const page = selection
+          ? state.pages.find((candidate) => candidate.id === selection.pageId)
+          : undefined;
+        if (!selection || !page) return;
+        const { strokes, images } = pickElements(page, selection.strokeIds, selection.imageIds);
+        if (format === "pdf") await exportSelectionPdf(title, page, strokes, images);
+        else if (format === "svg") await exportSelectionSvg(title, page, strokes, images);
+        else await exportSelectionPng(title, strokes, images);
+      } else if (exportRange === "page") {
+        const page = state.pages[state.viewPageIndex];
+        if (!page) return;
+        if (format === "pdf") await exportNotebookPdf(title, [page]);
+        else if (format === "svg") await exportPageSvg(title, state.viewPageIndex, page);
+        else await exportPagePng(title, state.viewPageIndex, page);
+      } else {
+        if (format === "pdf") await exportNotebookPdf(title, state.pages);
+        else if (format === "svg") await exportNotebookSvg(title, state.pages);
+        else await exportNotebookPng(title, state.pages);
+      }
     } catch (error) {
-      console.error("PDF export failed", error);
-      window.alert("PDF export failed.");
+      console.error(`${format.toUpperCase()} export failed`, error);
+      window.alert(`${format.toUpperCase()} export failed.`);
     } finally {
       setExporting(false);
-    }
-  };
-
-  const exportPng = async () => {
-    const { notebookTitle: title, pages, viewPageIndex } = useBoardStore.getState();
-    const page = pages[viewPageIndex];
-    if (!page) return;
-    try {
-      await exportPagePng(title || "vas notebook", viewPageIndex, page);
-    } catch (error) {
-      console.error("PNG export failed", error);
-      window.alert("PNG export failed.");
-    }
-  };
-
-  const exportSvg = async () => {
-    const { notebookTitle: title, pages, viewPageIndex } = useBoardStore.getState();
-    const page = pages[viewPageIndex];
-    if (!page) return;
-    try {
-      await exportPageSvg(title || "vas notebook", viewPageIndex, page);
-    } catch (error) {
-      console.error("SVG export failed", error);
-      window.alert("SVG export failed.");
     }
   };
 
@@ -373,20 +373,47 @@ export function SettingsPanel() {
               e.target.value = "";
             }}
           />
+        </div>
+        <div className="settings-row">
           <button
             type="button"
-            className="text-option"
-            disabled={exporting}
-            onClick={() => void exportPdf()}
+            className={`text-option${exportRange === "selection" ? " active" : ""}`}
+            aria-pressed={exportRange === "selection"}
+            disabled={!hasSelection}
+            title={hasSelection ? "Export only the selected elements" : "Select elements first"}
+            onClick={() => setExportRange("selection")}
           >
-            {exporting ? "Exporting…" : "PDF (vector)"}
+            Selection
           </button>
-          <button type="button" className="text-option" onClick={() => void exportPng()}>
-            PNG (this page)
+          <button
+            type="button"
+            className={`text-option${exportRange === "page" ? " active" : ""}`}
+            aria-pressed={exportRange === "page"}
+            onClick={() => setExportRange("page")}
+          >
+            This page
           </button>
-          <button type="button" className="text-option" onClick={() => void exportSvg()}>
-            SVG (this page)
+          <button
+            type="button"
+            className={`text-option${exportRange === "notebook" ? " active" : ""}`}
+            aria-pressed={exportRange === "notebook"}
+            onClick={() => setExportRange("notebook")}
+          >
+            Notebook
           </button>
+        </div>
+        <div className="settings-row">
+          {(["pdf", "svg", "png"] as const).map((format) => (
+            <button
+              key={format}
+              type="button"
+              className="text-option"
+              disabled={exporting || (exportRange === "selection" && !hasSelection)}
+              onClick={() => void doExport(format)}
+            >
+              {exporting ? "Exporting…" : format.toUpperCase()}
+            </button>
+          ))}
         </div>
       </section>
       <div className="settings-version">vas v{version}</div>

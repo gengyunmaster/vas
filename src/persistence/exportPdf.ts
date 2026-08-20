@@ -1,5 +1,6 @@
 import type { PDFDocument, PDFEmbeddedPage, PDFPage, RGB } from "pdf-lib";
 import { hexToRgb, isDarkColor } from "../model/color";
+import type { ImageItem } from "../model/image";
 import {
   PAGE_HEIGHT,
   PAGE_WIDTH,
@@ -9,6 +10,8 @@ import {
   trimTrailingBlankPages,
 } from "../model/page";
 import { PATTERN_DASH, patternLayout } from "../model/patternLayout";
+import type { Stroke } from "../model/stroke";
+import { elementsBounds } from "../model/transform";
 import { pageToSvg } from "./exportSvg";
 import { collectImageDataUris } from "./imageDataUri";
 import { getImage } from "./images";
@@ -19,6 +22,43 @@ import { downloadBlob } from "./transfer";
 const PT_PER_UNIT = 72 / 96;
 
 type PdfLib = typeof import("pdf-lib");
+
+export function pdfOrientation(width: number, height: number): "portrait" | "landscape" {
+  return width > height ? "landscape" : "portrait";
+}
+
+export async function exportSelectionPdf(
+  title: string,
+  page: Page,
+  strokes: Stroke[],
+  images: ImageItem[],
+): Promise<void> {
+  const bounds = elementsBounds(strokes, images);
+  if (!bounds) return;
+  const [{ jsPDF }, { svg2pdf }] = await Promise.all([import("jspdf"), import("svg2pdf.js")]);
+  const width = (bounds.maxX - bounds.minX) * PT_PER_UNIT;
+  const height = (bounds.maxY - bounds.minY) * PT_PER_UNIT;
+  const imageData = await collectImageDataUris(
+    images.map((image) => image.imageId),
+    true,
+  );
+  // jsPDF swaps a wider-than-tall format array in portrait mode; state the orientation explicitly
+  const doc = new jsPDF({
+    unit: "pt",
+    format: [width, height],
+    orientation: pdfOrientation(width, height),
+  });
+  doc.setDocumentProperties({ title });
+  const svg = new DOMParser().parseFromString(
+    pageToSvg({ ...page, strokes, images }, imageData, { annotationOnly: true, clipTo: bounds }),
+    "image/svg+xml",
+  ).documentElement;
+  await svg2pdf(svg, doc, { x: 0, y: 0, width, height });
+  downloadBlob(
+    new Blob([doc.output("arraybuffer")], { type: "application/pdf" }),
+    `${title}-selection.pdf`,
+  );
+}
 
 export async function exportNotebookPdf(title: string, pages: Page[]): Promise<void> {
   const kept = trimTrailingBlankPages(pages);

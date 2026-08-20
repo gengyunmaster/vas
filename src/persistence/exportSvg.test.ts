@@ -44,7 +44,7 @@ describe("pageToSvg", () => {
   it("emits an A4 viewBox and the paper color as background", () => {
     const svg = pageToSvg(makePage({ paperColor: "#003423" }), new Map());
     expect(svg).toContain('viewBox="0 0 794 1123"');
-    expect(svg).toContain('<rect width="794" height="1123" fill="#003423"/>');
+    expect(svg).toContain('<rect x="0" y="0" width="794" height="1123" fill="#003423"/>');
     expect(svg.startsWith("<svg")).toBe(true);
     expect(svg.endsWith("</svg>")).toBe(true);
   });
@@ -159,5 +159,17 @@ describe("pageToSvg", () => {
     expect(svg).not.toContain("AAAA");
     expect(svg).toContain("data:image/png;base64,BBBB");
     expect(svg).toContain('fill="#1a1a1a"');
+  });
+
+  it("clipTo shrinks the viewBox to the given bounds without touching element coordinates", () => {
+    const svg = pageToSvg(makePage({ strokes: [penStroke()] }), new Map(), {
+      annotationOnly: true,
+      clipTo: { minX: 10, minY: 20, maxX: 110, maxY: 220 },
+    });
+    expect(svg).toContain('viewBox="10 20 100 200"');
+    expect(svg).toContain('width="100"');
+    expect(svg).toContain('height="200"');
+    expect(svg).not.toContain("<rect");
+    expect(svg).toContain("M");
   });
 });

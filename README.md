@@ -43,9 +43,12 @@ self-hosted instance keep separate data; use export / import to move notebooks a
 - **Vector PDF export** — strokes stay sharp at any zoom level, inserted SVG images stay
   vector too, raster images embedded from the original bytes (JPEG/PNG); imported PDF
   pages keep their original bytes, which are re-embedded as a true vector layer beneath
-  your annotations on export (with raster fallback for encrypted files); plus PNG export
-  of the current page and vector SVG export of the current page (raster/SVG images
-  embedded inline as data URIs)
+  your annotations on export (with raster fallback for encrypted files)
+- **Flexible export scopes** — every export offers three scopes: the current selection
+  (clipped to its bounds, transparent background, no paper color / guides / PDF base
+  image — white background for PDF, which has no transparency concept), the current
+  page, or the whole notebook (trailing blank pages trimmed); pick PDF, vector SVG, or
+  2x PNG, and multi-page SVG/PNG exports download as a zip
 - **PWA** — installable and fully offline; all assets (including the on-demand PDF
   engine) are precached
 

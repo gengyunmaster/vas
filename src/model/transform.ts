@@ -67,6 +67,10 @@ export function unionBounds(a: Bounds | null, b: Bounds | null): Bounds | null {
   };
 }
 
+export function elementsBounds(strokes: Stroke[], images: ImageItem[]): Bounds | null {
+  return unionBounds(strokesBounds(strokes), imagesBounds(images));
+}
+
 export function scaleStroke(stroke: Stroke, anchor: Point, sx: number, sy: number): Stroke {
   return {
     ...stroke,

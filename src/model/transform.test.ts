@@ -3,6 +3,7 @@ import type { Stroke } from "./stroke";
 import {
   clampMoveDelta,
   clampScaleToPage,
+  elementsBounds,
   imagesBounds,
   scaleBounds,
   scaleImage,
@@ -50,6 +51,21 @@ describe("strokesBounds", () => {
     const stroke: Stroke = { ...penStroke("h", [{ x: 10, y: 10 }], 4), pen: "highlighter" };
     const bounds = strokesBounds([stroke]);
     expect(bounds?.minX).toBeCloseTo(10 - (4 * 2.2) / 2);
+  });
+});
+
+describe("elementsBounds", () => {
+  it("unions stroke and image bounds", () => {
+    const stroke = penStroke("s", [
+      { x: 50, y: 50 },
+      { x: 60, y: 60 },
+    ]);
+    const image = { id: "i1", imageId: "img1", x: 10, y: 10, width: 20, height: 20 };
+    expect(elementsBounds([stroke], [image])).toEqual({ minX: 10, minY: 10, maxX: 62, maxY: 62 });
+  });
+
+  it("returns null when there is nothing to export", () => {
+    expect(elementsBounds([], [])).toBeNull();
   });
 });
 
