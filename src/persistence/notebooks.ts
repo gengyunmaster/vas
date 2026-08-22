@@ -1,4 +1,4 @@
-import { clonePageWithNewIds, createPage, type Page } from "../model/page";
+import { clonePageWithNewIds, createPage, PAGE_HEIGHT, PAGE_WIDTH, type Page } from "../model/page";
 import { newId } from "../model/stroke";
 import type { ViewState } from "../model/viewState";
 import { db, type NotebookRecord } from "./db";
@@ -25,6 +25,8 @@ function toPageRecord(notebookId: string, index: number, page: Page) {
     id: page.id,
     notebookId,
     index,
+    width: page.width,
+    height: page.height,
     paperColor: page.paperColor,
     pattern: page.pattern,
     strokes: page.strokes,
@@ -41,6 +43,8 @@ export async function loadNotebook(id: string): Promise<{ meta: NotebookRecord; 
   records.sort((a, b) => a.index - b.index);
   const pages = records.map((record) => ({
     id: record.id,
+    width: record.width ?? PAGE_WIDTH,
+    height: record.height ?? PAGE_HEIGHT,
     paperColor: record.paperColor,
     pattern: record.pattern ?? "blank",
     strokes: record.strokes,

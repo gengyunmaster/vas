@@ -1,14 +1,17 @@
 import { placeImageCentered } from "../model/image";
+import { PDF_PAGE_SCALE, pdfPageSize } from "../model/pageSize";
 import { buildPdfPages, pdfInsertIndex } from "../model/pdfPage";
 import { newId } from "../model/stroke";
 import { useBoardStore } from "../store/useBoardStore";
 import { decryptPdf } from "./decryptPdf";
 import { deleteImages, retainImages, saveImages } from "./images";
 import { createNotebook, deleteNotebook, loadNotebook, replacePages } from "./notebooks";
-import { deletePdfs, retainPdfs, savePdf } from "./pdfs";
+import { deletePdfs, getPdf, retainPdfs, savePdf } from "./pdfs";
 
 const PDF_RENDER_SCALE = 3;
 const JPEG_QUALITY = 0.9;
+// rasterization is pinned to the PDF's own point size, independent of the target page size
+const BASE_RASTER_SCALE = PDF_RENDER_SCALE * PDF_PAGE_SCALE;
 
 export interface RasterizedPdfPage {
   imageId: string;
@@ -117,7 +120,16 @@ export async function importPdfFile(
   const meta = await createNotebook(title);
   try {
     await saveRasterizedImages(rasterizedPages);
-    await replacePages(meta.id, buildPdfPages(rasterizedPages, "#ffffff", "blank", docId));
+    await replacePages(
+      meta.id,
+      buildPdfPages(
+        rasterizedPages,
+        "#ffffff",
+        "blank",
+        (pdfPage) => pdfPageSize(pdfPage.naturalWidth, pdfPage.naturalHeight),
+        docId,
+      ),
+    );
   } catch (error) {
     await deleteNotebook(meta.id);
     await deleteImages(rasterizedPages.map((raster) => raster.imageId));
@@ -147,10 +159,20 @@ export async function importPdfIntoNotebook(
       return;
     }
     const { meta, pages: existing } = await loadNotebook(notebookId);
-    const insertIndex = pdfInsertIndex(meta.viewState, existing.length);
+    const insertIndex = pdfInsertIndex(meta.viewState, existing);
     const base = existing[insertIndex - 1] ?? existing[existing.length - 1];
     const next = [...existing];
-    next.splice(insertIndex, 0, ...buildPdfPages(pages, base.paperColor, base.pattern, docId));
+    next.splice(
+      insertIndex,
+      0,
+      ...buildPdfPages(
+        pages,
+        base.paperColor,
+        base.pattern,
+        () => ({ width: base.width, height: base.height }),
+        docId,
+      ),
+    );
     await replacePages(notebookId, next);
   } catch (error) {
     await deleteImages(pages.map((page) => page.imageId)).catch(() => {});
@@ -168,8 +190,7 @@ async function rasterizePage(
 ): Promise<RasterizedPdfPage> {
   const pdfPage = await doc.getPage(index);
   const base = pdfPage.getViewport({ scale: 1 });
-  const displayWidth = placeImageCentered(base.width, base.height).width;
-  const viewport = pdfPage.getViewport({ scale: (displayWidth * PDF_RENDER_SCALE) / base.width });
+  const viewport = pdfPage.getViewport({ scale: BASE_RASTER_SCALE });
   const canvas = document.createElement("canvas");
   canvas.width = Math.max(1, Math.ceil(viewport.width));
   canvas.height = Math.max(1, Math.ceil(viewport.height));
@@ -187,4 +208,57 @@ async function rasterizePage(
     naturalWidth: base.width,
     naturalHeight: base.height,
   };
+}
+
+// After a page resize the stored JPEG may no longer cover the larger placement at
+// 3x sharpness; re-render from the original PDF and swap the base image blob.
+export async function reRasterizePdfBase(pageId: string): Promise<void> {
+  const state = useBoardStore.getState();
+  const page = state.pages.find((p) => p.id === pageId);
+  const source = page?.pdfSource;
+  if (!page || !source) return;
+  const record = await getPdf(source.docId);
+  if (!record) return;
+  const data = new Uint8Array(await record.blob.arrayBuffer());
+  let task: import("pdfjs-dist").PDFDocumentLoadingTask;
+  let doc: import("pdfjs-dist").PDFDocumentProxy;
+  try {
+    const pdfjs = await loadPdfJs();
+    task = pdfjs.getDocument({ data });
+    task.onPassword = () => void task.destroy();
+    doc = await task.promise;
+  } catch {
+    return;
+  }
+  try {
+    const pdfPage = await doc.getPage(source.pageIndex + 1);
+    const base = pdfPage.getViewport({ scale: 1 });
+    const displayWidth = placeImageCentered(base.width, base.height, page.width, page.height).width;
+    const scale = (displayWidth * PDF_RENDER_SCALE) / base.width;
+    if (scale <= BASE_RASTER_SCALE) return;
+    const viewport = pdfPage.getViewport({ scale });
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.ceil(viewport.width));
+    canvas.height = Math.max(1, Math.ceil(viewport.height));
+    await pdfPage.render({ canvas, viewport }).promise;
+    const blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, "image/jpeg", JPEG_QUALITY),
+    );
+    canvas.width = 0;
+    canvas.height = 0;
+    if (!blob) return;
+    const fresh = useBoardStore.getState().pages.find((p) => p.id === pageId);
+    if (
+      !fresh ||
+      fresh.pdfSource?.docId !== source.docId ||
+      fresh.pdfSource.pageIndex !== source.pageIndex
+    ) {
+      return;
+    }
+    const imageId = newId();
+    await saveImages([{ id: imageId, mimeType: "image/jpeg", blob }]);
+    useBoardStore.getState().replacePdfBaseImage(pageId, imageId);
+  } finally {
+    void task.destroy();
+  }
 }

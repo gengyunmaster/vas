@@ -32,6 +32,8 @@ function shapeStroke(shape: Stroke["shape"]): Stroke {
 function makePage(overrides: Partial<Page> = {}): Page {
   return {
     id: "p1",
+    width: 794,
+    height: 1123,
     paperColor: "#ffffff",
     pattern: "blank",
     strokes: [],
@@ -47,6 +49,12 @@ describe("pageToSvg", () => {
     expect(svg).toContain('<rect x="0" y="0" width="794" height="1123" fill="#003423"/>');
     expect(svg.startsWith("<svg")).toBe(true);
     expect(svg.endsWith("</svg>")).toBe(true);
+  });
+
+  it("emits the page's own size as the viewBox", () => {
+    const svg = pageToSvg(makePage({ width: 1200, height: 600 }), new Map());
+    expect(svg).toContain('viewBox="0 0 1200 600"');
+    expect(svg).toContain('width="1200" height="600"');
   });
 
   it("renders a pen stroke as a filled path without opacity", () => {

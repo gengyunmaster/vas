@@ -1,7 +1,16 @@
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import { normalizeHex } from "../model/color";
 import { type ImageItem, imageExtension } from "../model/image";
-import { PAGE_PATTERNS, type Page, type PagePattern, type PdfSource } from "../model/page";
+import {
+  MAX_PAGE_SIZE,
+  MIN_PAGE_SIZE,
+  PAGE_HEIGHT,
+  PAGE_PATTERNS,
+  PAGE_WIDTH,
+  type Page,
+  type PagePattern,
+  type PdfSource,
+} from "../model/page";
 import {
   newId,
   type PenKind,
@@ -55,6 +64,8 @@ export function serializeNotebook(
       title,
       ...(viewState ? { viewState } : {}),
       pages: pages.map((page) => ({
+        width: page.width,
+        height: page.height,
         paperColor: page.paperColor,
         pattern: page.pattern,
         strokes: page.strokes.map((stroke) => ({
@@ -340,6 +351,8 @@ function parsePage(raw: unknown, remap: Map<string, string>, pdfRemap: Map<strin
   if (!Array.isArray(raw.strokes)) throw new Error("Invalid page strokes");
   return {
     id: newId(),
+    width: parseOptionalPageSize(raw.width, PAGE_WIDTH, "page width"),
+    height: parseOptionalPageSize(raw.height, PAGE_HEIGHT, "page height"),
     paperColor: parseColor(raw.paperColor, FALLBACK_PAPER),
     pattern: PAGE_PATTERNS.includes(raw.pattern as PagePattern)
       ? (raw.pattern as PagePattern)
@@ -372,6 +385,13 @@ function parsePageImages(raw: unknown, remap: Map<string, string>): ImageItem[] 
 function parseFiniteNumber(raw: unknown, label: string): number {
   if (typeof raw !== "number" || !Number.isFinite(raw)) throw new Error(`Invalid ${label}`);
   return raw;
+}
+
+function parseOptionalPageSize(raw: unknown, fallback: number, label: string): number {
+  if (raw === undefined) return fallback;
+  const value = parseFiniteNumber(raw, label);
+  if (value < MIN_PAGE_SIZE || value > MAX_PAGE_SIZE) throw new Error(`Invalid ${label}`);
+  return value;
 }
 
 function parsePositiveNumber(raw: unknown, label: string): number {

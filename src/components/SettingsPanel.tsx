@@ -1,12 +1,19 @@
 import { type CSSProperties, useRef, useState } from "react";
 import { version } from "../../package.json";
-import { PAGE_PATTERNS, type PagePattern } from "../model/page";
+import {
+  MAX_PAGE_SIZE,
+  MIN_PAGE_SIZE,
+  PAGE_HEIGHT,
+  PAGE_PATTERNS,
+  PAGE_WIDTH,
+  type PagePattern,
+} from "../model/page";
 import { pickElements } from "../model/selection";
 import { SHAPE_KINDS, type ShapeKind } from "../model/stroke";
 import { exportNotebookPng, exportPagePng, exportSelectionPng } from "../persistence/exportImage";
 import { exportNotebookPdf, exportSelectionPdf } from "../persistence/exportPdf";
 import { exportNotebookSvg, exportPageSvg, exportSelectionSvg } from "../persistence/exportSvg";
-import { importPdfIntoNotebook } from "../persistence/importPdf";
+import { importPdfIntoNotebook, reRasterizePdfBase } from "../persistence/importPdf";
 import { insertImageFile } from "../persistence/insertImage";
 import { COLORS, PAPER_COLORS, SIZES, useBoardStore } from "../store/useBoardStore";
 import { ColorField } from "./ColorField";
@@ -51,6 +58,10 @@ export function SettingsPanel() {
   const canUndo = useBoardStore((state) => state.past.length > 0);
   const canRedo = useBoardStore((state) => state.future.length > 0);
   const currentPageId = useBoardStore((state) => state.pages[state.viewPageIndex]?.id);
+  const pageWidth = useBoardStore((state) => state.pages[state.viewPageIndex]?.width ?? PAGE_WIDTH);
+  const pageHeight = useBoardStore(
+    (state) => state.pages[state.viewPageIndex]?.height ?? PAGE_HEIGHT,
+  );
   const canClear = useBoardStore((state) => {
     const page = state.pages[state.viewPageIndex];
     return (page?.strokes.length ?? 0) > 0 || (page?.images.some((i) => !i.locked) ?? false);
@@ -299,6 +310,17 @@ export function SettingsPanel() {
         </div>
       </section>
       <section className="settings-section">
+        <div className="settings-label">Page size</div>
+        <div className="settings-row">
+          <PageSizeField
+            key={currentPageId ?? "page"}
+            width={pageWidth}
+            height={pageHeight}
+            disabled={exporting}
+          />
+        </div>
+      </section>
+      <section className="settings-section">
         <div className="settings-label">Actions</div>
         <div className="settings-row">
           <button type="button" title="Undo" disabled={!canUndo || exporting} onClick={undo}>
@@ -453,5 +475,95 @@ export function SettingsPanel() {
       </section>
       <div className="settings-version">vas v{version}</div>
     </div>
+  );
+}
+
+function PageSizeField({
+  width,
+  height,
+  disabled,
+}: {
+  width: number;
+  height: number;
+  disabled: boolean;
+}) {
+  const [draftWidth, setDraftWidth] = useState(String(width));
+  const [draftHeight, setDraftHeight] = useState(String(height));
+  const parsedWidth = Number(draftWidth);
+  const parsedHeight = Number(draftHeight);
+  const valid =
+    Number.isFinite(parsedWidth) &&
+    Number.isFinite(parsedHeight) &&
+    parsedWidth >= MIN_PAGE_SIZE &&
+    parsedWidth <= MAX_PAGE_SIZE &&
+    parsedHeight >= MIN_PAGE_SIZE &&
+    parsedHeight <= MAX_PAGE_SIZE;
+  const changed = Math.round(parsedWidth) !== width || Math.round(parsedHeight) !== height;
+
+  const apply = (nextWidth: number, nextHeight: number) => {
+    const state = useBoardStore.getState();
+    const page = state.pages[state.viewPageIndex];
+    if (!page) return;
+    state.setPageSize({ width: nextWidth, height: nextHeight });
+    if (page.pdfSource) void reRasterizePdfBase(page.id);
+  };
+
+  const commitDraft = () => {
+    if (valid && changed) apply(parsedWidth, parsedHeight);
+  };
+
+  const resetToA4 = () => {
+    setDraftWidth(String(PAGE_WIDTH));
+    setDraftHeight(String(PAGE_HEIGHT));
+    apply(PAGE_WIDTH, PAGE_HEIGHT);
+  };
+
+  return (
+    <>
+      <input
+        className="page-size-input"
+        type="number"
+        min={MIN_PAGE_SIZE}
+        max={MAX_PAGE_SIZE}
+        value={draftWidth}
+        aria-label="Page width"
+        disabled={disabled}
+        onChange={(e) => setDraftWidth(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") commitDraft();
+        }}
+      />
+      <span className="page-size-sep">×</span>
+      <input
+        className="page-size-input"
+        type="number"
+        min={MIN_PAGE_SIZE}
+        max={MAX_PAGE_SIZE}
+        value={draftHeight}
+        aria-label="Page height"
+        disabled={disabled}
+        onChange={(e) => setDraftHeight(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") commitDraft();
+        }}
+      />
+      <button
+        type="button"
+        className="text-option"
+        disabled={disabled || !valid || !changed}
+        onClick={commitDraft}
+      >
+        Apply
+      </button>
+      <button
+        type="button"
+        className="text-option"
+        title="Reset to A4"
+        disabled={disabled || (width === PAGE_WIDTH && height === PAGE_HEIGHT)}
+        onClick={resetToA4}
+      >
+        A4
+      </button>
+    </>
   );
 }

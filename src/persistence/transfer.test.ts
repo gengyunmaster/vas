@@ -15,6 +15,8 @@ import {
 function samplePage(): Page {
   return {
     id: "page-1",
+    width: 794,
+    height: 1123,
     paperColor: "#003423",
     pattern: "grid",
     images: [],
@@ -147,6 +149,33 @@ describe("serializeNotebook / parseNotebookFile", () => {
     }`;
     const parsed = parseNotebookFile(text);
     expect(parsed.pages[0].strokes[0].size).toBe(5);
+  });
+
+  it("round-trips a custom page size", () => {
+    const text = serializeNotebook("Sized", [{ ...samplePage(), width: 1200, height: 600 }]);
+    const parsed = parseNotebookFile(text);
+    expect(parsed.pages[0].width).toBe(1200);
+    expect(parsed.pages[0].height).toBe(600);
+  });
+
+  it("defaults a missing page size to A4", () => {
+    const text = JSON.stringify({
+      format: "vas-notebook",
+      version: 3,
+      pages: [{ strokes: [] }],
+    });
+    const parsed = parseNotebookFile(text);
+    expect(parsed.pages[0].width).toBe(794);
+    expect(parsed.pages[0].height).toBe(1123);
+  });
+
+  it("rejects a page size outside the allowed range", () => {
+    const text = JSON.stringify({
+      format: "vas-notebook",
+      version: 3,
+      pages: [{ strokes: [], width: 50, height: 1123 }],
+    });
+    expect(() => parseNotebookFile(text)).toThrow("Invalid page width");
   });
 
   it("round-trips the view state when present", () => {

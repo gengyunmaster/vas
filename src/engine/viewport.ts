@@ -1,11 +1,4 @@
-import {
-  contentHeight,
-  PAGE_GAP,
-  PAGE_HEIGHT,
-  PAGE_TOP_MARGIN,
-  PAGE_WIDTH,
-  pageTopY,
-} from "../model/page";
+import { boardWidth, contentHeight, type Page, pageIndexAtY } from "../model/page";
 
 export interface Viewport {
   x: number;
@@ -26,26 +19,29 @@ export interface Point {
 const FIT_MARGIN = 12;
 const MAX_ZOOM = 20;
 
-export function fitScale(screenWidth: number): number {
-  return screenWidth / (PAGE_WIDTH + FIT_MARGIN * 2);
+export function fitScale(screenWidth: number, board: number): number {
+  return screenWidth / (board + FIT_MARGIN * 2);
 }
 
-export function createViewport(screen: ScreenSize, pageCount: number): Viewport {
-  return clampViewport({ x: 0, y: 0, scale: fitScale(screen.width) }, screen, pageCount);
+export function createViewport(screen: ScreenSize, pages: Page[]): Viewport {
+  return clampViewport(
+    { x: 0, y: 0, scale: fitScale(screen.width, boardWidth(pages)) },
+    screen,
+    pages,
+  );
 }
 
-export function clampScale(scale: number, screenWidth: number): number {
-  const fit = fitScale(screenWidth);
+export function clampScale(scale: number, screenWidth: number, board: number): number {
+  const fit = fitScale(screenWidth, board);
   return Math.min(fit * MAX_ZOOM, Math.max(fit, scale));
 }
 
-export function clampViewport(vp: Viewport, screen: ScreenSize, pageCount: number): Viewport {
+export function clampViewport(vp: Viewport, screen: ScreenSize, pages: Page[]): Viewport {
+  const board = boardWidth(pages);
   const worldScreenW = screen.width / vp.scale;
   const x =
-    worldScreenW >= PAGE_WIDTH
-      ? (PAGE_WIDTH - worldScreenW) / 2
-      : clamp(vp.x, 0, PAGE_WIDTH - worldScreenW);
-  const height = contentHeight(pageCount);
+    worldScreenW >= board ? (board - worldScreenW) / 2 : clamp(vp.x, 0, board - worldScreenW);
+  const height = contentHeight(pages);
   const worldScreenH = screen.height / vp.scale;
   const y =
     worldScreenH >= height ? (height - worldScreenH) / 2 : clamp(vp.y, 0, height - worldScreenH);
@@ -57,12 +53,12 @@ export function panBy(
   dxScreen: number,
   dyScreen: number,
   screen: ScreenSize,
-  pageCount: number,
+  pages: Page[],
 ): Viewport {
   return clampViewport(
     { ...vp, x: vp.x - dxScreen / vp.scale, y: vp.y - dyScreen / vp.scale },
     screen,
-    pageCount,
+    pages,
   );
 }
 
@@ -71,24 +67,29 @@ export function zoomAt(
   focal: Point,
   nextScale: number,
   screen: ScreenSize,
-  pageCount: number,
+  pages: Page[],
 ): Viewport {
-  const scale = clampScale(nextScale, screen.width);
+  const scale = clampScale(nextScale, screen.width, boardWidth(pages));
   const worldFx = vp.x + focal.x / vp.scale;
   const worldFy = vp.y + focal.y / vp.scale;
   return clampViewport(
     { scale, x: worldFx - focal.x / scale, y: worldFy - focal.y / scale },
     screen,
-    pageCount,
+    pages,
   );
 }
 
-export function presentationViewport(screen: ScreenSize, pageIndex: number): Viewport {
-  const scale = Math.min(screen.width / PAGE_WIDTH, screen.height / PAGE_HEIGHT);
+export function presentationViewport(
+  screen: ScreenSize,
+  page: Page,
+  pageLeft: number,
+  pageTop: number,
+): Viewport {
+  const scale = Math.min(screen.width / page.width, screen.height / page.height);
   return {
     scale,
-    x: (PAGE_WIDTH - screen.width / scale) / 2,
-    y: pageTopY(pageIndex) - (screen.height / scale - PAGE_HEIGHT) / 2,
+    x: pageLeft + page.width / 2 - screen.width / scale / 2,
+    y: pageTop + page.height / 2 - screen.height / scale / 2,
   };
 }
 
@@ -99,14 +100,10 @@ export function screenToWorld(vp: Viewport, screenX: number, screenY: number): P
 export function visiblePageRange(
   vp: Viewport,
   screen: ScreenSize,
-  pageCount: number,
+  pages: Page[],
 ): { first: number; last: number } {
-  const span = PAGE_HEIGHT + PAGE_GAP;
-  const first = Math.max(0, Math.floor((vp.y - PAGE_TOP_MARGIN) / span));
-  const last = Math.min(
-    pageCount - 1,
-    Math.floor((vp.y + screen.height / vp.scale - PAGE_TOP_MARGIN) / span),
-  );
+  const first = pageIndexAtY(pages, vp.y);
+  const last = pageIndexAtY(pages, vp.y + screen.height / vp.scale);
   return { first, last: Math.max(first, last) };
 }
 

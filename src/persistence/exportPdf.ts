@@ -1,14 +1,7 @@
 import type { PDFDocument, PDFEmbeddedPage, PDFPage, RGB } from "pdf-lib";
 import { hexToRgb, isDarkColor } from "../model/color";
 import type { ImageItem } from "../model/image";
-import {
-  PAGE_HEIGHT,
-  PAGE_WIDTH,
-  type Page,
-  type PagePattern,
-  type PdfSource,
-  trimTrailingBlankPages,
-} from "../model/page";
+import { type Page, type PdfSource, trimTrailingBlankPages } from "../model/page";
 import { PATTERN_DASH, patternLayout } from "../model/patternLayout";
 import type { Stroke } from "../model/stroke";
 import { elementsBounds } from "../model/transform";
@@ -79,12 +72,18 @@ async function renderSvgLayerPdf(
   annotationOnly: boolean,
 ): Promise<Uint8Array> {
   const [{ jsPDF }, { svg2pdf }] = await Promise.all([import("jspdf"), import("svg2pdf.js")]);
-  const width = PAGE_WIDTH * PT_PER_UNIT;
-  const height = PAGE_HEIGHT * PT_PER_UNIT;
-  const doc = new jsPDF({ unit: "pt", format: [width, height] });
+  const firstWidth = pages[0].width * PT_PER_UNIT;
+  const firstHeight = pages[0].height * PT_PER_UNIT;
+  const doc = new jsPDF({
+    unit: "pt",
+    format: [firstWidth, firstHeight],
+    orientation: pdfOrientation(firstWidth, firstHeight),
+  });
   doc.setDocumentProperties({ title });
   for (const [index, page] of pages.entries()) {
-    if (index > 0) doc.addPage([width, height]);
+    const width = page.width * PT_PER_UNIT;
+    const height = page.height * PT_PER_UNIT;
+    if (index > 0) doc.addPage([width, height], pdfOrientation(width, height));
     const images = annotationOnly ? page.images.filter((image) => !image.locked) : page.images;
     const imageData = await collectImageDataUris(
       images.map((image) => image.imageId),
@@ -102,8 +101,6 @@ async function renderSvgLayerPdf(
 async function exportLayeredPdf(title: string, pages: Page[]): Promise<void> {
   const pdflib: PdfLib = await import("pdf-lib");
   const annotationBytes = await renderSvgLayerPdf(pages, title, true);
-  const width = PAGE_WIDTH * PT_PER_UNIT;
-  const height = PAGE_HEIGHT * PT_PER_UNIT;
   const finalDoc = await pdflib.PDFDocument.create();
   finalDoc.setTitle(title);
   const annotationDoc = await pdflib.PDFDocument.load(annotationBytes);
@@ -113,6 +110,8 @@ async function exportLayeredPdf(title: string, pages: Page[]): Promise<void> {
     embedded: new Map<string, PDFEmbeddedPage | null>(),
   };
   for (const [index, page] of pages.entries()) {
+    const width = page.width * PT_PER_UNIT;
+    const height = page.height * PT_PER_UNIT;
     const pdfPage = finalDoc.addPage([width, height]);
     pdfPage.drawRectangle({
       x: 0,
@@ -121,7 +120,7 @@ async function exportLayeredPdf(title: string, pages: Page[]): Promise<void> {
       height,
       color: toPdfRgb(pdflib, page.paperColor),
     });
-    drawPattern(pdflib, pdfPage, page.pattern, page.paperColor);
+    drawPattern(pdflib, pdfPage, page, page.paperColor);
     if (page.pdfSource) {
       await drawSourceLayer(pdflib, finalDoc, pdfPage, page, caches);
     }
@@ -149,7 +148,7 @@ async function drawSourceLayer(
   if (!source || !locked) return;
   const rect = {
     x: locked.x * PT_PER_UNIT,
-    y: toY(locked.y + locked.height),
+    y: toY(page.height, locked.y + locked.height),
     width: locked.width * PT_PER_UNIT,
     height: locked.height * PT_PER_UNIT,
   };
@@ -231,25 +230,20 @@ function toPdfRgb(pdflib: PdfLib, hex: string): RGB {
   return parsed ? pdflib.rgb(parsed.r, parsed.g, parsed.b) : pdflib.rgb(0, 0, 0);
 }
 
-function toY(y: number): number {
-  return (PAGE_HEIGHT - y) * PT_PER_UNIT;
+function toY(pageHeight: number, y: number): number {
+  return (pageHeight - y) * PT_PER_UNIT;
 }
 
-function drawPattern(
-  pdflib: PdfLib,
-  pdfPage: PDFPage,
-  pattern: PagePattern,
-  paperColor: string,
-): void {
-  if (pattern === "blank") return;
-  const { lines, dots } = patternLayout(pattern);
+function drawPattern(pdflib: PdfLib, pdfPage: PDFPage, page: Page, paperColor: string): void {
+  if (page.pattern === "blank") return;
+  const { lines, dots } = patternLayout(page.pattern, page.width, page.height);
   const dark = isDarkColor(paperColor);
   const color = dark ? pdflib.rgb(1, 1, 1) : pdflib.rgb(0, 0, 0);
   const opacity = dark ? 0.22 : 0.16;
   for (const line of lines) {
     pdfPage.drawLine({
-      start: { x: line.x1 * PT_PER_UNIT, y: toY(line.y1) },
-      end: { x: line.x2 * PT_PER_UNIT, y: toY(line.y2) },
+      start: { x: line.x1 * PT_PER_UNIT, y: toY(page.height, line.y1) },
+      end: { x: line.x2 * PT_PER_UNIT, y: toY(page.height, line.y2) },
       thickness: 0.75,
       color,
       opacity,
@@ -259,7 +253,7 @@ function drawPattern(
   for (const dot of dots) {
     pdfPage.drawCircle({
       x: dot.x * PT_PER_UNIT,
-      y: toY(dot.y),
+      y: toY(page.height, dot.y),
       size: 0.9,
       color,
       opacity,

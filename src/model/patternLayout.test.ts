@@ -4,11 +4,11 @@ import { PATTERN_MARGIN, PATTERN_SPACING, patternLayout, RICE_CELL } from "./pat
 
 describe("patternLayout", () => {
   it("blank has no geometry", () => {
-    expect(patternLayout("blank")).toEqual({ lines: [], dots: [] });
+    expect(patternLayout("blank", PAGE_WIDTH, PAGE_HEIGHT)).toEqual({ lines: [], dots: [] });
   });
 
   it("lined lines stay within margins and keep a larger top gap", () => {
-    const { lines, dots } = patternLayout("lined");
+    const { lines, dots } = patternLayout("lined", PAGE_WIDTH, PAGE_HEIGHT);
     expect(dots).toHaveLength(0);
     expect(lines.length).toBeGreaterThan(10);
     for (const line of lines) {
@@ -25,7 +25,7 @@ describe("patternLayout", () => {
   });
 
   it("grid draws only complete cells, centered on the page", () => {
-    const { lines } = patternLayout("grid");
+    const { lines } = patternLayout("grid", PAGE_WIDTH, PAGE_HEIGHT);
     const vertical = lines.filter((l) => l.x1 === l.x2);
     const horizontal = lines.filter((l) => l.y1 === l.y2);
     const cols = vertical.length - 1;
@@ -44,8 +44,21 @@ describe("patternLayout", () => {
     expect(minY).toBeGreaterThanOrEqual(PATTERN_MARGIN);
   });
 
+  it("grid keeps the same spacing on a smaller page", () => {
+    const { lines } = patternLayout("grid", 400, 300);
+    const vertical = lines.filter((l) => l.x1 === l.x2);
+    const horizontal = lines.filter((l) => l.y1 === l.y2);
+    const minX = Math.min(...vertical.map((l) => l.x1));
+    const maxX = Math.max(...vertical.map((l) => l.x1));
+    const minY = Math.min(...horizontal.map((l) => l.y1));
+    const maxY = Math.max(...horizontal.map((l) => l.y1));
+    expect((maxX - minX) % PATTERN_SPACING).toBe(0);
+    expect(minX).toBeCloseTo(400 - maxX, 5);
+    expect(minY).toBeCloseTo(300 - maxY, 5);
+  });
+
   it("dots form a centered lattice within margins", () => {
-    const { lines, dots } = patternLayout("dots");
+    const { lines, dots } = patternLayout("dots", PAGE_WIDTH, PAGE_HEIGHT);
     expect(lines).toHaveLength(0);
     expect(dots.length).toBeGreaterThan(50);
     const minX = Math.min(...dots.map((d) => d.x));
@@ -61,7 +74,7 @@ describe("patternLayout", () => {
   });
 
   it("rice produces a solid grid with dashed cell guides", () => {
-    const { lines } = patternLayout("rice");
+    const { lines } = patternLayout("rice", PAGE_WIDTH, PAGE_HEIGHT);
     const cols = Math.floor((PAGE_WIDTH - 2 * PATTERN_MARGIN) / RICE_CELL);
     const rows = Math.floor((PAGE_HEIGHT - 2 * PATTERN_MARGIN) / RICE_CELL);
     const solid = lines.filter((l) => !l.dashed);
@@ -75,7 +88,7 @@ describe("patternLayout", () => {
   });
 
   it("centers the rice grid on the page", () => {
-    const { lines } = patternLayout("rice");
+    const { lines } = patternLayout("rice", PAGE_WIDTH, PAGE_HEIGHT);
     const solid = lines.filter((l) => !l.dashed);
     const minX = Math.min(...solid.map((l) => l.x1));
     const maxX = Math.max(...solid.map((l) => l.x2));

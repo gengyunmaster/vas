@@ -256,6 +256,8 @@ describe("pickElements", () => {
     const b = penStroke("b", [{ x: 10, y: 10 }]);
     const page: Page = {
       id: "p1",
+      width: 794,
+      height: 1123,
       paperColor: "#ffffff",
       pattern: "blank",
       strokes: [a, b],

@@ -1,12 +1,13 @@
 import { type Bounds, ERASER_TOLERANCE, hitTestStroke } from "../model/hitTest";
 import type { ImageItem } from "../model/image";
 import {
+  boardWidth,
   clampToPage,
-  PAGE_HEIGHT,
-  PAGE_WIDTH,
   type Page,
   pageAt,
   pageIndexAtY,
+  pageLeftX,
+  pageTops,
   pageTopY,
 } from "../model/page";
 import { imagesInLasso, strokesInLasso } from "../model/selection";
@@ -35,7 +36,7 @@ import {
 import type { ViewState } from "../model/viewState";
 import { get2dContext } from "./canvas";
 import { getImageBitmap, onImageLoaded } from "./imageCache";
-import { MAX_CACHE_RENDER_SCALE, PageCache } from "./pageCache";
+import { maxCacheRenderScale, PageCache } from "./pageCache";
 import { drawPagePattern } from "./patterns";
 import { drawStroke } from "./renderStroke";
 import {
@@ -191,7 +192,7 @@ export class Board {
   private wheelTimer: number | undefined;
   private presenting = false;
   private presentationPage = 0;
-  private pageTurn: { from: number; to: number; start: number } | null = null;
+  private pageTurn: { from: Viewport; to: Viewport; start: number } | null = null;
   private wheelAccum = 0;
   private wheelAccumTimer: number | undefined;
   private swipeStartY = 0;
@@ -227,6 +228,7 @@ export class Board {
   }
 
   syncPages(next: Page[]): void {
+    const prev = this.pages;
     this.pages = next;
     if (this.stroke && !next.some((p) => p.id === this.stroke?.pageId)) this.stroke = null;
     if (this.erasing && !next.some((p) => p.id === this.erasing?.pageId)) this.erasing = null;
@@ -252,7 +254,25 @@ export class Board {
       this.pageTurn = null;
       this.lockPresentation();
     } else {
-      this.viewport = clampViewport(this.viewport, this.screen, next.length);
+      const board = boardWidth(next);
+      const widened =
+        board > boardWidth(prev) ||
+        next.some((p) => {
+          const before = prev.find((q) => q.id === p.id);
+          return before !== undefined && p.width > before.width;
+        });
+      if (widened && this.screen.width > 0 && this.screen.width / this.viewport.scale < board) {
+        // A page grew wider than the viewport can show; refit horizontally so the
+        // whole board (and both desk margins) stays reachable without horizontal pan.
+        this.viewport = clampViewport(
+          { ...this.viewport, scale: fitScale(this.screen.width, board) },
+          this.screen,
+          next,
+        );
+        this.fitted = true;
+      } else {
+        this.viewport = clampViewport(this.viewport, this.screen, next);
+      }
     }
     this.scheduleComposite();
   }
@@ -302,9 +322,9 @@ export class Board {
       return;
     }
     this.viewport = clampViewport(
-      { ...this.viewport, y: pageTopY(index) },
+      { ...this.viewport, y: pageTopY(this.pages, index) },
       this.screen,
-      this.pages.length,
+      this.pages,
     );
     this.scheduleComposite();
   }
@@ -319,11 +339,16 @@ export class Board {
     ) {
       return;
     }
-    const scale = clampScale(viewState.zoom * fitScale(this.screen.width), this.screen.width);
+    const board = boardWidth(this.pages);
+    const scale = clampScale(
+      viewState.zoom * fitScale(this.screen.width, board),
+      this.screen.width,
+      board,
+    );
     this.viewport = clampViewport(
       { x: viewState.x, y: viewState.y, scale },
       this.screen,
-      Math.max(1, this.pages.length),
+      this.pages,
     );
     this.fitted = false;
     this.scheduleComposite();
@@ -356,7 +381,7 @@ export class Board {
     this.lasso = null;
     if (on) {
       const midY = this.viewport.y + this.screen.height / this.viewport.scale / 2;
-      this.presentationPage = Math.max(0, pageIndexAtY(midY, Math.max(1, this.pages.length)));
+      this.presentationPage = pageIndexAtY(this.pages, midY);
       this.lockPresentation();
     } else {
       this.viewport = this.browseViewport();
@@ -367,16 +392,32 @@ export class Board {
 
   private browseViewport(): Viewport {
     return clampViewport(
-      { x: 0, y: pageTopY(this.presentationPage), scale: fitScale(this.screen.width) },
+      {
+        x: 0,
+        y: pageTopY(this.pages, this.presentationPage),
+        scale: fitScale(this.screen.width, boardWidth(this.pages)),
+      },
       this.screen,
-      Math.max(1, this.pages.length),
+      this.pages,
+    );
+  }
+
+  private presentationView(index: number): Viewport {
+    const page = this.pages[index];
+    const board = boardWidth(this.pages);
+    return presentationViewport(
+      this.screen,
+      page,
+      pageLeftX(board, page),
+      pageTopY(this.pages, index),
     );
   }
 
   private lockPresentation(): void {
     if (this.screen.width === 0 || this.screen.height === 0) return;
-    this.presentationPage = Math.min(this.presentationPage, Math.max(0, this.pages.length - 1));
-    this.viewport = presentationViewport(this.screen, this.presentationPage);
+    if (this.pages.length === 0) return;
+    this.presentationPage = Math.min(this.presentationPage, this.pages.length - 1);
+    this.viewport = this.presentationView(this.presentationPage);
   }
 
   private turnPage(delta: number): void {
@@ -385,8 +426,8 @@ export class Board {
     if (next < 0 || next >= this.pages.length) return;
     this.presentationPage = next;
     this.pageTurn = {
-      from: this.viewport.y,
-      to: presentationViewport(this.screen, next).y,
+      from: this.viewport,
+      to: this.presentationView(next),
       start: performance.now(),
     };
     this.scheduleComposite();
@@ -437,10 +478,10 @@ export class Board {
     if (this.presenting) {
       this.lockPresentation();
     } else if (this.viewport.scale === 1 && this.pages.length === 0) {
-      this.viewport = createViewport(this.screen, Math.max(1, this.pages.length));
+      this.viewport = createViewport(this.screen, this.pages);
     } else {
-      if (this.fitted) this.viewport.scale = fitScale(this.screen.width);
-      this.viewport = clampViewport(this.viewport, this.screen, Math.max(1, this.pages.length));
+      if (this.fitted) this.viewport.scale = fitScale(this.screen.width, boardWidth(this.pages));
+      this.viewport = clampViewport(this.viewport, this.screen, this.pages);
     }
     this.scheduleComposite();
   }
@@ -462,7 +503,12 @@ export class Board {
     if (this.pageTurn) {
       const { from, to, start } = this.pageTurn;
       const t = Math.min(1, (performance.now() - start) / PAGE_TURN_MS);
-      this.viewport = { ...this.viewport, y: from + (to - from) * easeOutCubic(t) };
+      const k = easeOutCubic(t);
+      this.viewport = {
+        x: from.x + (to.x - from.x) * k,
+        y: from.y + (to.y - from.y) * k,
+        scale: from.scale + (to.scale - from.scale) * k,
+      };
       if (t >= 1) this.pageTurn = null;
       else this.scheduleComposite();
     }
@@ -473,8 +519,9 @@ export class Board {
 
     const live = !this.pinching && !this.wheelZooming;
     const renderScale = dpr * vp.scale;
-    const directVector = live && renderScale > MAX_CACHE_RENDER_SCALE;
-    const { first, last } = visiblePageRange(vp, this.screen, this.pages.length);
+    const { first, last } = visiblePageRange(vp, this.screen, this.pages);
+    const tops = pageTops(this.pages);
+    const board = boardWidth(this.pages);
     const keep = new Set<string>();
     for (let i = Math.max(0, first - 1); i <= Math.min(this.pages.length - 1, last + 1); i++) {
       keep.add(this.pages[i].id);
@@ -482,8 +529,9 @@ export class Board {
     for (let i = first; i <= last; i++) {
       const page = this.pages[i];
       if (!page) continue;
-      if (directVector) {
-        this.paintPageDirect(ctx, this.pageForCache(page), i, dpr);
+      const left = pageLeftX(board, page);
+      if (live && renderScale > maxCacheRenderScale(page)) {
+        this.paintPageDirect(ctx, this.pageForCache(page), left, tops[i], dpr);
         // Keep the gesture-time bitmap fresh; capped and incrementally updated internally.
         this.cache.sync(this.pageForCache(page), renderScale);
         continue;
@@ -491,10 +539,10 @@ export class Board {
       const bitmap = live
         ? this.cache.sync(this.pageForCache(page), renderScale)
         : (this.cache.peek(page.id) ?? this.cache.sync(this.pageForCache(page), renderScale));
-      const sx = (0 - vp.x) * vp.scale;
-      const sy = (pageTopY(i) - vp.y) * vp.scale;
-      const sw = PAGE_WIDTH * vp.scale;
-      const sh = PAGE_HEIGHT * vp.scale;
+      const sx = (left - vp.x) * vp.scale;
+      const sy = (tops[i] - vp.y) * vp.scale;
+      const sw = page.width * vp.scale;
+      const sh = page.height * vp.scale;
       ctx.drawImage(bitmap, sx, sy, sw, sh);
       ctx.strokeStyle = "rgba(0, 0, 0, 0.15)";
       ctx.lineWidth = 1;
@@ -518,7 +566,7 @@ export class Board {
     this.callbacks.onViewportChange({
       x: vp.x,
       y: vp.y,
-      zoom: vp.scale / fitScale(this.screen.width),
+      zoom: vp.scale / fitScale(this.screen.width, boardWidth(this.pages)),
     });
   }
 
@@ -575,32 +623,32 @@ export class Board {
   private paintPageDirect(
     ctx: CanvasRenderingContext2D,
     page: Page,
-    index: number,
+    left: number,
+    top: number,
     dpr: number,
   ): void {
     const vp = this.viewport;
     const s = dpr * vp.scale;
-    const top = pageTopY(index);
     ctx.save();
     ctx.setTransform(s, 0, 0, s, -vp.x * s, -vp.y * s);
     ctx.fillStyle = page.paperColor;
-    ctx.fillRect(0, top, PAGE_WIDTH, PAGE_HEIGHT);
+    ctx.fillRect(left, top, page.width, page.height);
     ctx.beginPath();
-    ctx.rect(0, top, PAGE_WIDTH, PAGE_HEIGHT);
+    ctx.rect(left, top, page.width, page.height);
     ctx.clip();
-    ctx.translate(0, top);
-    drawPagePattern(ctx, page.pattern, page.paperColor);
+    ctx.translate(left, top);
+    drawPagePattern(ctx, page.pattern, page.paperColor, page.width, page.height);
     for (const image of page.images) {
       const bitmap = getImageBitmap(image.imageId);
       if (bitmap) ctx.drawImage(bitmap, image.x, image.y, image.width, image.height);
     }
     for (const stroke of page.strokes) drawStroke(ctx, stroke);
     ctx.restore();
-    const sx = (0 - vp.x) * vp.scale;
+    const sx = (left - vp.x) * vp.scale;
     const sy = (top - vp.y) * vp.scale;
     ctx.strokeStyle = "rgba(0, 0, 0, 0.15)";
     ctx.lineWidth = 1;
-    ctx.strokeRect(sx + 0.5, sy + 0.5, PAGE_WIDTH * vp.scale - 1, PAGE_HEIGHT * vp.scale - 1);
+    ctx.strokeRect(sx + 0.5, sy + 0.5, page.width * vp.scale - 1, page.height * vp.scale - 1);
   }
 
   private renderActiveStroke(dpr: number): void {
@@ -611,10 +659,12 @@ export class Board {
     if (!stroke) return;
     const pageIndex = this.pages.findIndex((p) => p.id === stroke.pageId);
     if (pageIndex < 0) return;
+    const page = this.pages[pageIndex];
+    const left = pageLeftX(boardWidth(this.pages), page);
     const vp = this.viewport;
     const s = dpr * vp.scale;
     ctx.setTransform(s, 0, 0, s, -vp.x * s, -vp.y * s);
-    ctx.translate(0, pageTopY(pageIndex));
+    ctx.translate(left, pageTopY(this.pages, pageIndex));
     const preview = createStroke({
       pen: stroke.pen,
       color: stroke.color,
@@ -632,9 +682,14 @@ export class Board {
     const s = dpr * vp.scale;
     const lasso = this.lasso;
     if (lasso && lasso.points.length > 0) {
+      const lassoPage = this.pages[lasso.pageIndex];
+      if (!lassoPage) return;
       ctx.save();
       ctx.setTransform(s, 0, 0, s, -vp.x * s, -vp.y * s);
-      ctx.translate(0, pageTopY(lasso.pageIndex));
+      ctx.translate(
+        pageLeftX(boardWidth(this.pages), lassoPage),
+        pageTopY(this.pages, lasso.pageIndex),
+      );
       ctx.beginPath();
       ctx.moveTo(lasso.points[0].x, lasso.points[0].y);
       for (let i = 1; i < lasso.points.length; i++) {
@@ -653,10 +708,11 @@ export class Board {
     const pageIndex = this.pages.findIndex((p) => p.id === sel.pageId);
     if (pageIndex < 0) return;
     const page = this.pages[pageIndex];
-    const top = pageTopY(pageIndex);
+    const top = pageTopY(this.pages, pageIndex);
+    const left = pageLeftX(boardWidth(this.pages), page);
     ctx.save();
     ctx.setTransform(s, 0, 0, s, -vp.x * s, -vp.y * s);
-    ctx.translate(0, top);
+    ctx.translate(left, top);
     if (sel.images.length > 0) {
       const selectedImageIds = new Set(sel.images.map((i) => i.id));
       for (const image of page.images) {
@@ -672,14 +728,14 @@ export class Board {
         }
       }
       const live = !this.pinching && !this.wheelZooming;
-      if (live && s > MAX_CACHE_RENDER_SCALE) {
+      if (live && s > maxCacheRenderScale(page)) {
         const selectedStrokeIds = new Set(sel.strokes.map((st) => st.id));
         for (const stroke of page.strokes) {
           if (!selectedStrokeIds.has(stroke.id)) drawStroke(ctx, stroke);
         }
       } else {
         const overlay = this.strokeOverlay(page, sel, s, live);
-        if (overlay) ctx.drawImage(overlay, 0, 0, PAGE_WIDTH, PAGE_HEIGHT);
+        if (overlay) ctx.drawImage(overlay, 0, 0, page.width, page.height);
       }
       ctx.save();
       this.applyGestureTransform(ctx);
@@ -711,7 +767,7 @@ export class Board {
     live: boolean,
   ): HTMLCanvasElement | null {
     if (sel.strokes.length === page.strokes.length) return null;
-    const capped = Math.min(renderScale, MAX_CACHE_RENDER_SCALE);
+    const capped = Math.min(renderScale, maxCacheRenderScale(page));
     const cached = this.strokeOverlayCache;
     if (
       cached &&
@@ -722,8 +778,8 @@ export class Board {
       return cached.canvas;
     }
     const canvas = cached?.canvas ?? document.createElement("canvas");
-    canvas.width = Math.max(1, Math.round(PAGE_WIDTH * capped));
-    canvas.height = Math.max(1, Math.round(PAGE_HEIGHT * capped));
+    canvas.width = Math.max(1, Math.round(page.width * capped));
+    canvas.height = Math.max(1, Math.round(page.height * capped));
     const ctx = get2dContext(canvas);
     ctx.setTransform(capped, 0, 0, capped, 0, 0);
     const selectedIds = new Set(sel.strokes.map((s) => s.id));
@@ -773,9 +829,12 @@ export class Board {
   ): { x: number; y: number; w: number; h: number } | null {
     const bounds = this.previewBounds();
     if (!bounds) return null;
+    const page = this.pages[pageIndex];
+    if (!page) return null;
     const vp = this.viewport;
-    const x = (bounds.minX - vp.x) * vp.scale;
-    const y = (pageTopY(pageIndex) + bounds.minY - vp.y) * vp.scale;
+    const left = pageLeftX(boardWidth(this.pages), page);
+    const x = (left + bounds.minX - vp.x) * vp.scale;
+    const y = (pageTopY(this.pages, pageIndex) + bounds.minY - vp.y) * vp.scale;
     return {
       x,
       y,
@@ -796,7 +855,7 @@ export class Board {
 
   private reportViewPage(): void {
     const midY = this.viewport.y + this.screen.height / this.viewport.scale / 2;
-    const index = pageIndexAtY(midY, this.pages.length);
+    const index = pageIndexAtY(this.pages, midY);
     if (index !== this.lastReportedPage) {
       this.lastReportedPage = index;
       this.callbacks.onViewChange(index);
@@ -828,7 +887,7 @@ export class Board {
     }
 
     const world = screenToWorld(this.viewport, pos.x, pos.y);
-    const hit = pageAt(world.x, world.y, this.pages.length);
+    const hit = pageAt(this.pages, world.x, world.y);
 
     const toolKind = this.callbacks.getTool().tool;
     if (toolKind === "eraser") {
@@ -884,13 +943,7 @@ export class Board {
       if (this.presenting) this.applySwipe(event.pointerId, pos);
       else this.applyPinch(event.pointerId, prev, pos);
     } else if (this.panPointerId === event.pointerId) {
-      this.viewport = panBy(
-        this.viewport,
-        pos.x - prev.x,
-        pos.y - prev.y,
-        this.screen,
-        this.pages.length,
-      );
+      this.viewport = panBy(this.viewport, pos.x - prev.x, pos.y - prev.y, this.screen, this.pages);
       this.scheduleComposite();
     }
 
@@ -1004,7 +1057,7 @@ export class Board {
         pos,
         this.viewport.scale * factor,
         this.screen,
-        this.pages.length,
+        this.pages,
       );
       this.wheelZooming = true;
       this.fitted = false;
@@ -1014,7 +1067,7 @@ export class Board {
         -event.deltaX * unit,
         -event.deltaY * unit,
         this.screen,
-        this.pages.length,
+        this.pages,
       );
     }
     this.scheduleComposite();
@@ -1054,9 +1107,9 @@ export class Board {
       curMid,
       this.viewport.scale * (curDist / prevDist),
       this.screen,
-      this.pages.length,
+      this.pages,
     );
-    vp = panBy(vp, curMid.x - prevMid.x, curMid.y - prevMid.y, this.screen, this.pages.length);
+    vp = panBy(vp, curMid.x - prevMid.x, curMid.y - prevMid.y, this.screen, this.pages);
     this.viewport = vp;
     this.fitted = false;
     this.scheduleComposite();
@@ -1073,7 +1126,7 @@ export class Board {
     if (!page) return;
     const tool = this.callbacks.getTool();
     if (tool.tool !== "pen" && tool.tool !== "highlighter" && !isShapeTool(tool.tool)) return;
-    const clamped = clampToPage(x, y);
+    const clamped = clampToPage(page, x, y);
     this.stroke = {
       pointerId: event.pointerId,
       button: event.button,
@@ -1135,7 +1188,12 @@ export class Board {
           }
         }
         const inflate = 10 / this.viewport.scale;
-        const local = { x: world.x, y: world.y - pageTopY(pageIndex) };
+        const selPage = this.pages[pageIndex];
+        const selLeft = pageLeftX(boardWidth(this.pages), selPage);
+        const local = {
+          x: world.x - selLeft,
+          y: world.y - pageTopY(this.pages, pageIndex),
+        };
         if (
           local.x >= sel.bounds.minX - inflate &&
           local.x <= sel.bounds.maxX + inflate &&
@@ -1149,12 +1207,12 @@ export class Board {
       }
       this.clearSelection();
     }
-    const hit = pageAt(world.x, world.y, this.pages.length);
+    const hit = pageAt(this.pages, world.x, world.y);
     if (!hit) {
       if (!this.presenting && this.panPointerId === null) this.panPointerId = event.pointerId;
       return;
     }
-    const clamped = clampToPage(hit.x, hit.y);
+    const clamped = clampToPage(this.pages[hit.index], hit.x, hit.y);
     this.lasso = {
       pointerId: event.pointerId,
       pageIndex: hit.index,
@@ -1206,14 +1264,18 @@ export class Board {
     if (!gesture || !sel) return;
     const pageIndex = this.pages.findIndex((p) => p.id === sel.pageId);
     if (pageIndex < 0) return;
+    const page = this.pages[pageIndex];
+    const left = pageLeftX(boardWidth(this.pages), page);
     const pos = this.eventPos(event);
     const world = screenToWorld(this.viewport, pos.x, pos.y);
-    const local = { x: world.x, y: world.y - pageTopY(pageIndex) };
+    const local = { x: world.x - left, y: world.y - pageTopY(this.pages, pageIndex) };
     if (gesture.kind === "move") {
       const clamped = clampMoveDelta(
         sel.bounds,
         local.x - gesture.origin.x,
         local.y - gesture.origin.y,
+        page.width,
+        page.height,
       );
       gesture.dx = clamped.dx;
       gesture.dy = clamped.dy;
@@ -1236,7 +1298,7 @@ export class Board {
     }
     sx = Math.max(MIN_SELECTION_SCALE, sx);
     sy = Math.max(MIN_SELECTION_SCALE, sy);
-    const clamped = clampScaleToPage(origBounds, anchor, sx, sy);
+    const clamped = clampScaleToPage(origBounds, anchor, sx, sy, page.width, page.height);
     if (handle === "nw" || handle === "ne" || handle === "se" || handle === "sw") {
       const uniform = Math.min(clamped.sx, clamped.sy);
       gesture.sx = uniform;
@@ -1316,8 +1378,9 @@ export class Board {
       return;
     }
     const page = this.pages[pageIndex];
+    const left = pageLeftX(boardWidth(this.pages), page);
     const world = screenToWorld(this.viewport, pos.x, pos.y);
-    const local = { x: world.x, y: world.y - pageTopY(pageIndex) };
+    const local = { x: world.x - left, y: world.y - pageTopY(this.pages, pageIndex) };
     for (const stroke of page.strokes) {
       if (erasing.removed.has(stroke.id)) continue;
       if (hitTestStroke(local, stroke, ERASER_TOLERANCE)) {
@@ -1328,9 +1391,11 @@ export class Board {
   }
 
   private toPagePoint(event: PointerEvent, pageIndex: number): StrokePoint {
+    const page = this.pages[pageIndex];
+    const left = pageLeftX(boardWidth(this.pages), page);
     const pos = this.eventPos(event);
     const world = screenToWorld(this.viewport, pos.x, pos.y);
-    const local = clampToPage(world.x, world.y - pageTopY(pageIndex));
+    const local = clampToPage(page, world.x - left, world.y - pageTopY(this.pages, pageIndex));
     return { x: local.x, y: local.y, pressure: pressureOf(event) };
   }
 

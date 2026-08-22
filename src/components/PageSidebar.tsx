@@ -1,7 +1,7 @@
 import { type PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from "react";
 import { onImageLoaded } from "../engine/imageCache";
 import { paintPage } from "../engine/renderPage";
-import { PAGE_WIDTH, type Page } from "../model/page";
+import type { Page } from "../model/page";
 import { useBoardStore } from "../store/useBoardStore";
 
 const THUMB_WIDTH = 336;
@@ -212,7 +212,7 @@ function PageThumbnail({
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const scale = THUMB_WIDTH / PAGE_WIDTH;
+    const scale = THUMB_WIDTH / page.width;
     paintPage(canvas, page, scale);
     if (page.images.length === 0) return;
     return onImageLoaded(() => paintPage(canvas, page, scale));

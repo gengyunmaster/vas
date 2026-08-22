@@ -6,9 +6,11 @@ export function drawPagePattern(
   ctx: CanvasRenderingContext2D,
   pattern: PagePattern,
   paperColor: string,
+  width: number,
+  height: number,
 ): void {
   if (pattern === "blank") return;
-  const { lines, dots } = patternLayout(pattern);
+  const { lines, dots } = patternLayout(pattern, width, height);
   const dark = isDarkColor(paperColor);
   const color = dark ? "rgba(255, 255, 255, 0.22)" : "rgba(0, 0, 0, 0.16)";
   ctx.save();

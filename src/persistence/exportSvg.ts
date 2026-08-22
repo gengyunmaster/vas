@@ -2,7 +2,7 @@ import { getOutlinePoints, HIGHLIGHTER_ALPHA } from "../engine/renderStroke";
 import { isDarkColor } from "../model/color";
 import type { Bounds } from "../model/hitTest";
 import type { ImageItem } from "../model/image";
-import { PAGE_HEIGHT, PAGE_WIDTH, type Page, trimTrailingBlankPages } from "../model/page";
+import { type Page, trimTrailingBlankPages } from "../model/page";
 import { PATTERN_DASH, patternLayout } from "../model/patternLayout";
 import { arrowHead } from "../model/shapeGeometry";
 import type { Stroke } from "../model/stroke";
@@ -57,7 +57,7 @@ export function pageToSvg(
   imageData: Map<string, string>,
   options: { annotationOnly?: boolean; clipTo?: Bounds } = {},
 ): string {
-  const view = options.clipTo ?? { minX: 0, minY: 0, maxX: PAGE_WIDTH, maxY: PAGE_HEIGHT };
+  const view = options.clipTo ?? { minX: 0, minY: 0, maxX: page.width, maxY: page.height };
   const viewWidth = view.maxX - view.minX;
   const viewHeight = view.maxY - view.minY;
   const parts = [
@@ -123,7 +123,7 @@ function shapeToSvg(stroke: Stroke): string {
 
 function patternToSvg(page: Page): string[] {
   if (page.pattern === "blank") return [];
-  const { lines, dots } = patternLayout(page.pattern);
+  const { lines, dots } = patternLayout(page.pattern, page.width, page.height);
   const dark = isDarkColor(page.paperColor);
   const color = dark ? "#ffffff" : "#000000";
   const opacity = dark ? "0.22" : "0.16";

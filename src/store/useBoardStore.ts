@@ -1,10 +1,19 @@
 import { create } from "zustand";
 import { createImageItem, type ImageItem } from "../model/image";
-import { createPage, type Page, type PagePattern, PLACEMENT_MARGIN } from "../model/page";
+import {
+  createPage,
+  type Page,
+  type PagePattern,
+  type PageSize,
+  PLACEMENT_MARGIN,
+} from "../model/page";
+import { resizePage } from "../model/pageSize";
 import { buildPdfPages, type PdfPageImage } from "../model/pdfPage";
 import { newId, type PenKind, type Stroke, type ToolKind } from "../model/stroke";
 import {
   imagesBounds,
+  scaleImage,
+  scaleStroke,
   strokesBounds,
   translateImage,
   translateStroke,
@@ -101,6 +110,8 @@ interface BoardState {
   setSize: (size: number) => void;
   setPaperColor: (color: string) => void;
   setPattern: (pattern: PagePattern) => void;
+  setPageSize: (size: PageSize) => void;
+  replacePdfBaseImage: (pageId: string, imageId: string) => void;
   movePage: (from: number, to: number) => void;
   setSelection: (selection: SelectionTarget | null) => void;
   setSelectionAnchor: (anchor: { x: number; y: number } | null) => void;
@@ -311,7 +322,7 @@ export const useBoardStore = create<BoardState>()((set) => ({
       let pages = withStroke(state.pages, pageId, stroke);
       const lastPage = state.pages[state.pages.length - 1];
       if (lastPage && lastPage.id === pageId) {
-        pages = [...pages, createPage(lastPage.paperColor, lastPage.pattern)];
+        pages = [...pages, createPage(lastPage.paperColor, lastPage.pattern, lastPage)];
       }
       return {
         pages,
@@ -342,7 +353,11 @@ export const useBoardStore = create<BoardState>()((set) => ({
       pages.splice(
         insertIndex,
         0,
-        createPage(current?.paperColor ?? state.paperColor, current?.pattern ?? state.pattern),
+        createPage(
+          current?.paperColor ?? state.paperColor,
+          current?.pattern ?? state.pattern,
+          current,
+        ),
       );
       return { pages, pendingScrollToPage: insertIndex };
     }),
@@ -429,6 +444,28 @@ export const useBoardStore = create<BoardState>()((set) => ({
     set((state) => ({
       pattern,
       pages: state.pages.map((p, i) => (i === state.viewPageIndex ? { ...p, pattern } : p)),
+    })),
+  setPageSize: (size) =>
+    set((state) => {
+      const page = state.pages[state.viewPageIndex];
+      if (!page) return state;
+      const next = resizePage(page, size);
+      if (next === page) return state;
+      return {
+        pages: state.pages.map((p, i) => (i === state.viewPageIndex ? next : p)),
+        past: [],
+        future: [],
+        selection: null,
+        selectionAnchor: null,
+      };
+    }),
+  replacePdfBaseImage: (pageId, imageId) =>
+    set((state) => ({
+      pages: state.pages.map((p) =>
+        p.id === pageId
+          ? { ...p, images: p.images.map((img) => (img.locked ? { ...img, imageId } : img)) }
+          : p,
+      ),
     })),
   movePage: (from, to) =>
     set((state) => {
@@ -600,10 +637,19 @@ export const useBoardStore = create<BoardState>()((set) => ({
       const images = clip.images.map((i) => ({ ...structuredClone(i), id: newId() }));
       const bounds = unionBounds(strokesBounds(strokes), imagesBounds(images));
       if (!bounds) return state;
-      const dx = PLACEMENT_MARGIN - bounds.minX;
-      const dy = PLACEMENT_MARGIN - bounds.minY;
-      const placedStrokes = strokes.map((s) => translateStroke(s, dx, dy));
-      const placedImages = images.map((i) => translateImage(i, dx, dy));
+      const fit = Math.min(
+        1,
+        (page.width - PLACEMENT_MARGIN * 2) / (bounds.maxX - bounds.minX),
+        (page.height - PLACEMENT_MARGIN * 2) / (bounds.maxY - bounds.minY),
+      );
+      const origin = { x: 0, y: 0 };
+      const scaledStrokes =
+        fit === 1 ? strokes : strokes.map((s) => scaleStroke(s, origin, fit, fit));
+      const scaledImages = fit === 1 ? images : images.map((i) => scaleImage(i, origin, fit, fit));
+      const dx = PLACEMENT_MARGIN - bounds.minX * fit;
+      const dy = PLACEMENT_MARGIN - bounds.minY * fit;
+      const placedStrokes = scaledStrokes.map((s) => translateStroke(s, dx, dy));
+      const placedImages = scaledImages.map((i) => translateImage(i, dx, dy));
       let pages = state.pages.map((p) =>
         p.id === page.id
           ? {
@@ -615,7 +661,7 @@ export const useBoardStore = create<BoardState>()((set) => ({
       );
       const lastPage = state.pages[state.pages.length - 1];
       if (lastPage && lastPage.id === page.id) {
-        pages = [...pages, createPage(lastPage.paperColor, lastPage.pattern)];
+        pages = [...pages, createPage(lastPage.paperColor, lastPage.pattern, lastPage)];
       }
       return {
         pages,
@@ -636,13 +682,13 @@ export const useBoardStore = create<BoardState>()((set) => ({
     set((state) => {
       const page = state.pages[state.viewPageIndex] ?? state.pages[0];
       if (!page) return state;
-      const image = createImageItem(imageId, naturalWidth, naturalHeight);
+      const image = createImageItem(imageId, naturalWidth, naturalHeight, page.width, page.height);
       let pages = state.pages.map((p) =>
         p.id === page.id ? { ...p, images: [...p.images, image] } : p,
       );
       const lastPage = state.pages[state.pages.length - 1];
       if (lastPage && lastPage.id === page.id) {
-        pages = [...pages, createPage(lastPage.paperColor, lastPage.pattern)];
+        pages = [...pages, createPage(lastPage.paperColor, lastPage.pattern, lastPage)];
       }
       return {
         pages,
@@ -665,6 +711,7 @@ export const useBoardStore = create<BoardState>()((set) => ({
         pdfPages,
         current.paperColor,
         current.pattern,
+        () => ({ width: current.width, height: current.height }),
         pdfSource?.docId,
       );
       const pages = [...state.pages];

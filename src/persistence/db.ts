@@ -17,6 +17,8 @@ export interface PageRecord {
   id: string;
   notebookId: string;
   index: number;
+  width?: number;
+  height?: number;
   paperColor: string;
   pattern: PagePattern;
   strokes: Stroke[];

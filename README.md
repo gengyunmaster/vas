@@ -12,8 +12,9 @@ self-hosted instance keep separate data; use export / import to move notebooks a
 
 - **Natural pen feel** — pressure-sensitive strokes (Apple Pencil & compatible pens),
   velocity-simulated pressure for finger and mouse, low-latency canvas rendering
-- **Paginated A4 notebooks** — continuous vertical scrolling, pinch zoom up to 20x with
-  crisp vector redraw
+- **Paginated notebooks** — continuous vertical scrolling, pinch zoom up to 20x with
+  crisp vector redraw; page size is per-page (A4-proportioned 794×1123 by default,
+  adjustable per page from 200 to 5000 px, mixed sizes within one notebook)
 - **Tools** — pen, highlighter, stroke eraser, laser pointer (for teaching), and shapes
   (line / arrow / rectangle / ellipse)
 - **Lasso selection** — circle content to select it, then move, scale / stretch (staying
@@ -23,16 +24,19 @@ self-hosted instance keep separate data; use export / import to move notebooks a
   auto-fit to the page and stored at original quality
 - **PDF import** — import a PDF from the home screen to create a notebook, or into the
   open notebook (pages inserted after the current one, inheriting its style); every page
-  is rendered at 3x clarity, scaled to fill the sheet, and locked in place (lasso can't
-  select it); annotate freely on top; password-protected PDFs are decrypted in the
+  is rendered at 4x point resolution, scaled to fill the sheet, and locked in place
+  (lasso can't select it); home-screen imports size each page after its PDF page;
+  annotate freely on top; password-protected PDFs are decrypted in the
   browser on import (qpdf-wasm, password prompted once) and stored without a password,
   so exports can re-embed them as true vector pages
 - **Per-page paper** — paper colors (presets incl. blackboard green and calligraphy tan,
   plus custom hex) and background templates (blank / lined / grid / dots / rice grid),
   with contrast-aware guide lines
 - **Page management** — insert / delete / clear pages, automatic page continuation,
-  thumbnail sidebar with A4-accurate previews and long-press drag to reorder
-- **Presentation mode** — hides all UI for clean screen recordings
+  thumbnail sidebar with aspect-accurate previews and long-press drag to reorder
+- **Presentation mode** — full-screen slideshow: one page fitted to the screen on a
+  black backdrop, wheel / swipe / arrow-key paging with a scroll animation, writing
+  stays enabled
 - **Multiple notebooks** — home screen with create / rename / delete, plus merging:
   select notebooks to combine their pages into a new one (selection order preserved;
   a single selection duplicates a notebook; shared images stay stored once)
