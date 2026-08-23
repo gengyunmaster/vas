@@ -20,7 +20,8 @@ import {
   type StrokePoint,
 } from "../model/stroke";
 import type { ViewState } from "../model/viewState";
-import type { ImageRecord, PdfRecord } from "./db";
+import type { GeometryRecord, ImageRecord, PdfRecord } from "./db";
+import { deleteGeometries, getGeometry, saveGeometries } from "./geometries";
 import { deleteImages, getImage, retainImages, saveImages } from "./images";
 import {
   createNotebook,
@@ -32,7 +33,7 @@ import {
 import { deletePdfs, getPdf, retainPdfs, savePdf } from "./pdfs";
 
 export const FILE_FORMAT = "vas-notebook";
-export const FILE_VERSION = 3;
+export const FILE_VERSION = 4;
 export const NOTEBOOK_JSON_ENTRY = "notebook.json";
 
 const FALLBACK_INK = "#1a1a1a";
@@ -50,12 +51,18 @@ export interface PdfManifestEntry {
   sourceId?: string;
 }
 
+export interface GeometryManifestEntry {
+  geometryId: string;
+  sourceId?: string;
+}
+
 export function serializeNotebook(
   title: string,
   pages: Page[],
   images: ImageManifestEntry[] = [],
   viewState?: ViewState,
   pdfs: PdfManifestEntry[] = [],
+  geometries: GeometryManifestEntry[] = [],
 ): string {
   return JSON.stringify(
     {
@@ -83,6 +90,7 @@ export function serializeNotebook(
           width: image.width,
           height: image.height,
           ...(image.locked ? { locked: true } : {}),
+          ...(image.geometryId ? { geometryId: image.geometryId } : {}),
         })),
         ...(page.pdfSource ? { pdfSource: page.pdfSource } : {}),
       })),
@@ -90,6 +98,9 @@ export function serializeNotebook(
         ? { images: images.map((e) => ({ imageId: e.imageId, mimeType: e.mimeType })) }
         : {}),
       ...(pdfs.length > 0 ? { pdfs: pdfs.map((e) => ({ docId: e.docId })) } : {}),
+      ...(geometries.length > 0
+        ? { geometries: geometries.map((e) => ({ geometryId: e.geometryId })) }
+        : {}),
     },
     null,
     2,
@@ -101,6 +112,7 @@ export function parseNotebookFile(text: string): {
   pages: Page[];
   images: Required<ImageManifestEntry>[];
   pdfs: Required<PdfManifestEntry>[];
+  geometries: Required<GeometryManifestEntry>[];
   viewState?: ViewState;
 } {
   const data: unknown = JSON.parse(text);
@@ -119,13 +131,16 @@ export function parseNotebookFile(text: string): {
   }
   const images = parseImageManifest(data);
   const pdfs = parsePdfManifest(data);
+  const geometries = parseGeometryManifest(data);
   const remap = new Map(images.map((entry) => [entry.sourceId, entry.imageId]));
   const pdfRemap = new Map(pdfs.map((entry) => [entry.sourceId, entry.docId]));
+  const geometryRemap = new Map(geometries.map((entry) => [entry.sourceId, entry.geometryId]));
   return {
     title,
-    pages: data.pages.map((page) => parsePage(page, remap, pdfRemap)),
+    pages: data.pages.map((page) => parsePage(page, remap, pdfRemap, geometryRemap)),
     images,
     pdfs,
+    geometries,
     viewState: parseViewState(data.viewState),
   };
 }
@@ -164,6 +179,10 @@ export function pdfEntryPath(docId: string): string {
   return `pdfs/${docId}.pdf`;
 }
 
+export function geometryEntryPath(geometryId: string): string {
+  return `geometries/${geometryId}.json`;
+}
+
 export function resolveImageEntries(
   entries: Record<string, Uint8Array>,
   manifest: Required<ImageManifestEntry>[],
@@ -186,12 +205,27 @@ export function resolvePdfEntries(
   });
 }
 
+export function resolveGeometryEntries(
+  entries: Record<string, Uint8Array>,
+  manifest: Required<GeometryManifestEntry>[],
+): Uint8Array[] {
+  return manifest.map((entry) => {
+    const data = entries[geometryEntryPath(entry.sourceId)];
+    if (!data) throw new Error(`Missing geometry data for ${entry.sourceId}`);
+    return data;
+  });
+}
+
 export async function downloadNotebook(id: string): Promise<void> {
   const { meta, pages } = await loadNotebook(id);
   const referenced = new Set<string>();
   const referencedPdfs = new Set<string>();
+  const referencedGeometries = new Set<string>();
   for (const page of pages) {
-    for (const image of page.images) referenced.add(image.imageId);
+    for (const image of page.images) {
+      referenced.add(image.imageId);
+      if (image.geometryId) referencedGeometries.add(image.geometryId);
+    }
     if (page.pdfSource) referencedPdfs.add(page.pdfSource.docId);
   }
   const records = new Map<string, ImageRecord>();
@@ -204,9 +238,20 @@ export async function downloadNotebook(id: string): Promise<void> {
     const record = await getPdf(docId);
     if (record) pdfRecords.set(docId, record);
   }
+  const geometryRecords = new Map<string, GeometryRecord>();
+  for (const geometryId of referencedGeometries) {
+    const record = await getGeometry(geometryId);
+    if (record) geometryRecords.set(geometryId, record);
+  }
   const cleanPages = pages.map((page) => ({
     ...page,
-    images: page.images.filter((image) => records.has(image.imageId)),
+    images: page.images
+      .filter((image) => records.has(image.imageId))
+      .map((image) =>
+        image.geometryId && !geometryRecords.has(image.geometryId)
+          ? { ...image, geometryId: undefined }
+          : image,
+      ),
     ...(page.pdfSource && !pdfRecords.has(page.pdfSource.docId) ? { pdfSource: undefined } : {}),
   }));
   const manifest: ImageManifestEntry[] = [...records.values()].map((record) => ({
@@ -214,8 +259,18 @@ export async function downloadNotebook(id: string): Promise<void> {
     mimeType: record.mimeType,
   }));
   const pdfManifest: PdfManifestEntry[] = [...pdfRecords.keys()].map((docId) => ({ docId }));
-  const json = serializeNotebook(meta.title, cleanPages, manifest, meta.viewState, pdfManifest);
-  if (records.size === 0 && pdfRecords.size === 0) {
+  const geometryManifest: GeometryManifestEntry[] = [...geometryRecords.keys()].map(
+    (geometryId) => ({ geometryId }),
+  );
+  const json = serializeNotebook(
+    meta.title,
+    cleanPages,
+    manifest,
+    meta.viewState,
+    pdfManifest,
+    geometryManifest,
+  );
+  if (records.size === 0 && pdfRecords.size === 0 && geometryRecords.size === 0) {
     downloadBlob(new Blob([json], { type: "application/json" }), `${meta.title}.vas.json`);
     return;
   }
@@ -230,6 +285,12 @@ export async function downloadNotebook(id: string): Promise<void> {
     files.push({
       path: pdfEntryPath(record.id),
       data: new Uint8Array(await record.blob.arrayBuffer()),
+    });
+  }
+  for (const record of geometryRecords.values()) {
+    files.push({
+      path: geometryEntryPath(record.id),
+      data: strToU8(record.document),
     });
   }
   const zip = buildNotebookZip(json, files);
@@ -292,6 +353,11 @@ async function importNotebookZip(bytes: Uint8Array): Promise<string> {
     id: entry.docId,
     blob: new Blob([pdfData[index].slice()], { type: "application/pdf" }),
   }));
+  const geometryData = resolveGeometryEntries(entries, parsed.geometries);
+  const geometryRecords: GeometryRecord[] = parsed.geometries.map((entry, index) => ({
+    id: entry.geometryId,
+    document: strFromU8(geometryData[index]),
+  }));
   const releaseImages = retainImages(parsed.images.map((entry) => entry.imageId));
   const releasePdfs = retainPdfs(parsed.pdfs.map((entry) => entry.docId));
   try {
@@ -299,12 +365,14 @@ async function importNotebookZip(bytes: Uint8Array): Promise<string> {
     try {
       await saveImages(records);
       for (const record of pdfRecords) await savePdf(record);
+      await saveGeometries(geometryRecords);
       await replacePages(meta.id, parsed.pages);
       if (parsed.viewState) await saveViewState(meta.id, parsed.viewState);
     } catch (error) {
       await deleteNotebook(meta.id);
       await deleteImages(records.map((record) => record.id)).catch(() => {});
       await deletePdfs(pdfRecords.map((record) => record.id)).catch(() => {});
+      await deleteGeometries(geometryRecords.map((record) => record.id)).catch(() => {});
       throw error;
     }
     return meta.id;
@@ -343,6 +411,17 @@ function parsePdfManifest(data: Record<string, unknown>): Required<PdfManifestEn
   });
 }
 
+function parseGeometryManifest(data: Record<string, unknown>): Required<GeometryManifestEntry>[] {
+  if (data.geometries === undefined) return [];
+  if (!Array.isArray(data.geometries)) throw new Error("Invalid geometries manifest");
+  return data.geometries.map((raw) => {
+    if (!isRecord(raw) || typeof raw.geometryId !== "string" || raw.geometryId.length === 0) {
+      throw new Error("Invalid geometry entry");
+    }
+    return { geometryId: newId(), sourceId: raw.geometryId };
+  });
+}
+
 function parsePdfSource(raw: unknown, pdfRemap: Map<string, string>): PdfSource | undefined {
   if (raw === undefined) return undefined;
   if (!isRecord(raw) || typeof raw.docId !== "string") throw new Error("Invalid pdf source");
@@ -354,7 +433,12 @@ function parsePdfSource(raw: unknown, pdfRemap: Map<string, string>): PdfSource 
   return { docId, pageIndex: raw.pageIndex };
 }
 
-function parsePage(raw: unknown, remap: Map<string, string>, pdfRemap: Map<string, string>): Page {
+function parsePage(
+  raw: unknown,
+  remap: Map<string, string>,
+  pdfRemap: Map<string, string>,
+  geometryRemap: Map<string, string>,
+): Page {
   if (!isRecord(raw)) throw new Error("Invalid page");
   if (!Array.isArray(raw.strokes)) throw new Error("Invalid page strokes");
   return {
@@ -366,18 +450,28 @@ function parsePage(raw: unknown, remap: Map<string, string>, pdfRemap: Map<strin
       ? (raw.pattern as PagePattern)
       : "blank",
     strokes: raw.strokes.map(parseStroke),
-    images: parsePageImages(raw.images, remap),
+    images: parsePageImages(raw.images, remap, geometryRemap),
     ...(raw.pdfSource !== undefined ? { pdfSource: parsePdfSource(raw.pdfSource, pdfRemap) } : {}),
   };
 }
 
-function parsePageImages(raw: unknown, remap: Map<string, string>): ImageItem[] {
+function parsePageImages(
+  raw: unknown,
+  remap: Map<string, string>,
+  geometryRemap: Map<string, string>,
+): ImageItem[] {
   if (raw === undefined) return [];
   if (!Array.isArray(raw)) throw new Error("Invalid page images");
   return raw.map((entry) => {
     if (!isRecord(entry) || typeof entry.imageId !== "string") throw new Error("Invalid image");
     const imageId = remap.get(entry.imageId);
     if (!imageId) throw new Error("Page references an unknown image");
+    let geometryId: string | undefined;
+    if (entry.geometryId !== undefined) {
+      if (typeof entry.geometryId !== "string") throw new Error("Invalid image geometry reference");
+      geometryId = geometryRemap.get(entry.geometryId);
+      if (!geometryId) throw new Error("Image references an unknown geometry");
+    }
     return {
       id: newId(),
       imageId,
@@ -386,6 +480,7 @@ function parsePageImages(raw: unknown, remap: Map<string, string>): ImageItem[] 
       width: parsePositiveNumber(entry.width, "image width"),
       height: parsePositiveNumber(entry.height, "image height"),
       ...(entry.locked === true ? { locked: true } : {}),
+      ...(geometryId ? { geometryId } : {}),
     };
   });
 }

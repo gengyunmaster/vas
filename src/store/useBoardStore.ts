@@ -83,6 +83,7 @@ interface BoardState {
   sidebarOpen: boolean;
   pdfImports: Record<string, { done: number; total: number }>;
   exporting: boolean;
+  geometryEditor: { mode: "insert" } | { mode: "edit"; pageId: string; itemId: string } | null;
   color: string;
   size: number;
   paperColor: string;
@@ -124,10 +125,23 @@ interface BoardState {
   copySelection: () => void;
   cutSelection: () => void;
   pasteClipboard: () => void;
-  insertImage: (imageId: string, naturalWidth: number, naturalHeight: number) => void;
+  insertImage: (
+    imageId: string,
+    naturalWidth: number,
+    naturalHeight: number,
+    geometryId?: string,
+  ) => void;
   insertPdfPages: (pdfPages: PdfPageImage[], pdfSource?: { docId: string }) => void;
   setPdfImport: (notebookId: string, progress: { done: number; total: number } | null) => void;
   setExporting: (exporting: boolean) => void;
+  openGeometry: () => void;
+  editGeometry: (pageId: string, itemId: string) => void;
+  closeGeometry: () => void;
+  replaceGeometryImage: (
+    pageId: string,
+    itemId: string,
+    patch: { imageId: string; geometryId: string },
+  ) => void;
 }
 
 function withStroke(pages: Page[], pageId: string, stroke: Stroke): Page[] {
@@ -293,6 +307,7 @@ export const useBoardStore = create<BoardState>()((set) => ({
   sidebarOpen: false,
   pdfImports: {},
   exporting: false,
+  geometryEditor: null,
   color: COLORS[0],
   size: SIZES[1],
   paperColor: PAPER_COLORS[0],
@@ -442,6 +457,39 @@ export const useBoardStore = create<BoardState>()((set) => ({
       return { pdfImports };
     }),
   setExporting: (exporting) => set({ exporting }),
+  openGeometry: () => set({ geometryEditor: { mode: "insert" }, selection: null }),
+  editGeometry: (pageId, itemId) => set({ geometryEditor: { mode: "edit", pageId, itemId } }),
+  closeGeometry: () => set({ geometryEditor: null }),
+  replaceGeometryImage: (pageId, itemId, patch) =>
+    set((state) => {
+      const page = state.pages.find((p) => p.id === pageId);
+      const before = page?.images.find((image) => image.id === itemId);
+      if (!page || !before) return state;
+      const after: ImageItem = {
+        ...before,
+        imageId: patch.imageId,
+        geometryId: patch.geometryId,
+      };
+      return {
+        pages: state.pages.map((p) =>
+          p.id === pageId
+            ? { ...p, images: p.images.map((image) => (image.id === itemId ? after : image)) }
+            : p,
+        ),
+        past: [
+          ...state.past,
+          {
+            kind: "replace-elements",
+            pageId,
+            strokesBefore: [],
+            strokesAfter: [],
+            imagesBefore: [before],
+            imagesAfter: [after],
+          },
+        ],
+        future: [],
+      };
+    }),
   toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
   requestScrollToPage: (index) => set({ pendingScrollToPage: index }),
   setColor: (color) => set({ color }),
@@ -689,11 +737,12 @@ export const useBoardStore = create<BoardState>()((set) => ({
         tool: "select",
       };
     }),
-  insertImage: (imageId, naturalWidth, naturalHeight) =>
+  insertImage: (imageId, naturalWidth, naturalHeight, geometryId) =>
     set((state) => {
       const page = state.pages[state.viewPageIndex] ?? state.pages[0];
       if (!page) return state;
       const image = createImageItem(imageId, naturalWidth, naturalHeight, page.width, page.height);
+      if (geometryId) image.geometryId = geometryId;
       const pages = withContinuationPage(
         state.pages.map((p) => (p.id === page.id ? { ...p, images: [...p.images, image] } : p)),
         page.id,

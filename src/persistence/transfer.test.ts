@@ -1,12 +1,14 @@
-import { strFromU8, unzipSync } from "fflate";
+import { strFromU8, strToU8, unzipSync } from "fflate";
 import { describe, expect, it } from "vitest";
 import type { Page } from "../model/page";
 import {
   buildNotebookZip,
+  geometryEntryPath,
   imageEntryPath,
   NOTEBOOK_JSON_ENTRY,
   parseNotebookFile,
   pdfEntryPath,
+  resolveGeometryEntries,
   resolveImageEntries,
   resolvePdfEntries,
   sanitizeFileName,
@@ -335,6 +337,103 @@ describe("notebook pdf sources", () => {
     const entries = unzipSync(buildNotebookZip(json, []));
     const parsed = parseNotebookFile(strFromU8(entries[NOTEBOOK_JSON_ENTRY]));
     expect(() => resolvePdfEntries(entries, parsed.pdfs)).toThrow("Missing PDF data");
+  });
+});
+
+describe("notebook geometries", () => {
+  function geometryPage(): Page {
+    return {
+      ...samplePage(),
+      images: [
+        {
+          id: "item-1",
+          imageId: "blob-1",
+          x: 40,
+          y: 40,
+          width: 200,
+          height: 100,
+          geometryId: "geo-1",
+        },
+      ],
+    };
+  }
+
+  const geometryImages = [{ imageId: "blob-1", mimeType: "image/svg+xml" }];
+
+  it("round-trips the geometry reference and remaps ids", () => {
+    const text = serializeNotebook(
+      "Geo",
+      [geometryPage()],
+      geometryImages,
+      undefined,
+      [],
+      [{ geometryId: "geo-1" }],
+    );
+    const parsed = parseNotebookFile(text);
+    expect(parsed.geometries).toHaveLength(1);
+    expect(parsed.geometries[0].sourceId).toBe("geo-1");
+    expect(parsed.geometries[0].geometryId).not.toBe("geo-1");
+    expect(parsed.pages[0].images[0].geometryId).toBe(parsed.geometries[0].geometryId);
+  });
+
+  it("omits the geometries manifest when no image has one", () => {
+    const text = serializeNotebook("Plain", [samplePage()]);
+    expect(parseNotebookFile(text).geometries).toEqual([]);
+    expect(text).not.toContain("geometries");
+  });
+
+  it("rejects an image referencing a geometry missing from the manifest", () => {
+    const text = JSON.stringify({
+      format: "vas-notebook",
+      version: 4,
+      images: [{ imageId: "blob-1", mimeType: "image/svg+xml" }],
+      pages: [
+        {
+          strokes: [],
+          images: [{ imageId: "blob-1", x: 0, y: 0, width: 10, height: 10, geometryId: "ghost" }],
+        },
+      ],
+    });
+    expect(() => parseNotebookFile(text)).toThrow("unknown geometry");
+  });
+
+  it("resolves geometry documents from the zip archive", () => {
+    const json = serializeNotebook(
+      "Zip",
+      [geometryPage()],
+      geometryImages,
+      undefined,
+      [],
+      [{ geometryId: "geo-1" }],
+    );
+    const zip = buildNotebookZip(json, [
+      { path: imageEntryPath("blob-1", "image/svg+xml"), data: new Uint8Array([1]) },
+      { path: geometryEntryPath("geo-1"), data: strToU8('{"objects":{}}') },
+    ]);
+    const entries = unzipSync(zip);
+    const parsed = parseNotebookFile(strFromU8(entries[NOTEBOOK_JSON_ENTRY]));
+    const resolved = resolveGeometryEntries(entries, parsed.geometries);
+    expect(strFromU8(resolved[0])).toBe('{"objects":{}}');
+  });
+
+  it("resolveGeometryEntries throws when a geometry file is missing", () => {
+    const json = serializeNotebook(
+      "Zip",
+      [geometryPage()],
+      geometryImages,
+      undefined,
+      [],
+      [{ geometryId: "geo-1" }],
+    );
+    const entries = unzipSync(
+      buildNotebookZip(json, [
+        { path: imageEntryPath("blob-1", "image/svg+xml"), data: new Uint8Array([1]) },
+      ]),
+    );
+    const parsed = parseNotebookFile(strFromU8(entries[NOTEBOOK_JSON_ENTRY]));
+    expect(() => resolveGeometryEntries(entries, parsed.geometries)).toThrow(
+      "Missing geometry data",
+    );
   });
 });
 

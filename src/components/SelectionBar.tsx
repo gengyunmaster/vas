@@ -13,9 +13,16 @@ export function SelectionBar() {
     return page?.strokes.find((s) => s.id === sel.strokeIds[0])?.color ?? null;
   });
   const exporting = useBoardStore((state) => state.exporting);
+  const editableGeometryItemId = useBoardStore((state) => {
+    const sel = state.selection;
+    if (!sel || sel.strokeIds.length > 0 || sel.imageIds.length !== 1) return null;
+    const page = state.pages.find((p) => p.id === sel.pageId);
+    const image = page?.images.find((i) => i.id === sel.imageIds[0]);
+    return image?.geometryId ? image.id : null;
+  });
   if (!selection || !anchor || tool !== "select" || exporting) return null;
 
-  const { recolorSelection, cutSelection, copySelection, deleteSelection } =
+  const { recolorSelection, cutSelection, copySelection, deleteSelection, editGeometry } =
     useBoardStore.getState();
 
   return (
@@ -45,6 +52,15 @@ export function SelectionBar() {
           <ColorField value={inkColor ?? COLORS[0]} onChange={recolorSelection} />
           <div className="selection-divider" />
         </>
+      )}
+      {editableGeometryItemId && (
+        <button
+          type="button"
+          className="text-btn"
+          onClick={() => editGeometry(selection.pageId, editableGeometryItemId)}
+        >
+          Edit
+        </button>
       )}
       <button type="button" className="text-btn" onClick={cutSelection}>
         Cut

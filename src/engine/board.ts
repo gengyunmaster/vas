@@ -190,7 +190,7 @@ export class Board {
   private wheelTimer: number | undefined;
   private presenting = false;
   private presentationPage = 0;
-  private pageTurn: { from: Viewport; to: Viewport; start: number } | null = null;
+  private pageTurn: { from: Viewport; to: Viewport; fromPage: number; start: number } | null = null;
   private wheelAccum = 0;
   private wheelAccumTimer: number | undefined;
   private swipeStartY = 0;
@@ -429,12 +429,13 @@ export class Board {
     if (!this.presenting || this.pageTurn || this.screen.width === 0) return;
     const next = this.presentationPage + delta;
     if (next < 0 || next >= this.pages.length) return;
-    this.presentationPage = next;
     this.pageTurn = {
       from: this.viewport,
       to: this.presentationView(next),
+      fromPage: this.presentationPage,
       start: performance.now(),
     };
+    this.presentationPage = next;
     this.scheduleComposite();
   }
 
@@ -532,7 +533,16 @@ export class Board {
     for (let i = Math.max(0, first - 1); i <= Math.min(this.pages.length - 1, last + 1); i++) {
       keep.add(this.pages[i].id);
     }
-    for (let i = first; i <= last; i++) {
+    // A centered page can leave viewport room that would spill onto its neighbors;
+    // presentation must draw only the page(s) involved in a turn, the rest stays black.
+    let drawFirst = first;
+    let drawLast = last;
+    if (this.presenting) {
+      const partner = this.pageTurn?.fromPage ?? this.presentationPage;
+      drawFirst = Math.min(partner, this.presentationPage);
+      drawLast = Math.max(partner, this.presentationPage);
+    }
+    for (let i = drawFirst; i <= drawLast; i++) {
       const page = this.pages[i];
       if (!page) continue;
       const left = pageLeftX(board, page);

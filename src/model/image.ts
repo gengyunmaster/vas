@@ -9,6 +9,8 @@ export interface ImageItem {
   width: number;
   height: number;
   locked?: boolean;
+  // Geometry figures keep their editable source document in the geometry table.
+  geometryId?: string;
 }
 
 export function placeImageSize(

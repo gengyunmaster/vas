@@ -177,3 +177,12 @@ export function ExportIcon() {
     </Icon>
   );
 }
+
+export function GeometryIcon() {
+  return (
+    <Icon title="Geometry">
+      <path d="M12 3l8.5 17h-17L12 3z" />
+      <circle cx="12" cy="13.5" r="3.5" />
+    </Icon>
+  );
+}

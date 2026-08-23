@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { BoardCanvas } from "./components/BoardCanvas";
+import { GeometryOverlay } from "./components/GeometryOverlay";
 import { Home } from "./components/Home";
 import { PageIndicator } from "./components/PageIndicator";
 import { PageSidebar } from "./components/PageSidebar";
@@ -45,6 +46,7 @@ export default function App() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (useBoardStore.getState().geometryEditor) return;
       const target = event.target;
       const typing =
         target instanceof HTMLElement &&
@@ -102,7 +104,7 @@ export default function App() {
         return;
       }
       const state = useBoardStore.getState();
-      if (!state.notebookId || state.exporting) return;
+      if (!state.notebookId || state.exporting || state.geometryEditor) return;
       const file = [...(event.clipboardData?.files ?? [])].find((f) => f.type.startsWith("image/"));
       if (file) {
         event.preventDefault();
@@ -159,6 +161,7 @@ export default function App() {
       <Toolbar />
       {!presentation && <SelectionBar />}
       {!presentation && <PageIndicator />}
+      <GeometryOverlay />
     </>
   ) : (
     <Home

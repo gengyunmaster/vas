@@ -20,6 +20,7 @@ import { ColorField } from "./ColorField";
 import {
   AddPageIcon,
   DeletePageIcon,
+  GeometryIcon,
   ImageIcon,
   ImportPdfIcon,
   PasteIcon,
@@ -376,6 +377,14 @@ export function SettingsPanel() {
               e.target.value = "";
             }}
           />
+          <button
+            type="button"
+            title="Geometry"
+            disabled={exporting}
+            onClick={() => useBoardStore.getState().openGeometry()}
+          >
+            <GeometryIcon />
+          </button>
           <button
             type="button"
             title="Import PDF"
