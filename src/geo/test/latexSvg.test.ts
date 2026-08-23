@@ -27,7 +27,10 @@ test("renderLatex returns null for unparseable input", async () => {
 });
 
 test("placeGlyph centers the scaled glyph run on the label footprint", () => {
-  const glyph = { body: "<g/>", viewBox: [0, -500, 1000, 1000] as [number, number, number, number] };
+  const glyph = {
+    body: "<g/>",
+    viewBox: [0, -500, 1000, 1000] as [number, number, number, number],
+  };
   const markup = placeGlyph(glyph, {
     latex: "x",
     x: 100,
@@ -47,6 +50,14 @@ test("placeGlyph centers the scaled glyph run on the label footprint", () => {
 test("placeGlyph skips degenerate glyph boxes", () => {
   const glyph = { body: "<g/>", viewBox: [0, 0, 0, 0] as [number, number, number, number] };
   expect(
-    placeGlyph(glyph, { latex: "x", x: 0, y: 0, width: 10, height: 10, color: "#000", fontSize: 14 }),
+    placeGlyph(glyph, {
+      latex: "x",
+      x: 0,
+      y: 0,
+      width: 10,
+      height: 10,
+      color: "#000",
+      fontSize: 14,
+    }),
   ).toBe("");
 });

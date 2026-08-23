@@ -37,17 +37,23 @@ export interface PdfRecord {
   blob: Blob;
 }
 
+export interface GeometryRecord {
+  id: string;
+  document: string;
+}
+
 interface VasDB extends DBSchema {
   notebooks: { key: string; value: NotebookRecord };
   pages: { key: string; value: PageRecord; indexes: { "by-notebook": string } };
   images: { key: string; value: ImageRecord };
   pdfs: { key: string; value: PdfRecord };
+  geometries: { key: string; value: GeometryRecord };
 }
 
 let dbPromise: Promise<IDBPDatabase<VasDB>> | null = null;
 
 export function db(): Promise<IDBPDatabase<VasDB>> {
-  dbPromise ??= openDB<VasDB>("vas", 3, {
+  dbPromise ??= openDB<VasDB>("vas", 4, {
     upgrade(database, oldVersion) {
       if (oldVersion < 1) {
         database.createObjectStore("notebooks", { keyPath: "id" });
@@ -59,6 +65,9 @@ export function db(): Promise<IDBPDatabase<VasDB>> {
       }
       if (oldVersion < 3) {
         database.createObjectStore("pdfs", { keyPath: "id" });
+      }
+      if (oldVersion < 4) {
+        database.createObjectStore("geometries", { keyPath: "id" });
       }
     },
   });
