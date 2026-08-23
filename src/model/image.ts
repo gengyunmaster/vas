@@ -46,6 +46,47 @@ export function placeImageCentered(
   };
 }
 
+export function rescaledImageRect(
+  item: Pick<ImageItem, "x" | "y" | "width" | "height">,
+  oldNatural: { width: number; height: number } | null,
+  newNatural: { width: number; height: number },
+  pageWidth: number,
+  pageHeight: number,
+): { x: number; y: number; width: number; height: number } {
+  let width: number | null = null;
+  let height: number | null = null;
+  if (
+    oldNatural !== null &&
+    oldNatural.width > 0 &&
+    Number.isFinite(oldNatural.width) &&
+    oldNatural.height > 0 &&
+    Number.isFinite(oldNatural.height) &&
+    item.width > 0 &&
+    Number.isFinite(item.width) &&
+    item.height > 0 &&
+    Number.isFinite(item.height) &&
+    newNatural.width > 0 &&
+    Number.isFinite(newNatural.width) &&
+    newNatural.height > 0 &&
+    Number.isFinite(newNatural.height)
+  ) {
+    width = (newNatural.width * item.width) / oldNatural.width;
+    height = (newNatural.height * item.height) / oldNatural.height;
+  }
+  if (width === null || height === null) {
+    const placed = placeImageSize(newNatural.width, newNatural.height, pageWidth, pageHeight);
+    width = placed.width;
+    height = placed.height;
+  }
+  // Fit against page bounds rather than placement margins so an unchanged figure keeps its rect.
+  const fit = Math.min(1, pageWidth / width, pageHeight / height);
+  width *= fit;
+  height *= fit;
+  const x = Math.min(Math.max(item.x, 0), Math.max(0, pageWidth - width));
+  const y = Math.min(Math.max(item.y, 0), Math.max(0, pageHeight - height));
+  return { x, y, width, height };
+}
+
 export function createImageItem(
   imageId: string,
   naturalWidth: number,

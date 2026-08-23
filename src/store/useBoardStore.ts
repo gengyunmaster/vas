@@ -140,7 +140,14 @@ interface BoardState {
   replaceGeometryImage: (
     pageId: string,
     itemId: string,
-    patch: { imageId: string; geometryId: string },
+    patch: {
+      imageId: string;
+      geometryId: string;
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+    },
   ) => void;
 }
 
@@ -465,11 +472,7 @@ export const useBoardStore = create<BoardState>()((set) => ({
       const page = state.pages.find((p) => p.id === pageId);
       const before = page?.images.find((image) => image.id === itemId);
       if (!page || !before) return state;
-      const after: ImageItem = {
-        ...before,
-        imageId: patch.imageId,
-        geometryId: patch.geometryId,
-      };
+      const after: ImageItem = { ...before, ...patch };
       return {
         pages: state.pages.map((p) =>
           p.id === pageId
