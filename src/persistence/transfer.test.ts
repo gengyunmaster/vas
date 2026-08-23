@@ -6,13 +6,18 @@ import {
   imageEntryPath,
   NOTEBOOK_JSON_ENTRY,
   parseNotebookFile,
+  pdfEntryPath,
   resolveImageEntries,
+  resolvePdfEntries,
+  sanitizeFileName,
   serializeNotebook,
 } from "./transfer";
 
 function samplePage(): Page {
   return {
     id: "page-1",
+    width: 794,
+    height: 1123,
     paperColor: "#003423",
     pattern: "grid",
     images: [],
@@ -147,6 +152,33 @@ describe("serializeNotebook / parseNotebookFile", () => {
     expect(parsed.pages[0].strokes[0].size).toBe(5);
   });
 
+  it("round-trips a custom page size", () => {
+    const text = serializeNotebook("Sized", [{ ...samplePage(), width: 1200, height: 600 }]);
+    const parsed = parseNotebookFile(text);
+    expect(parsed.pages[0].width).toBe(1200);
+    expect(parsed.pages[0].height).toBe(600);
+  });
+
+  it("defaults a missing page size to A4", () => {
+    const text = JSON.stringify({
+      format: "vas-notebook",
+      version: 3,
+      pages: [{ strokes: [] }],
+    });
+    const parsed = parseNotebookFile(text);
+    expect(parsed.pages[0].width).toBe(794);
+    expect(parsed.pages[0].height).toBe(1123);
+  });
+
+  it("rejects a page size outside the allowed range", () => {
+    const text = JSON.stringify({
+      format: "vas-notebook",
+      version: 3,
+      pages: [{ strokes: [], width: 50, height: 1123 }],
+    });
+    expect(() => parseNotebookFile(text)).toThrow("Invalid page width");
+  });
+
   it("round-trips the view state when present", () => {
     const text = serializeNotebook("Views", [samplePage()], [], { x: 12, y: 400, zoom: 2.5 });
     expect(parseNotebookFile(text).viewState).toEqual({ x: 12, y: 400, zoom: 2.5 });
@@ -242,5 +274,76 @@ describe("notebook images and zip packaging", () => {
     const entries = unzipSync(zip);
     const parsed = parseNotebookFile(strFromU8(entries[NOTEBOOK_JSON_ENTRY]));
     expect(() => resolveImageEntries(entries, parsed.images)).toThrow("Missing image data");
+  });
+});
+
+describe("notebook pdf sources", () => {
+  function sourcedPage(): Page {
+    return { ...samplePage(), pdfSource: { docId: "pdf-1", pageIndex: 2 } };
+  }
+
+  it("round-trips the pdf source and remaps the doc id", () => {
+    const text = serializeNotebook("With pdf", [sourcedPage()], [], undefined, [
+      { docId: "pdf-1" },
+    ]);
+    const parsed = parseNotebookFile(text);
+    expect(parsed.pdfs).toHaveLength(1);
+    expect(parsed.pdfs[0].sourceId).toBe("pdf-1");
+    expect(parsed.pdfs[0].docId).not.toBe("pdf-1");
+    expect(parsed.pages[0].pdfSource).toEqual({ docId: parsed.pdfs[0].docId, pageIndex: 2 });
+  });
+
+  it("omits the pdfs manifest when no page has a pdf source", () => {
+    const text = serializeNotebook("Plain", [samplePage()]);
+    expect(parseNotebookFile(text).pdfs).toEqual([]);
+    expect(text).not.toContain("pdfs");
+  });
+
+  it("rejects a page referencing a pdf missing from the manifest", () => {
+    const text = JSON.stringify({
+      format: "vas-notebook",
+      version: 3,
+      pages: [{ strokes: [], pdfSource: { docId: "ghost", pageIndex: 0 } }],
+    });
+    expect(() => parseNotebookFile(text)).toThrow("unknown pdf");
+  });
+
+  it("rejects an invalid pdf source page index", () => {
+    const text = JSON.stringify({
+      format: "vas-notebook",
+      version: 3,
+      pdfs: [{ docId: "pdf-1" }],
+      pages: [{ strokes: [], pdfSource: { docId: "pdf-1", pageIndex: -1 } }],
+    });
+    expect(() => parseNotebookFile(text)).toThrow("Invalid pdf source page index");
+  });
+
+  it("resolves pdf bytes from the zip archive", () => {
+    const json = serializeNotebook("Zip", [sourcedPage()], [], undefined, [{ docId: "pdf-1" }]);
+    const zip = buildNotebookZip(json, [
+      { path: pdfEntryPath("pdf-1"), data: new Uint8Array([9, 8, 7]) },
+    ]);
+    const entries = unzipSync(zip);
+    const parsed = parseNotebookFile(strFromU8(entries[NOTEBOOK_JSON_ENTRY]));
+    const resolved = resolvePdfEntries(entries, parsed.pdfs);
+    expect([...resolved[0]]).toEqual([9, 8, 7]);
+    expect(entries[pdfEntryPath("pdf-1")]).toBeDefined();
+  });
+
+  it("resolvePdfEntries throws when a pdf file is missing", () => {
+    const json = serializeNotebook("Zip", [sourcedPage()], [], undefined, [{ docId: "pdf-1" }]);
+    const entries = unzipSync(buildNotebookZip(json, []));
+    const parsed = parseNotebookFile(strFromU8(entries[NOTEBOOK_JSON_ENTRY]));
+    expect(() => resolvePdfEntries(entries, parsed.pdfs)).toThrow("Missing PDF data");
+  });
+});
+
+describe("sanitizeFileName", () => {
+  it("replaces characters that are unsafe in file names", () => {
+    expect(sanitizeFileName('a/b\\c:d*e?f"g<h>i|j')).toBe("a_b_c_d_e_f_g_h_i_j");
+  });
+
+  it("keeps safe names untouched", () => {
+    expect(sanitizeFileName("My notes-page-1.png")).toBe("My notes-page-1.png");
   });
 });

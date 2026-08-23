@@ -4,26 +4,32 @@ import { PAGE_HEIGHT, PAGE_WIDTH, PLACEMENT_MARGIN } from "./page";
 
 describe("placeImageSize", () => {
   it("keeps small images at their natural size", () => {
-    expect(placeImageSize(200, 100)).toEqual({ width: 200, height: 100 });
+    expect(placeImageSize(200, 100, PAGE_WIDTH, PAGE_HEIGHT)).toEqual({ width: 200, height: 100 });
   });
 
   it("shrinks oversized images to fit the page keeping aspect ratio", () => {
     const maxWidth = PAGE_WIDTH - PLACEMENT_MARGIN * 2;
-    const { width, height } = placeImageSize(maxWidth * 2, 100);
+    const { width, height } = placeImageSize(maxWidth * 2, 100, PAGE_WIDTH, PAGE_HEIGHT);
     expect(width).toBeCloseTo(maxWidth);
     expect(height).toBeCloseTo(100 / 2);
   });
 
   it("fits very tall images by height", () => {
     const maxHeight = PAGE_HEIGHT - PLACEMENT_MARGIN * 2;
-    const { width, height } = placeImageSize(100, maxHeight * 4);
+    const { width, height } = placeImageSize(100, maxHeight * 4, PAGE_WIDTH, PAGE_HEIGHT);
     expect(height).toBeCloseTo(maxHeight);
     expect(width).toBeCloseTo(100 / 4);
   });
 
+  it("shrinks images to fit a smaller page", () => {
+    const { width, height } = placeImageSize(440, 200, 300, 300);
+    expect(width).toBeCloseTo(300 - PLACEMENT_MARGIN * 2);
+    expect(height).toBeCloseTo((300 - PLACEMENT_MARGIN * 2) / 2.2);
+  });
+
   it("falls back to a default size for degenerate input", () => {
-    expect(placeImageSize(0, 0)).toEqual({ width: 300, height: 150 });
-    expect(placeImageSize(Number.NaN, Number.POSITIVE_INFINITY)).toEqual({
+    expect(placeImageSize(0, 0, PAGE_WIDTH, PAGE_HEIGHT)).toEqual({ width: 300, height: 150 });
+    expect(placeImageSize(Number.NaN, Number.POSITIVE_INFINITY, PAGE_WIDTH, PAGE_HEIGHT)).toEqual({
       width: 300,
       height: 150,
     });
@@ -32,7 +38,7 @@ describe("placeImageSize", () => {
 
 describe("createImageItem", () => {
   it("places the image at the top-left placement margin", () => {
-    const item = createImageItem("img-1", 200, 100);
+    const item = createImageItem("img-1", 200, 100, PAGE_WIDTH, PAGE_HEIGHT);
     expect(item.imageId).toBe("img-1");
     expect(item.id).not.toBe("img-1");
     expect(item.x).toBe(PLACEMENT_MARGIN);
@@ -44,7 +50,7 @@ describe("createImageItem", () => {
 
 describe("placeImageCentered", () => {
   it("fills the page width with a wide image and centers it vertically", () => {
-    const placed = placeImageCentered(200, 100);
+    const placed = placeImageCentered(200, 100, PAGE_WIDTH, PAGE_HEIGHT);
     expect(placed.width).toBeCloseTo(PAGE_WIDTH);
     expect(placed.height).toBeCloseTo((100 * PAGE_WIDTH) / 200);
     expect(placed.x).toBeCloseTo(0);
@@ -52,7 +58,7 @@ describe("placeImageCentered", () => {
   });
 
   it("fills the page height with a tall image and centers it horizontally", () => {
-    const placed = placeImageCentered(100, 200);
+    const placed = placeImageCentered(100, 200, PAGE_WIDTH, PAGE_HEIGHT);
     expect(placed.height).toBeCloseTo(PAGE_HEIGHT);
     expect(placed.width).toBeCloseTo((100 * PAGE_HEIGHT) / 200);
     expect(placed.y).toBeCloseTo(0);
@@ -60,7 +66,7 @@ describe("placeImageCentered", () => {
   });
 
   it("upscales small images to fill the page", () => {
-    const placed = placeImageCentered(50, 50);
+    const placed = placeImageCentered(50, 50, PAGE_WIDTH, PAGE_HEIGHT);
     expect(placed.width).toBeGreaterThan(50);
     expect(placed.height).toBeGreaterThan(50);
   });
@@ -71,11 +77,18 @@ describe("placeImageCentered", () => {
       [300, 400],
       [1000, 100],
     ]) {
-      const placed = placeImageCentered(w, h);
+      const placed = placeImageCentered(w, h, PAGE_WIDTH, PAGE_HEIGHT);
       const marginX = Math.min(placed.x, PAGE_WIDTH - placed.x - placed.width);
       const marginY = Math.min(placed.y, PAGE_HEIGHT - placed.y - placed.height);
       expect(Math.min(marginX, marginY)).toBeCloseTo(0);
     }
+  });
+
+  it("fills a small page the same way", () => {
+    const placed = placeImageCentered(200, 100, 400, 300);
+    expect(placed.width).toBeCloseTo(400);
+    expect(placed.height).toBeCloseTo(200);
+    expect(placed.y).toBeCloseTo(50);
   });
 });
 

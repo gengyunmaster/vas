@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { Board } from "../engine/board";
+import { clearImageCache } from "../engine/imageCache";
 import type { ToolKind } from "../model/stroke";
 import { startAutosave } from "../persistence/autosave";
 import { scheduleViewStateSave } from "../persistence/session";
@@ -22,8 +23,8 @@ export function BoardCanvas() {
     if (!container) return;
     const board = new Board(container, {
       getTool: () => {
-        const { tool, color, size } = useBoardStore.getState();
-        return { tool, color, size };
+        const { tool, color, size, exporting } = useBoardStore.getState();
+        return { tool, color, size, exporting };
       },
       onCommitStroke: (pageId, stroke) => useBoardStore.getState().addStroke(pageId, stroke),
       onEraseStroke: (pageId, strokeId) => useBoardStore.getState().removeStroke(pageId, strokeId),
@@ -49,6 +50,7 @@ export function BoardCanvas() {
     const unsubscribe = useBoardStore.subscribe((state, prev) => {
       if (state.pages !== prev.pages) board.syncPages(state.pages);
       if (state.selection !== prev.selection) board.syncSelection(state.selection);
+      if (state.presentation !== prev.presentation) board.setPresentation(state.presentation);
       if (state.tool !== prev.tool) {
         container.style.cursor = cursorForTool(state.tool);
         if (state.tool !== "select" && state.selection) {
@@ -67,9 +69,16 @@ export function BoardCanvas() {
       stopAutosave();
       unsubscribe();
       board.destroy();
+      clearImageCache();
     };
   }, []);
 
-  const shifted = sidebarOpen && !presentation;
-  return <div ref={containerRef} className={shifted ? "board board-shifted" : "board"} />;
+  const className = [
+    "board",
+    sidebarOpen ? "board-shifted" : "",
+    presentation ? "board-presenting" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+  return <div ref={containerRef} className={className} />;
 }

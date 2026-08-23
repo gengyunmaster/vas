@@ -1,5 +1,6 @@
 import { ERASER_TOLERANCE, hitTestStroke } from "./hitTest";
 import type { ImageItem } from "./image";
+import type { Page } from "./page";
 import { arrowHead, ellipseOutline, type Point } from "./shapeGeometry";
 import { effectiveStrokeSize, type Stroke } from "./stroke";
 
@@ -120,6 +121,19 @@ export function imageInLasso(image: ImageItem, lasso: Point[]): boolean {
 export function imagesInLasso(images: ImageItem[], lasso: Point[]): ImageItem[] {
   if (lasso.length < 2) return [];
   return images.filter((image) => !image.locked && imageInLasso(image, lasso));
+}
+
+export function pickElements(
+  page: Page,
+  strokeIds: string[],
+  imageIds: string[],
+): { strokes: Stroke[]; images: ImageItem[] } {
+  const strokeIdSet = new Set(strokeIds);
+  const imageIdSet = new Set(imageIds);
+  return {
+    strokes: page.strokes.filter((stroke) => strokeIdSet.has(stroke.id)),
+    images: page.images.filter((image) => imageIdSet.has(image.id)),
+  };
 }
 
 function polygonEdges(polygon: Point[]): [Point, Point][] {

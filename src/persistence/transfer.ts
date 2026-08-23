@@ -1,7 +1,16 @@
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import { normalizeHex } from "../model/color";
 import { type ImageItem, imageExtension } from "../model/image";
-import { PAGE_PATTERNS, type Page, type PagePattern } from "../model/page";
+import {
+  MAX_PAGE_SIZE,
+  MIN_PAGE_SIZE,
+  PAGE_HEIGHT,
+  PAGE_PATTERNS,
+  PAGE_WIDTH,
+  type Page,
+  type PagePattern,
+  type PdfSource,
+} from "../model/page";
 import {
   newId,
   type PenKind,
@@ -11,8 +20,8 @@ import {
   type StrokePoint,
 } from "../model/stroke";
 import type { ViewState } from "../model/viewState";
-import type { ImageRecord } from "./db";
-import { deleteImages, getImage, saveImages } from "./images";
+import type { ImageRecord, PdfRecord } from "./db";
+import { deleteImages, getImage, retainImages, saveImages } from "./images";
 import {
   createNotebook,
   deleteNotebook,
@@ -20,9 +29,10 @@ import {
   replacePages,
   saveViewState,
 } from "./notebooks";
+import { deletePdfs, getPdf, retainPdfs, savePdf } from "./pdfs";
 
 export const FILE_FORMAT = "vas-notebook";
-export const FILE_VERSION = 2;
+export const FILE_VERSION = 3;
 export const NOTEBOOK_JSON_ENTRY = "notebook.json";
 
 const FALLBACK_INK = "#1a1a1a";
@@ -35,11 +45,17 @@ export interface ImageManifestEntry {
   sourceId?: string;
 }
 
+export interface PdfManifestEntry {
+  docId: string;
+  sourceId?: string;
+}
+
 export function serializeNotebook(
   title: string,
   pages: Page[],
   images: ImageManifestEntry[] = [],
   viewState?: ViewState,
+  pdfs: PdfManifestEntry[] = [],
 ): string {
   return JSON.stringify(
     {
@@ -48,6 +64,8 @@ export function serializeNotebook(
       title,
       ...(viewState ? { viewState } : {}),
       pages: pages.map((page) => ({
+        width: page.width,
+        height: page.height,
         paperColor: page.paperColor,
         pattern: page.pattern,
         strokes: page.strokes.map((stroke) => ({
@@ -66,10 +84,12 @@ export function serializeNotebook(
           height: image.height,
           ...(image.locked ? { locked: true } : {}),
         })),
+        ...(page.pdfSource ? { pdfSource: page.pdfSource } : {}),
       })),
       ...(images.length > 0
         ? { images: images.map((e) => ({ imageId: e.imageId, mimeType: e.mimeType })) }
         : {}),
+      ...(pdfs.length > 0 ? { pdfs: pdfs.map((e) => ({ docId: e.docId })) } : {}),
     },
     null,
     2,
@@ -80,13 +100,14 @@ export function parseNotebookFile(text: string): {
   title: string;
   pages: Page[];
   images: Required<ImageManifestEntry>[];
+  pdfs: Required<PdfManifestEntry>[];
   viewState?: ViewState;
 } {
   const data: unknown = JSON.parse(text);
   if (!isRecord(data) || data.format !== FILE_FORMAT) {
     throw new Error("Not a vas notebook file");
   }
-  if (data.version !== 1 && data.version !== FILE_VERSION) {
+  if (typeof data.version !== "number" || data.version < 1 || data.version > FILE_VERSION) {
     throw new Error(`Unsupported file version: ${String(data.version)}`);
   }
   const title =
@@ -97,11 +118,14 @@ export function parseNotebookFile(text: string): {
     throw new Error("File contains no pages");
   }
   const images = parseImageManifest(data);
+  const pdfs = parsePdfManifest(data);
   const remap = new Map(images.map((entry) => [entry.sourceId, entry.imageId]));
+  const pdfRemap = new Map(pdfs.map((entry) => [entry.sourceId, entry.docId]));
   return {
     title,
-    pages: data.pages.map((page) => parsePage(page, remap)),
+    pages: data.pages.map((page) => parsePage(page, remap, pdfRemap)),
     images,
+    pdfs,
     viewState: parseViewState(data.viewState),
   };
 }
@@ -136,6 +160,10 @@ export function imageEntryPath(imageId: string, mimeType: string): string {
   return `images/${imageId}.${imageExtension(mimeType)}`;
 }
 
+export function pdfEntryPath(docId: string): string {
+  return `pdfs/${docId}.pdf`;
+}
+
 export function resolveImageEntries(
   entries: Record<string, Uint8Array>,
   manifest: Required<ImageManifestEntry>[],
@@ -147,33 +175,50 @@ export function resolveImageEntries(
   });
 }
 
+export function resolvePdfEntries(
+  entries: Record<string, Uint8Array>,
+  manifest: Required<PdfManifestEntry>[],
+): Uint8Array[] {
+  return manifest.map((entry) => {
+    const data = entries[pdfEntryPath(entry.sourceId)];
+    if (!data) throw new Error(`Missing PDF data for ${entry.sourceId}`);
+    return data;
+  });
+}
+
 export async function downloadNotebook(id: string): Promise<void> {
   const { meta, pages } = await loadNotebook(id);
   const referenced = new Set<string>();
+  const referencedPdfs = new Set<string>();
   for (const page of pages) {
     for (const image of page.images) referenced.add(image.imageId);
-  }
-  if (referenced.size === 0) {
-    const blob = new Blob([serializeNotebook(meta.title, pages, [], meta.viewState)], {
-      type: "application/json",
-    });
-    downloadBlob(blob, `${meta.title}.vas.json`);
-    return;
+    if (page.pdfSource) referencedPdfs.add(page.pdfSource.docId);
   }
   const records = new Map<string, ImageRecord>();
   for (const imageId of referenced) {
     const record = await getImage(imageId);
     if (record) records.set(imageId, record);
   }
+  const pdfRecords = new Map<string, PdfRecord>();
+  for (const docId of referencedPdfs) {
+    const record = await getPdf(docId);
+    if (record) pdfRecords.set(docId, record);
+  }
   const cleanPages = pages.map((page) => ({
     ...page,
     images: page.images.filter((image) => records.has(image.imageId)),
+    ...(page.pdfSource && !pdfRecords.has(page.pdfSource.docId) ? { pdfSource: undefined } : {}),
   }));
   const manifest: ImageManifestEntry[] = [...records.values()].map((record) => ({
     imageId: record.id,
     mimeType: record.mimeType,
   }));
-  const json = serializeNotebook(meta.title, cleanPages, manifest, meta.viewState);
+  const pdfManifest: PdfManifestEntry[] = [...pdfRecords.keys()].map((docId) => ({ docId }));
+  const json = serializeNotebook(meta.title, cleanPages, manifest, meta.viewState, pdfManifest);
+  if (records.size === 0 && pdfRecords.size === 0) {
+    downloadBlob(new Blob([json], { type: "application/json" }), `${meta.title}.vas.json`);
+    return;
+  }
   const files: { path: string; data: Uint8Array }[] = [];
   for (const record of records.values()) {
     files.push({
@@ -181,18 +226,25 @@ export async function downloadNotebook(id: string): Promise<void> {
       data: new Uint8Array(await record.blob.arrayBuffer()),
     });
   }
+  for (const record of pdfRecords.values()) {
+    files.push({
+      path: pdfEntryPath(record.id),
+      data: new Uint8Array(await record.blob.arrayBuffer()),
+    });
+  }
   const zip = buildNotebookZip(json, files);
-  downloadBlob(
-    new Blob([zip.buffer as ArrayBuffer], { type: "application/zip" }),
-    `${meta.title}.vas.zip`,
-  );
+  downloadBlob(new Blob([zip.slice()], { type: "application/zip" }), `${meta.title}.vas.zip`);
+}
+
+export function sanitizeFileName(name: string): string {
+  return name.replace(/[\\/:*?"<>|]/g, "_");
 }
 
 export function downloadBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
-  anchor.download = filename.replace(/[\\/:*?"<>|]/g, "_");
+  anchor.download = sanitizeFileName(filename);
   anchor.click();
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
@@ -203,8 +255,10 @@ export async function importNotebookFile(file: File): Promise<string> {
     return importNotebookZip(bytes);
   }
   const parsed = parseNotebookFile(strFromU8(bytes));
-  if (parsed.images.length > 0) {
-    throw new Error("This file references images; import the original .vas.zip archive instead");
+  if (parsed.images.length > 0 || parsed.pdfs.length > 0) {
+    throw new Error(
+      "This file references binary assets; import the original .vas.zip archive instead",
+    );
   }
   const meta = await createNotebook(parsed.title);
   try {
@@ -231,19 +285,33 @@ async function importNotebookZip(bytes: Uint8Array): Promise<string> {
   const records: ImageRecord[] = parsed.images.map((entry, index) => ({
     id: entry.imageId,
     mimeType: entry.mimeType,
-    blob: new Blob([imageData[index].buffer as ArrayBuffer], { type: entry.mimeType }),
+    blob: new Blob([imageData[index].slice()], { type: entry.mimeType }),
   }));
-  const meta = await createNotebook(parsed.title);
+  const pdfData = resolvePdfEntries(entries, parsed.pdfs);
+  const pdfRecords: PdfRecord[] = parsed.pdfs.map((entry, index) => ({
+    id: entry.docId,
+    blob: new Blob([pdfData[index].slice()], { type: "application/pdf" }),
+  }));
+  const releaseImages = retainImages(parsed.images.map((entry) => entry.imageId));
+  const releasePdfs = retainPdfs(parsed.pdfs.map((entry) => entry.docId));
   try {
-    await saveImages(records);
-    await replacePages(meta.id, parsed.pages);
-    if (parsed.viewState) await saveViewState(meta.id, parsed.viewState);
-  } catch (error) {
-    await deleteNotebook(meta.id);
-    await deleteImages(records.map((record) => record.id));
-    throw error;
+    const meta = await createNotebook(parsed.title);
+    try {
+      await saveImages(records);
+      for (const record of pdfRecords) await savePdf(record);
+      await replacePages(meta.id, parsed.pages);
+      if (parsed.viewState) await saveViewState(meta.id, parsed.viewState);
+    } catch (error) {
+      await deleteNotebook(meta.id);
+      await deleteImages(records.map((record) => record.id)).catch(() => {});
+      await deletePdfs(pdfRecords.map((record) => record.id)).catch(() => {});
+      throw error;
+    }
+    return meta.id;
+  } finally {
+    releaseImages();
+    releasePdfs();
   }
-  return meta.id;
 }
 
 function parseImageManifest(data: Record<string, unknown>): Required<ImageManifestEntry>[] {
@@ -264,17 +332,42 @@ function parseImageManifest(data: Record<string, unknown>): Required<ImageManife
   });
 }
 
-function parsePage(raw: unknown, remap: Map<string, string>): Page {
+function parsePdfManifest(data: Record<string, unknown>): Required<PdfManifestEntry>[] {
+  if (data.pdfs === undefined) return [];
+  if (!Array.isArray(data.pdfs)) throw new Error("Invalid pdfs manifest");
+  return data.pdfs.map((raw) => {
+    if (!isRecord(raw) || typeof raw.docId !== "string" || raw.docId.length === 0) {
+      throw new Error("Invalid pdf entry");
+    }
+    return { docId: newId(), sourceId: raw.docId };
+  });
+}
+
+function parsePdfSource(raw: unknown, pdfRemap: Map<string, string>): PdfSource | undefined {
+  if (raw === undefined) return undefined;
+  if (!isRecord(raw) || typeof raw.docId !== "string") throw new Error("Invalid pdf source");
+  const docId = pdfRemap.get(raw.docId);
+  if (!docId) throw new Error("Page references an unknown pdf");
+  if (typeof raw.pageIndex !== "number" || !Number.isInteger(raw.pageIndex) || raw.pageIndex < 0) {
+    throw new Error("Invalid pdf source page index");
+  }
+  return { docId, pageIndex: raw.pageIndex };
+}
+
+function parsePage(raw: unknown, remap: Map<string, string>, pdfRemap: Map<string, string>): Page {
   if (!isRecord(raw)) throw new Error("Invalid page");
   if (!Array.isArray(raw.strokes)) throw new Error("Invalid page strokes");
   return {
     id: newId(),
+    width: parseOptionalPageSize(raw.width, PAGE_WIDTH, "page width"),
+    height: parseOptionalPageSize(raw.height, PAGE_HEIGHT, "page height"),
     paperColor: parseColor(raw.paperColor, FALLBACK_PAPER),
     pattern: PAGE_PATTERNS.includes(raw.pattern as PagePattern)
       ? (raw.pattern as PagePattern)
       : "blank",
     strokes: raw.strokes.map(parseStroke),
     images: parsePageImages(raw.images, remap),
+    ...(raw.pdfSource !== undefined ? { pdfSource: parsePdfSource(raw.pdfSource, pdfRemap) } : {}),
   };
 }
 
@@ -300,6 +393,13 @@ function parsePageImages(raw: unknown, remap: Map<string, string>): ImageItem[] 
 function parseFiniteNumber(raw: unknown, label: string): number {
   if (typeof raw !== "number" || !Number.isFinite(raw)) throw new Error(`Invalid ${label}`);
   return raw;
+}
+
+function parseOptionalPageSize(raw: unknown, fallback: number, label: string): number {
+  if (raw === undefined) return fallback;
+  const value = parseFiniteNumber(raw, label);
+  if (value < MIN_PAGE_SIZE || value > MAX_PAGE_SIZE) throw new Error(`Invalid ${label}`);
+  return value;
 }
 
 function parsePositiveNumber(raw: unknown, label: string): number {

@@ -3,6 +3,7 @@ dist
 coverage
 *.local
 *.log
+*.tar.gz
 .DS_Store
 .vscode
 .idea

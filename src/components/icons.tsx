@@ -149,6 +149,17 @@ export function ImageIcon() {
   );
 }
 
+export function ImportPdfIcon() {
+  return (
+    <Icon title="Import PDF">
+      <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z" />
+      <path d="M14 2v4a2 2 0 0 0 2 2h4" />
+      <path d="M12 18v-6" />
+      <path d="m9 15 3 3 3-3" />
+    </Icon>
+  );
+}
+
 export function RenameIcon() {
   return (
     <Icon title="Rename">
@@ -163,15 +174,6 @@ export function ExportIcon() {
       <path d="M12 4v12" />
       <path d="M7 11l5 5 5-5" />
       <path d="M4 20h16" />
-    </Icon>
-  );
-}
-
-export function ExitIcon() {
-  return (
-    <Icon title="Exit presentation">
-      <path d="M6 6l12 12" />
-      <path d="M18 6L6 18" />
     </Icon>
   );
 }

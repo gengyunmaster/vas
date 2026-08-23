@@ -1,4 +1,4 @@
-import { PAGE_HEIGHT, PAGE_WIDTH, type PagePattern } from "./page";
+import type { PagePattern } from "./page";
 
 export const PATTERN_MARGIN = 48;
 export const PATTERN_SPACING = 56;
@@ -23,18 +23,18 @@ export interface PatternLayout {
   dots: PatternDot[];
 }
 
-export function patternLayout(pattern: PagePattern): PatternLayout {
+export function patternLayout(pattern: PagePattern, width: number, height: number): PatternLayout {
   switch (pattern) {
     case "blank":
       return { lines: [], dots: [] };
     case "lined":
-      return { lines: linedLines(), dots: [] };
+      return { lines: linedLines(width, height), dots: [] };
     case "grid":
-      return { lines: gridLines(), dots: [] };
+      return { lines: gridLines(width, height), dots: [] };
     case "dots":
-      return { lines: [], dots: dotLattice() };
+      return { lines: [], dots: dotLattice(width, height) };
     case "rice":
-      return { lines: riceLines(), dots: [] };
+      return { lines: riceLines(width, height), dots: [] };
   }
 }
 
@@ -44,17 +44,17 @@ function centeredSpan(total: number, spacing: number): { start: number; cells: n
   return { start: (total - cells * spacing) / 2, cells };
 }
 
-function linedLines(): PatternLine[] {
+function linedLines(width: number, height: number): PatternLine[] {
   const lines: PatternLine[] = [];
   for (
     let y = PATTERN_MARGIN + PATTERN_SPACING;
-    y <= PAGE_HEIGHT - PATTERN_MARGIN;
+    y <= height - PATTERN_MARGIN;
     y += PATTERN_SPACING
   ) {
     lines.push({
       x1: PATTERN_MARGIN,
       y1: y,
-      x2: PAGE_WIDTH - PATTERN_MARGIN,
+      x2: width - PATTERN_MARGIN,
       y2: y,
       dashed: false,
     });
@@ -62,9 +62,9 @@ function linedLines(): PatternLine[] {
   return lines;
 }
 
-function gridLines(): PatternLine[] {
-  const { start: startX, cells: cols } = centeredSpan(PAGE_WIDTH, PATTERN_SPACING);
-  const { start: startY, cells: rows } = centeredSpan(PAGE_HEIGHT, PATTERN_SPACING);
+function gridLines(width: number, height: number): PatternLine[] {
+  const { start: startX, cells: cols } = centeredSpan(width, PATTERN_SPACING);
+  const { start: startY, cells: rows } = centeredSpan(height, PATTERN_SPACING);
   const endX = startX + cols * PATTERN_SPACING;
   const endY = startY + rows * PATTERN_SPACING;
   const lines: PatternLine[] = [];
@@ -79,9 +79,9 @@ function gridLines(): PatternLine[] {
   return lines;
 }
 
-function dotLattice(): PatternDot[] {
-  const { start: startX, cells: cols } = centeredSpan(PAGE_WIDTH, PATTERN_SPACING);
-  const { start: startY, cells: rows } = centeredSpan(PAGE_HEIGHT, PATTERN_SPACING);
+function dotLattice(width: number, height: number): PatternDot[] {
+  const { start: startX, cells: cols } = centeredSpan(width, PATTERN_SPACING);
+  const { start: startY, cells: rows } = centeredSpan(height, PATTERN_SPACING);
   const dots: PatternDot[] = [];
   for (let row = 0; row <= rows; row++) {
     for (let col = 0; col <= cols; col++) {
@@ -94,9 +94,9 @@ function dotLattice(): PatternDot[] {
   return dots;
 }
 
-function riceLines(): PatternLine[] {
-  const { start: startX, cells: cols } = centeredSpan(PAGE_WIDTH, RICE_CELL);
-  const { start: startY, cells: rows } = centeredSpan(PAGE_HEIGHT, RICE_CELL);
+function riceLines(width: number, height: number): PatternLine[] {
+  const { start: startX, cells: cols } = centeredSpan(width, RICE_CELL);
+  const { start: startY, cells: rows } = centeredSpan(height, RICE_CELL);
   const endX = startX + cols * RICE_CELL;
   const endY = startY + rows * RICE_CELL;
   const lines: PatternLine[] = [];

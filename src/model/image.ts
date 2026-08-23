@@ -1,4 +1,4 @@
-import { PAGE_HEIGHT, PAGE_WIDTH, PLACEMENT_MARGIN } from "./page";
+import { PLACEMENT_MARGIN } from "./page";
 import { newId } from "./stroke";
 
 export interface ImageItem {
@@ -14,11 +14,13 @@ export interface ImageItem {
 export function placeImageSize(
   naturalWidth: number,
   naturalHeight: number,
+  pageWidth: number,
+  pageHeight: number,
 ): { width: number; height: number } {
   const safeWidth = naturalWidth > 0 && Number.isFinite(naturalWidth) ? naturalWidth : 300;
   const safeHeight = naturalHeight > 0 && Number.isFinite(naturalHeight) ? naturalHeight : 150;
-  const maxWidth = PAGE_WIDTH - PLACEMENT_MARGIN * 2;
-  const maxHeight = PAGE_HEIGHT - PLACEMENT_MARGIN * 2;
+  const maxWidth = pageWidth - PLACEMENT_MARGIN * 2;
+  const maxHeight = pageHeight - PLACEMENT_MARGIN * 2;
   const scale = Math.min(1, maxWidth / safeWidth, maxHeight / safeHeight);
   return { width: safeWidth * scale, height: safeHeight * scale };
 }
@@ -26,15 +28,17 @@ export function placeImageSize(
 export function placeImageCentered(
   naturalWidth: number,
   naturalHeight: number,
+  pageWidth: number,
+  pageHeight: number,
 ): { x: number; y: number; width: number; height: number } {
   const safeWidth = naturalWidth > 0 && Number.isFinite(naturalWidth) ? naturalWidth : 300;
   const safeHeight = naturalHeight > 0 && Number.isFinite(naturalHeight) ? naturalHeight : 150;
-  const scale = Math.min(PAGE_WIDTH / safeWidth, PAGE_HEIGHT / safeHeight);
+  const scale = Math.min(pageWidth / safeWidth, pageHeight / safeHeight);
   const width = safeWidth * scale;
   const height = safeHeight * scale;
   return {
-    x: (PAGE_WIDTH - width) / 2,
-    y: (PAGE_HEIGHT - height) / 2,
+    x: (pageWidth - width) / 2,
+    y: (pageHeight - height) / 2,
     width,
     height,
   };
@@ -44,8 +48,10 @@ export function createImageItem(
   imageId: string,
   naturalWidth: number,
   naturalHeight: number,
+  pageWidth: number,
+  pageHeight: number,
 ): ImageItem {
-  const { width, height } = placeImageSize(naturalWidth, naturalHeight);
+  const { width, height } = placeImageSize(naturalWidth, naturalHeight, pageWidth, pageHeight);
   return { id: newId(), imageId, x: PLACEMENT_MARGIN, y: PLACEMENT_MARGIN, width, height };
 }
 

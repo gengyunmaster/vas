@@ -1,11 +1,14 @@
 import type { ImageItem } from "../model/image";
-import { PAGE_HEIGHT, PAGE_WIDTH, type Page } from "../model/page";
+import type { Page } from "../model/page";
 import { get2dContext } from "./canvas";
 import { paintPage } from "./renderPage";
 import { drawStroke } from "./renderStroke";
 
 const MAX_CACHE_PIXELS = 16_000_000;
-export const MAX_CACHE_RENDER_SCALE = Math.sqrt(MAX_CACHE_PIXELS / (PAGE_WIDTH * PAGE_HEIGHT));
+
+export function maxCacheRenderScale(page: Page): number {
+  return Math.sqrt(MAX_CACHE_PIXELS / (page.width * page.height));
+}
 
 interface CacheEntry {
   canvas: HTMLCanvasElement;
@@ -18,11 +21,13 @@ export class PageCache {
   private entries = new Map<string, CacheEntry>();
 
   sync(page: Page, renderScale: number): HTMLCanvasElement {
-    renderScale = Math.min(renderScale, MAX_CACHE_RENDER_SCALE);
+    renderScale = Math.min(renderScale, maxCacheRenderScale(page));
     const entry = this.entries.get(page.id);
     if (
       entry &&
       entry.renderScale === renderScale &&
+      entry.page.width === page.width &&
+      entry.page.height === page.height &&
       entry.page.paperColor === page.paperColor &&
       entry.page.pattern === page.pattern
     ) {

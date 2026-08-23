@@ -12,8 +12,9 @@ self-hosted instance keep separate data; use export / import to move notebooks a
 
 - **Natural pen feel** — pressure-sensitive strokes (Apple Pencil & compatible pens),
   velocity-simulated pressure for finger and mouse, low-latency canvas rendering
-- **Paginated A4 notebooks** — continuous vertical scrolling, pinch zoom up to 20x with
-  crisp vector redraw
+- **Paginated notebooks** — continuous vertical scrolling, pinch zoom up to 20x with
+  crisp vector redraw; page size is per-page (A4-proportioned 794×1123 by default,
+  adjustable per page from 200 to 5000 px, mixed sizes within one notebook)
 - **Tools** — pen, highlighter, stroke eraser, laser pointer (for teaching), and shapes
   (line / arrow / rectangle / ellipse)
 - **Lasso selection** — circle content to select it, then move, scale / stretch (staying
@@ -23,23 +24,35 @@ self-hosted instance keep separate data; use export / import to move notebooks a
   auto-fit to the page and stored at original quality
 - **PDF import** — import a PDF from the home screen to create a notebook, or into the
   open notebook (pages inserted after the current one, inheriting its style); every page
-  is rendered at 3x clarity, scaled to fill the sheet, and locked in place (lasso can't
-  select it); annotate freely on top; password-protected PDFs supported
+  is rendered at 4x point resolution, scaled to fill the sheet, and locked in place
+  (lasso can't select it); home-screen imports size each page after its PDF page;
+  annotate freely on top; password-protected PDFs are decrypted in the
+  browser on import (qpdf-wasm, password prompted once) and stored without a password,
+  so exports can re-embed them as true vector pages
 - **Per-page paper** — paper colors (presets incl. blackboard green and calligraphy tan,
   plus custom hex) and background templates (blank / lined / grid / dots / rice grid),
   with contrast-aware guide lines
 - **Page management** — insert / delete / clear pages, automatic page continuation,
-  thumbnail sidebar with A4-accurate previews and long-press drag to reorder
-- **Presentation mode** — hides all UI for clean screen recordings
+  thumbnail sidebar with aspect-accurate previews and long-press drag to reorder
+- **Presentation mode** — full-screen slideshow: one page fitted to the screen on a
+  black backdrop, wheel / swipe / arrow-key paging with a scroll animation, writing
+  stays enabled
 - **Multiple notebooks** — home screen with create / rename / delete, plus merging:
   select notebooks to combine their pages into a new one (selection order preserved;
   a single selection duplicates a notebook; shared images stay stored once)
 - **Local-first storage** — IndexedDB autosave, per-notebook view state (scroll position
   and zoom restored on reopen, also carried in exports), JSON export for image-less
-  notebooks and zip export (JSON + image files) for notebooks with images, both
-  re-importable
-- **Vector PDF export** — strokes stay sharp at any zoom level, images embedded from the
-  original bytes (JPEG/PNG), plus PNG export of the current page
+  notebooks and zip export (JSON + image files + original PDFs) for notebooks with
+  images or PDF pages, both re-importable
+- **Vector PDF export** — strokes stay sharp at any zoom level, inserted SVG images stay
+  vector too, raster images embedded from the original bytes (JPEG/PNG); imported PDF
+  pages keep their original bytes, which are re-embedded as a true vector layer beneath
+  your annotations on export (with raster fallback for encrypted files)
+- **Flexible export scopes** — every export offers three scopes: the current selection
+  (clipped to its bounds, transparent background, no paper color / guides / PDF base
+  image — white background for PDF, which has no transparency concept), the current
+  page, or the whole notebook (trailing blank pages trimmed); pick PDF, vector SVG, or
+  2x PNG, and multi-page SVG/PNG exports download as a zip
 - **PWA** — installable and fully offline; all assets (including the on-demand PDF
   engine) are precached
 
@@ -51,9 +64,10 @@ self-hosted instance keep separate data; use export / import to move notebooks a
 
 ## Tech stack
 
-React 19 · TypeScript · Vite · zustand · perfect-freehand · idb · pdf-lib (lazy-loaded)
-· pdfjs-dist (lazy-loaded) · fflate · vite-plugin-pwa · Biome · Vitest — no UI component
-library, no backend.
+React 19 · TypeScript · Vite · zustand · perfect-freehand · idb · jsPDF + svg2pdf.js
+(lazy-loaded) · pdfjs-dist (lazy-loaded) · pdf-lib (lazy-loaded) · @neslinesli93/qpdf-wasm
+(lazy-loaded) · fflate ·
+vite-plugin-pwa · Biome · Vitest — no UI component library, no backend.
 
 ## Project structure
 
@@ -62,11 +76,13 @@ src/
   components/    React UI (Home, Toolbar, SettingsPanel, PageSidebar, SelectionBar, ...)
   engine/        rendering engine: board, viewport, pageCache, imageCache,
                  renderPage/renderStroke/patterns/shapes, canvas
-  model/         data model & pure functions: stroke, page, color, image, viewState,
-                 hitTest, patternLayout, shapeGeometry, selection, transform
+  model/         data model & pure functions: stroke, page, pageSize, color, image,
+                 viewState, hitTest, patternLayout, shapeGeometry, selection, transform,
+                 pdfPage
   store/         zustand stores
-  persistence/   IndexedDB (db, notebooks, images, transfer, autosave, prefs, session),
-                 insertImage, importPdf, rasterize, exportPdf, exportImage
+  persistence/   IndexedDB (db, notebooks, images, pdfs, transfer, autosave, prefs,
+                 session), insertImage, importPdf, decryptPdf, rasterize, exportPdf,
+                 exportImage, exportSvg, exportZip, svgPath, imageDataUri
   pwa/           service worker registration
 public/          PWA icons (generated by scripts/generate-icons.mjs)
 scripts/         one-off utility scripts
@@ -78,7 +94,7 @@ deploy/          nginx config for the Docker runtime stage
 Requirements: **Node.js >= 20.19** (22 or 24 LTS recommended).
 
 ```bash
-git clone <repo-url>
+git clone https://github.com/gengyunmaster/vas.git
 cd vas
 npm ci
 npm run dev

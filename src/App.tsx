@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { BoardCanvas } from "./components/BoardCanvas";
 import { Home } from "./components/Home";
-import { ExitIcon } from "./components/icons";
 import { PageIndicator } from "./components/PageIndicator";
 import { PageSidebar } from "./components/PageSidebar";
 import { SelectionBar } from "./components/SelectionBar";
@@ -60,6 +59,7 @@ export default function App() {
         return;
       }
       if (typing) return;
+      if (useBoardStore.getState().exporting) return;
       if (event.key === "Delete") {
         const state = useBoardStore.getState();
         if (state.selection) {
@@ -102,7 +102,7 @@ export default function App() {
         return;
       }
       const state = useBoardStore.getState();
-      if (!state.notebookId) return;
+      if (!state.notebookId || state.exporting) return;
       const file = [...(event.clipboardData?.files ?? [])].find((f) => f.type.startsWith("image/"));
       if (file) {
         event.preventDefault();
@@ -127,13 +127,36 @@ export default function App() {
     return () => window.removeEventListener("pagehide", onPageHide);
   }, []);
 
+  useEffect(() => {
+    if (!presentation) return;
+    let cancelled = false;
+    const root = document.documentElement;
+    if (root.requestFullscreen) {
+      root
+        .requestFullscreen()
+        .then(() => {
+          if (cancelled) void document.exitFullscreen().catch(() => {});
+        })
+        .catch(() => {});
+    }
+    const onFullscreenChange = () => {
+      if (!document.fullscreenElement) useBoardStore.getState().setPresentation(false);
+    };
+    document.addEventListener("fullscreenchange", onFullscreenChange);
+    return () => {
+      cancelled = true;
+      document.removeEventListener("fullscreenchange", onFullscreenChange);
+      if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
+    };
+  }, [presentation]);
+
   if (!ready) return null;
 
   return notebookId ? (
     <>
       <BoardCanvas />
-      {!presentation && <PageSidebar />}
-      {presentation ? <ExitPresentation /> : <Toolbar />}
+      <PageSidebar />
+      <Toolbar />
       {!presentation && <SelectionBar />}
       {!presentation && <PageIndicator />}
     </>
@@ -146,18 +169,5 @@ export default function App() {
         });
       }}
     />
-  );
-}
-
-function ExitPresentation() {
-  return (
-    <button
-      type="button"
-      className="exit-presentation"
-      title="Exit presentation (Esc)"
-      onClick={() => useBoardStore.getState().setPresentation(false)}
-    >
-      <ExitIcon />
-    </button>
   );
 }

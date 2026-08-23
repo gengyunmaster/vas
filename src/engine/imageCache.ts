@@ -28,6 +28,11 @@ export function primeImage(imageId: string, image: HTMLImageElement): void {
   for (const listener of listeners) listener(imageId);
 }
 
+export function clearImageCache(): void {
+  cache.clear();
+  failed.clear();
+}
+
 export function onImageLoaded(listener: (imageId: string) => void): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);

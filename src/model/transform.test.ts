@@ -3,6 +3,7 @@ import type { Stroke } from "./stroke";
 import {
   clampMoveDelta,
   clampScaleToPage,
+  elementsBounds,
   imagesBounds,
   scaleBounds,
   scaleImage,
@@ -50,6 +51,21 @@ describe("strokesBounds", () => {
     const stroke: Stroke = { ...penStroke("h", [{ x: 10, y: 10 }], 4), pen: "highlighter" };
     const bounds = strokesBounds([stroke]);
     expect(bounds?.minX).toBeCloseTo(10 - (4 * 2.2) / 2);
+  });
+});
+
+describe("elementsBounds", () => {
+  it("unions stroke and image bounds", () => {
+    const stroke = penStroke("s", [
+      { x: 50, y: 50 },
+      { x: 60, y: 60 },
+    ]);
+    const image = { id: "i1", imageId: "img1", x: 10, y: 10, width: 20, height: 20 };
+    expect(elementsBounds([stroke], [image])).toEqual({ minX: 10, minY: 10, maxX: 62, maxY: 62 });
+  });
+
+  it("returns null when there is nothing to export", () => {
+    expect(elementsBounds([], [])).toBeNull();
   });
 });
 
@@ -112,32 +128,36 @@ describe("clampMoveDelta", () => {
   const bounds = { minX: 10, minY: 10, maxX: 110, maxY: 110 };
 
   it("keeps deltas that fit on the page", () => {
-    expect(clampMoveDelta(bounds, 50, -5)).toEqual({ dx: 50, dy: -5 });
+    expect(clampMoveDelta(bounds, 50, -5, 794, 1123)).toEqual({ dx: 50, dy: -5 });
   });
 
   it("clamps movement beyond the page edges", () => {
-    expect(clampMoveDelta(bounds, -500, 0).dx).toBe(-10);
-    expect(clampMoveDelta(bounds, 0, 99999).dy).toBe(1123 - 110);
-    expect(clampMoveDelta(bounds, 99999, 0).dx).toBe(794 - 110);
+    expect(clampMoveDelta(bounds, -500, 0, 794, 1123).dx).toBe(-10);
+    expect(clampMoveDelta(bounds, 0, 99999, 794, 1123).dy).toBe(1123 - 110);
+    expect(clampMoveDelta(bounds, 99999, 0, 794, 1123).dx).toBe(794 - 110);
+  });
+
+  it("respects a smaller page", () => {
+    expect(clampMoveDelta(bounds, 99999, 99999, 300, 300)).toEqual({ dx: 190, dy: 190 });
   });
 });
 
 describe("clampScaleToPage", () => {
   it("allows scaling that stays on the page", () => {
     const bounds = { minX: 100, minY: 100, maxX: 200, maxY: 200 };
-    expect(clampScaleToPage(bounds, { x: 100, y: 100 }, 2, 2)).toEqual({ sx: 2, sy: 2 });
+    expect(clampScaleToPage(bounds, { x: 100, y: 100 }, 2, 2, 794, 1123)).toEqual({ sx: 2, sy: 2 });
   });
 
   it("clamps scaling that would overflow the page", () => {
     const bounds = { minX: 100, minY: 100, maxX: 200, maxY: 200 };
-    const clamped = clampScaleToPage(bounds, { x: 100, y: 100 }, 100, 100);
+    const clamped = clampScaleToPage(bounds, { x: 100, y: 100 }, 100, 100, 794, 1123);
     expect(clamped.sx).toBeCloseTo((794 - 100) / 100);
     expect(clamped.sy).toBeCloseTo((1123 - 100) / 100);
   });
 
   it("supports shrinking without limits", () => {
     const bounds = { minX: 100, minY: 100, maxX: 200, maxY: 200 };
-    expect(clampScaleToPage(bounds, { x: 100, y: 100 }, 0.5, 0.25)).toEqual({
+    expect(clampScaleToPage(bounds, { x: 100, y: 100 }, 0.5, 0.25, 794, 1123)).toEqual({
       sx: 0.5,
       sy: 0.25,
     });

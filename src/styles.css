@@ -28,6 +28,10 @@ body {
   cursor: crosshair;
 }
 
+.board.board-presenting {
+  background: #000000;
+}
+
 .board-layer {
   position: absolute;
   inset: 0;
@@ -259,6 +263,28 @@ body {
   gap: 4px;
 }
 
+.settings-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  color: #666666;
+}
+
+.settings-progress-track {
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+}
+
+.settings-progress-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: #2f6fdd;
+  transition: width 0.15s ease;
+}
+
 .color-field {
   display: flex;
   align-items: center;
@@ -297,6 +323,23 @@ body {
   font-size: 12px;
   color: #333333;
   background: #ffffff;
+}
+
+.page-size-input {
+  width: 60px;
+  height: 28px;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  border-radius: 6px;
+  padding: 0 6px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: #333333;
+  background: #ffffff;
+}
+
+.page-size-sep {
+  font-size: 12px;
+  color: #888888;
 }
 
 .selection-bar .color-field {
@@ -487,38 +530,6 @@ body {
 }
 
 .notebook-actions button svg {
-  width: 16px;
-  height: 16px;
-}
-
-.exit-presentation {
-  position: fixed;
-  top: max(10px, env(safe-area-inset-top));
-  right: max(10px, env(safe-area-inset-right));
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 34px;
-  height: 34px;
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.6);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  color: #555555;
-  cursor: pointer;
-  opacity: 0.35;
-  transition: opacity 0.15s ease;
-  z-index: 10;
-  padding: 0;
-}
-
-.exit-presentation:hover,
-.exit-presentation:focus-visible {
-  opacity: 1;
-}
-
-button.exit-presentation svg {
   width: 16px;
   height: 16px;
 }

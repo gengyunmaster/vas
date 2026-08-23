@@ -1,4 +1,4 @@
-import { clonePageWithNewIds, createPage, type Page } from "../model/page";
+import { clonePageWithNewIds, createPage, PAGE_HEIGHT, PAGE_WIDTH, type Page } from "../model/page";
 import { newId } from "../model/stroke";
 import type { ViewState } from "../model/viewState";
 import { db, type NotebookRecord } from "./db";
@@ -25,10 +25,13 @@ function toPageRecord(notebookId: string, index: number, page: Page) {
     id: page.id,
     notebookId,
     index,
+    width: page.width,
+    height: page.height,
     paperColor: page.paperColor,
     pattern: page.pattern,
     strokes: page.strokes,
     images: page.images,
+    ...(page.pdfSource ? { pdfSource: page.pdfSource } : {}),
   };
 }
 
@@ -40,10 +43,13 @@ export async function loadNotebook(id: string): Promise<{ meta: NotebookRecord; 
   records.sort((a, b) => a.index - b.index);
   const pages = records.map((record) => ({
     id: record.id,
+    width: record.width ?? PAGE_WIDTH,
+    height: record.height ?? PAGE_HEIGHT,
     paperColor: record.paperColor,
     pattern: record.pattern ?? "blank",
     strokes: record.strokes,
     images: record.images ?? [],
+    ...(record.pdfSource ? { pdfSource: record.pdfSource } : {}),
   }));
   if (pages.length === 0) pages.push(createPage(DEFAULT_PAPER_COLOR));
   return { meta, pages };
@@ -65,18 +71,19 @@ export async function savePage(notebookId: string, index: number, page: Page): P
 
 export async function replacePages(notebookId: string, pages: Page[]): Promise<void> {
   const tx = (await db()).transaction(["notebooks", "pages"], "readwrite");
+  const meta = await tx.objectStore("notebooks").get(notebookId);
+  // the notebook may have been deleted while an import was in flight; writing
+  // pages anyway would leave orphaned records behind
+  if (!meta) return;
   const store = tx.objectStore("pages");
   const keys = await store.index("by-notebook").getAllKeys(notebookId);
   for (const key of keys) await store.delete(key);
   for (const [index, page] of pages.entries()) {
     await store.put(toPageRecord(notebookId, index, page));
   }
-  const meta = await tx.objectStore("notebooks").get(notebookId);
-  if (meta) {
-    await tx
-      .objectStore("notebooks")
-      .put({ ...meta, updatedAt: Date.now(), pageCount: pages.length });
-  }
+  await tx
+    .objectStore("notebooks")
+    .put({ ...meta, updatedAt: Date.now(), pageCount: pages.length });
   await tx.done;
 }
 

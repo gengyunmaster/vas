@@ -1,6 +1,5 @@
 import { type Bounds, strokeBounds } from "./hitTest";
 import type { ImageItem } from "./image";
-import { PAGE_HEIGHT, PAGE_WIDTH } from "./page";
 import type { Point } from "./shapeGeometry";
 import { effectiveStrokeSize, type Stroke } from "./stroke";
 
@@ -67,6 +66,10 @@ export function unionBounds(a: Bounds | null, b: Bounds | null): Bounds | null {
   };
 }
 
+export function elementsBounds(strokes: Stroke[], images: ImageItem[]): Bounds | null {
+  return unionBounds(strokesBounds(strokes), imagesBounds(images));
+}
+
 export function scaleStroke(stroke: Stroke, anchor: Point, sx: number, sy: number): Stroke {
   return {
     ...stroke,
@@ -99,10 +102,16 @@ export function scaleBounds(bounds: Bounds, anchor: Point, sx: number, sy: numbe
   };
 }
 
-export function clampMoveDelta(bounds: Bounds, dx: number, dy: number): { dx: number; dy: number } {
+export function clampMoveDelta(
+  bounds: Bounds,
+  dx: number,
+  dy: number,
+  pageWidth: number,
+  pageHeight: number,
+): { dx: number; dy: number } {
   return {
-    dx: clamp(dx, -bounds.minX, PAGE_WIDTH - bounds.maxX),
-    dy: clamp(dy, -bounds.minY, PAGE_HEIGHT - bounds.maxY),
+    dx: clamp(dx, -bounds.minX, pageWidth - bounds.maxX),
+    dy: clamp(dy, -bounds.minY, pageHeight - bounds.maxY),
   };
 }
 
@@ -111,10 +120,12 @@ export function clampScaleToPage(
   anchor: Point,
   sx: number,
   sy: number,
+  pageWidth: number,
+  pageHeight: number,
 ): { sx: number; sy: number } {
   return {
-    sx: Math.min(sx, maxScale(bounds.minX, bounds.maxX, anchor.x, PAGE_WIDTH)),
-    sy: Math.min(sy, maxScale(bounds.minY, bounds.maxY, anchor.y, PAGE_HEIGHT)),
+    sx: Math.min(sx, maxScale(bounds.minX, bounds.maxX, anchor.x, pageWidth)),
+    sy: Math.min(sy, maxScale(bounds.minY, bounds.maxY, anchor.y, pageHeight)),
   };
 }
 

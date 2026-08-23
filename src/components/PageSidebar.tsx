@@ -1,7 +1,7 @@
 import { type PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from "react";
 import { onImageLoaded } from "../engine/imageCache";
 import { paintPage } from "../engine/renderPage";
-import { PAGE_WIDTH, type Page } from "../model/page";
+import type { Page } from "../model/page";
 import { useBoardStore } from "../store/useBoardStore";
 
 const THUMB_WIDTH = 336;
@@ -99,6 +99,18 @@ export function PageSidebar() {
       cancelTimer();
     };
   }, []);
+
+  useEffect(() => {
+    if (!open || interactionRef.current) return;
+    const aside = asideRef.current;
+    const item = listRef.current?.querySelectorAll(".thumbnail")[viewPageIndex];
+    if (!aside || !(item instanceof HTMLElement)) return;
+    const asideRect = aside.getBoundingClientRect();
+    const itemRect = item.getBoundingClientRect();
+    if (itemRect.top < asideRect.top) aside.scrollTop -= asideRect.top - itemRect.top;
+    else if (itemRect.bottom > asideRect.bottom)
+      aside.scrollTop += itemRect.bottom - asideRect.bottom;
+  }, [open, viewPageIndex]);
 
   const handlePointerDown = (event: ReactPointerEvent<HTMLElement>, index: number) => {
     suppressClickRef.current = false;
@@ -200,7 +212,7 @@ function PageThumbnail({
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const scale = THUMB_WIDTH / PAGE_WIDTH;
+    const scale = THUMB_WIDTH / page.width;
     paintPage(canvas, page, scale);
     if (page.images.length === 0) return;
     return onImageLoaded(() => paintPage(canvas, page, scale));
