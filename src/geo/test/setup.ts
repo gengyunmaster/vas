@@ -46,7 +46,7 @@ if (typeof window !== "undefined") {
     });
   }
 
-  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
   if (typeof globalThis.IntersectionObserver !== "function") {
     globalThis.IntersectionObserver = class {

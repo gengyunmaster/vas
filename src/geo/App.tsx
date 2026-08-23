@@ -267,16 +267,22 @@ export default function App({ paperColor, initialDocument, onEmbed, onCancel }: 
   };
 
   const exportSvg = async () => {
-    const host = controllerRef.current?.hostElement();
-    if (!host) return;
-    downloadText(timestampedFilename("svg"), await composeBoardSvg(host), "image/svg+xml");
+    const controller = controllerRef.current;
+    const host = controller?.hostElement();
+    if (!controller || !host) return;
+    downloadText(
+      timestampedFilename("svg"),
+      await composeBoardSvg(host, { overlays: controller.latexOverlays() }),
+      "image/svg+xml",
+    );
   };
 
   const exportPng = async () => {
-    const host = controllerRef.current?.hostElement();
-    if (!host) return;
+    const controller = controllerRef.current;
+    const host = controller?.hostElement();
+    if (!controller || !host) return;
     try {
-      const blob = await rasterizeBoard(host, 2);
+      const blob = await rasterizeBoard(host, 2, { overlays: controller.latexOverlays() });
       if (blob) downloadBlob(timestampedFilename("png"), blob);
       else window.alert("PNG export failed in this browser");
     } catch {
@@ -285,11 +291,15 @@ export default function App({ paperColor, initialDocument, onEmbed, onCancel }: 
   };
 
   const handleEmbed = async () => {
-    const host = controllerRef.current?.hostElement();
-    if (!host || embedding) return;
+    const controller = controllerRef.current;
+    const host = controller?.hostElement();
+    if (!controller || !host || embedding) return;
     setEmbedding(true);
     try {
-      const svg = await composeBoardSvg(host);
+      const svg = await composeBoardSvg(host, {
+        background: null,
+        overlays: controller.latexOverlays(),
+      });
       onEmbed({ svg, document: serializeDocument(documentRef.current) });
     } catch (error) {
       console.error("Embed failed", error);

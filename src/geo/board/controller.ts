@@ -1,6 +1,7 @@
 import JXG from "jsxgraph";
 import "./jsxgraph.css";
 import { debugLog } from "../debug";
+import type { LatexOverlay } from "../latexSvg";
 import type {
   Circumcircle,
   GeoDocument,
@@ -408,6 +409,42 @@ export class BoardController {
 
   hostElement(): HTMLElement {
     return this.container;
+  }
+
+  // HTML overlay labels (KaTeX) with their live screen footprint, so SVG
+  // composition can re-typeset them as MathJax vector glyphs in the same spot.
+  latexOverlays(): LatexOverlay[] {
+    const hostRect = this.container.getBoundingClientRect();
+    const overlays: LatexOverlay[] = [];
+    for (const element of Object.values(this.board.objects)) {
+      // JXG.Text's public typings omit evalVisProp/plaintext; both exist at runtime.
+      const text = element as unknown as {
+        elType: string;
+        plaintext?: string;
+        evalVisProp(name: string): unknown;
+      };
+      if (text.elType !== "text") continue;
+      if (text.evalVisProp("display") !== "html" || text.evalVisProp("usekatex") !== true) continue;
+      if (!text.evalVisProp("visible")) continue;
+      const node = (text as unknown as { rendNode?: unknown }).rendNode;
+      if (!(node instanceof HTMLElement)) continue;
+      const computed = getComputedStyle(node);
+      if (computed.display === "none" || computed.visibility === "hidden") continue;
+      const latex = text.plaintext;
+      if (!latex?.trim()) continue;
+      const rect = node.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) continue;
+      overlays.push({
+        latex,
+        x: rect.left - hostRect.left,
+        y: rect.top - hostRect.top,
+        width: rect.width,
+        height: rect.height,
+        color: computed.color,
+        fontSize: Number.parseFloat(computed.fontSize) || 14,
+      });
+    }
+    return overlays;
   }
 
   pixelsToUnits(pixels: number): number {
