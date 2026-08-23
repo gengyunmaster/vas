@@ -19,7 +19,7 @@ vas 是一款本地优先的手写笔记/白板 Web 应用，目标是提供接�
 - 工具：钢笔（压感）、马克笔、橡皮（笔画级）、激光笔（渐隐轨迹，不落数据）、图形（直线/箭头/矩形/椭圆）、套索选择
 - 选择：套索圈选（自动闭合；笔画与圈相交或落入圈内即整条选中），选中后可拖动移动、八手柄缩放/拉伸（角手柄等比、边手柄单向，全程矢量）、改色、删除、剪切/复制/粘贴（粘贴到当前页左上角并自动选中，借此实现跨页/跨笔记本搬运）
 - 图片：插入图片（按钮或 Ctrl+V 读取系统剪贴板），渲染于笔迹之下可直接批注，橡皮不可擦；随选区移动/缩放/拉伸/删除/剪切/复制/粘贴；超大图片自动等比缩小到页内；存原图不重编码
-- PDF 导入：主页导入 PDF 生成新笔记本（白纸空白模板），或在笔记本内经设置面板导入并**插入到当前页之后**（继承当前页纸色与模板）；每页栅格化（3 倍清晰度 JPEG）为**锁定**图片并**铺满整页**（允许放大，一个方向顶到页边、另一方向居中，至多一侧留白），支持密码保护文件；锁定图片不可被圈选/清除，批注层不受影响；原始 PDF 字节同时入库，导出 PDF 时以矢量图层形式嵌入（见 3.6）
+- PDF 导入：主页导入 PDF 生成新笔记本（白纸空白模板），或在笔记本内经设置面板导入并**插入到当前页之后**（继承当前页纸色与模板）；文件选定（含密码输入）后弹出页码范围对话框，显示总页数，支持反填自动排序与单页，越界报错重填、可取消；每页栅格化（3 倍清晰度 JPEG）为**锁定**图片并**铺满整页**（允许放大，一个方向顶到页边、另一方向居中，至多一侧留白），支持密码保护文件；锁定图片不可被圈选/清除，批注层不受影响；**完整原始 PDF**（不截取范围）同时入库，导出 PDF 时以矢量图层形式嵌入（见 3.6）
 - 页面：自动续页、指定位置插页、删页、清页、缩略图导航侧栏（缩略图保持页面长宽比纵向滚动，长按拖拽排序）
 - 几何画板：设置面板进入全屏几何编辑器（点/线段/圆/垂线/角平分线/坐标轴/函数图像/滑块/变量/动画等构造工具，LaTeX 标签），Embed 后以透明底 SVG 图片插入页面（内容包围盒裁剪）；选中嵌入图形可点 Edit 重新打开编辑器修改并原位替换（保持位置与显示缩放，内容包围盒变化时按比例重算尺寸）；随选区移动/缩放/复制/粘贴；导出 SVG/PDF 时全程保持矢量
 - 外观：每页独立纸色（预设 + 自定义 hex）与背景模板（空白/横线/方格/点阵/米字格），线条颜色按纸色亮度自适应
@@ -132,7 +132,7 @@ interface ImageItem {
 - 套索命中（`model/selection.ts`）：圈自动闭合（首尾连边），笔画与圈相交、落入圈内、或圈整体落在粗笔迹墨迹内均算选中；图形按其轮廓几何判定（椭圆以 32 段折线近似）；图片按矩形与圈的相交/包含判定。
 - 选区变换（`model/transform.ts`）：移动/缩放为纯函数仿射变换，松手提交时才把新坐标写回笔画（bake）；笔迹粗细按 √(sx·sy) 几何均值跟随缩放；移动与缩放均被约束在当前页边界内，不支持跨页拖拽与旋转。
 - 图片（`model/image.ts`）：插入/粘贴时若超出页面可用区域则等比缩小到页内，初始位置为页内左上角（`PLACEMENT_MARGIN`）；一律渲染于纸色/模板之上、笔迹之下，橡皮不命中图片；只含图片的页面不算空白页（`trimTrailingBlankPages`）。图片可带 `locked: true`（PDF 底图）：套索跳过（`imagesInLasso` 过滤）、Clear page 豁免、不参与选中变换；普通插入图片不锁定。
-- PDF 导入（`persistence/importPdf.ts`）：pdf.js 懒加载（库与 worker 均按需），`rasterizePdf` 逐页按固定 4 倍（PDF 点数 ×4，与原 A4 页的 3 倍清晰度等价，与目标页尺寸解耦）栅格化为 JPEG 为共享入口——主页导入据此生成新笔记本（白纸空白模板），**页尺寸取自 PDF 页**（`pdfPageSize`：点数 × 4/3 取整并收敛到 200–5000，A4 PDF 恰好得 794×1123，混尺寸 PDF 产生对应尺寸页）；笔记本内导入走 `importPdfIntoNotebook`：任务**绑定 notebookId**，完成时若该笔记本仍打开则经 `insertPdfPages` 插入到当前浏览页之后并滚动到首个新页，若已关闭或切走则按该笔记本持久化的视图状态定位"当前页"（`pdfInsertIndex`），在 DB 层直接插入到该页之后（`replacePages`）。新页纸色、模板与尺寸继承插入点前一页；页面级插入不进撤销历史，与 addPage 一致。页面构建统一由 `model/pdfPage.ts` 的 `buildPdfPages` 承担（两条导入路径与 store 共用，页尺寸经 `sizeFor` 回调注入）。导入进度存于 store 的 `pdfImports`（按 notebookId 记录），设置面板的进度行据此跨组件卸载存活。图片按**整页**适配（`placeImageCentered`：允许放大，一个方向顶到页边、另一方向居中，至多一侧留白）并带 `locked`；密码保护文件经 `onPassword` 弹窗输入，取消时报友好提示；主页导入在全部页渲染完成后才建库落库，失败回滚。**原始 PDF 字节整份保留**：导入时先经 qpdf wasm（`decryptPdf.ts`，动态加载）跑 `--decrypt` 去除密码保护（密码来自 pdf.js `onPassword` 弹窗捕获，解密失败回退存原字节），再由 `saveSourcePdf` 存入全局 `pdfs` 表（不裁剪、与 images 表同款的按引用共享）——库内与 zip 备份中的 PDF 均为无密码版本；每页记录 `pdfSource: { docId, pageIndex }`（0 基页码）；合并笔记本时 `clonePageWithNewIds` 原样携带该引用；打开笔记本时 GC 无引用的 PDF。调整 PDF 底图页的尺寸时底图只重新居中，仅当页面放大超过原栅格清晰度才经 `reRasterizePdfBase` 从原始 PDF 重渲染替换（加密未解密文件回退沿用旧图）。
+- PDF 导入（`persistence/importPdf.ts`）：pdf.js 懒加载（库与 worker 均按需），`rasterizePdf` 逐页按固定 4 倍（PDF 点数 ×4，与原 A4 页的 3 倍清晰度等价，与目标页尺寸解耦）栅格化为 JPEG 为共享入口——主页导入据此生成新笔记本（白纸空白模板），**页尺寸取自 PDF 页**（`pdfPageSize`：点数 × 4/3 取整并收敛到 200–5000，A4 PDF 恰好得 794×1123，混尺寸 PDF 产生对应尺寸页）；笔记本内导入走 `importPdfIntoNotebook`：任务**绑定 notebookId**，完成时若该笔记本仍打开则经 `insertPdfPages` 插入到当前浏览页之后并滚动到首个新页，若已关闭或切走则按该笔记本持久化的视图状态定位"当前页"（`pdfInsertIndex`），在 DB 层直接插入到该页之后（`replacePages`）。新页纸色、模板与尺寸继承插入点前一页；页面级插入不进撤销历史，与 addPage 一致。页面构建统一由 `model/pdfPage.ts` 的 `buildPdfPages` 承担（两条导入路径与 store 共用，页尺寸经 `sizeFor` 回调注入）。导入进度存于 store 的 `pdfImports`（按 notebookId 记录），设置面板的进度行据此跨组件卸载存活。**页码范围选择**：文档加载成功（含密码通过后）经 `store/pdfRangePrompt.ts` 的 ask/settle 桥接弹出 `PageRangeDialog`（显示总页数、预填 1–N），管线 await 用户选择——`normalizePageRange`（`model/pdfPage.ts`，纯函数）负责反填排序与校验（非整数/越界返回 null，对话框内报错重填），取消则抛 "Import cancelled" 中止整个导入；范围只决定栅格化与插入哪些页，存储仍是完整 PDF，故 `pdfSource.pageIndex` 记录**真实 0 基页码**（`RasterizedPdfPage.pageIndex`，范围导入时不再等于数组下标）。图片按**整页**适配（`placeImageCentered`：允许放大，一个方向顶到页边、另一方向居中，至多一侧留白）并带 `locked`；密码保护文件经 `onPassword` 弹窗输入，取消时报友好提示；主页导入在全部页渲染完成后才建库落库，失败回滚。**原始 PDF 字节整份保留**：导入时先经 qpdf wasm（`decryptPdf.ts`，动态加载）跑 `--decrypt` 去除密码保护（密码来自 pdf.js `onPassword` 弹窗捕获，解密失败回退存原字节），再由 `saveSourcePdf` 存入全局 `pdfs` 表（不裁剪、与 images 表同款的按引用共享）——库内与 zip 备份中的 PDF 均为无密码版本；每页记录 `pdfSource: { docId, pageIndex }`（0 基页码）；合并笔记本时 `clonePageWithNewIds` 原样携带该引用；打开笔记本时 GC 无引用的 PDF。调整 PDF 底图页的尺寸时底图只重新居中，仅当页面放大超过原栅格清晰度才经 `reRasterizePdfBase` 从原始 PDF 重渲染替换（加密未解密文件回退沿用旧图）。
 - 橡皮为笔画级（命中哪条删哪条），命中判定计入马克笔的宽度系数；椭圆命中按 32 段折线轮廓测距（`shapeGeometry.ellipseOutline`，与套索共享）。
 - 新增页的颜色、模板与尺寸继承自源页（手动加页跟随当前页、自动补页跟随最后一页）。
 - 页面尺寸调整（`model/pageSize.ts` 的 `resizePage` + store `setPageSize`）：设置面板改当前页尺寸（200–5000px 取整，`clampPageSize` 收敛）；变小时非锁定内容按 `min(新/旧, 1)` 等比缩放（只缩不放）置左上角，变大时内容不动；锁定 PDF 底图始终只重新居中（放大超清晰度时的重栅格化见 PDF 导入条目）；调尺寸清空撤销历史并取消选区。跨尺寸粘贴时若选区包围盒超出目标页可用区域则等比缩小到页内（store `pasteClipboard` 的 fit）。
@@ -158,7 +158,7 @@ interface ImageItem {
 - 撤销/重做：编辑历史栈（add-stroke / remove-stroke / clear-page / add-elements / remove-elements / replace-elements），删页时清空历史；elements 类操作同时携带笔画与图片（clear-page 也含 images），replace-elements 以"前/后"快照统一承载移动、缩放与改色，一次手势提交只产生一条历史。
 - 页面级操作（addPage / deletePage / movePage / insertPdfPages / setPageSize）不进撤销历史：addPage 与 insertPdfPages 本就不产生历史，deletePage 与 setPageSize 清空历史（setPageSize 同时取消选区）；movePage 重排页面时当前浏览页按页 id 跟随。
 - 选区（selection）与剪贴板（clipboard，结构为 `{ strokes, images }`）为内存态，不进 IndexedDB；剪贴板可跨页、跨笔记本粘贴，粘贴时重建笔画与图片条目的 id（图片 blob 引用共享，不复制字节）。
-- 任务态：`pdfImports`（按 notebookId 的在途 PDF 导入进度）与 `exporting`（导出进行中）存于 store，跨组件卸载存活；导出期间引擎 pointerdown、键盘编辑快捷键、系统粘贴与设置面板的文档变更按钮统一闸门禁用（导出本身基于点击时的不可变快照，闸门是为杜绝并发变更的隐患）。
+- 任务态：`pdfImports`（按 notebookId 的在途 PDF 导入进度）、`exporting`（导出进行中）与 `pdfRangeRequest`（待决的 PDF 页码范围询问，`store/pdfRangePrompt.ts` 桥接给导入管线 await，对话框打开期间 App 键盘快捷键挂起）存于 store，跨组件卸载存活；导出期间引擎 pointerdown、键盘编辑快捷键、系统粘贴与设置面板的文档变更按钮统一闸门禁用（导出本身基于点击时的不可变快照，闸门是为杜绝并发变更的隐患）。
 - 几何编辑器开关态：`geometryEditor`（`{ mode: "insert" } | { mode: "edit"; pageId; itemId } | null`）；编辑模式的 Embed 走 `replaceGeometryImage`（replace-elements 历史，图片条目 id 保持不变，选区不失效），替换后的页面矩形由 `model/image.ts` 的 `rescaledImageRect` 计算——保持旧图的显示缩放（sx/sy 相对旧 SVG 自然尺寸）与锚点位置，新内容包围盒变化时按比例缩放，超出页边界时等比收敛并钳位，旧自然尺寸不可得时回退为新插入尺寸；旧 blob 与旧几何文档由下次 GC 回收。
 - 选区的实时交互（套索轨迹、拖动/缩放手势预览）由渲染引擎持有，store 只保留选区快照供浮动工具条定位；选中期间页面缓存按"剔除选中元素"渲染，选中元素改在活动层绘制。
 - 高频数据（当前笔画的采样点、激光轨迹）不进 store，由渲染引擎内部持有。
@@ -186,7 +186,7 @@ interface ImageItem {
 ```
 src/
   components/    React UI 组件（Home 主页、Toolbar、SettingsPanel、PageSidebar、SelectionBar、
-                 ColorField、GeometryOverlay 几何编辑器宿主、icons 等）
+                 ColorField、GeometryOverlay 几何编辑器宿主、PageRangeDialog 页码范围对话框、icons 等）
   engine/        渲染引擎：board（输入状态机与编排，含套索/选区手势）、viewport（视口变换）、
                  pageCache（页面位图缓存）、renderPage/renderStroke/patterns/shapes（渲染）、
                  imageCache（图片位图异步解码缓存）、canvas（2D 上下文工具）
@@ -197,7 +197,7 @@ src/
                  pageSize（页面尺寸调整）、color（颜色）、hitTest（橡皮命中检测）、patternLayout（背景模板布局）、
                  shapeGeometry（图形几何）、selection（套索命中）、transform（选区仿射变换）、
                  image（图片条目与版面放置）、pdfPage（PDF 页面构建与插入位置）、viewState（视图状态）
-  store/         zustand stores
+  store/         zustand stores（useBoardStore 主 store、pdfRangePrompt 页码范围询问桥接）
   persistence/   持久化：db（IndexedDB 连接）、notebooks（CRUD）、transfer（导入导出，zip/JSON）、
                  images（图片 blob 存取与 GC）、pdfs（原始 PDF blob 存取与 GC）、
                  geometries（几何文档存取与 GC）、

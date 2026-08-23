@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createPage, PAGE_GAP, PAGE_TOP_MARGIN, type Page, pageTopY } from "./page";
-import { buildPdfPages, pdfInsertIndex } from "./pdfPage";
+import { buildPdfPages, normalizePageRange, pdfInsertIndex } from "./pdfPage";
 
 const rasters = [
   { imageId: "img-a", naturalWidth: 800, naturalHeight: 600 },
@@ -58,6 +58,54 @@ describe("buildPdfPages", () => {
     const pages = buildPdfPages(rasters, "#ffffff", "blank", a4, "doc-1");
     const ids = new Set([...pages.map((p) => p.id), ...pages.map((p) => p.images[0].id)]);
     expect(ids.size).toBe(4);
+  });
+
+  it("keeps explicit source page indices when importing a page range", () => {
+    const ranged = rasters.map((raster, index) => ({ ...raster, pageIndex: index + 2 }));
+    const pages = buildPdfPages(ranged, "#ffffff", "blank", a4, "doc-1");
+    expect(pages[0].pdfSource).toEqual({ docId: "doc-1", pageIndex: 2 });
+    expect(pages[1].pdfSource).toEqual({ docId: "doc-1", pageIndex: 3 });
+  });
+});
+
+describe("normalizePageRange", () => {
+  it("accepts a normal ascending range", () => {
+    expect(normalizePageRange(3, 7, 100)).toEqual({ from: 3, to: 7 });
+  });
+
+  it("sorts a reversed range", () => {
+    expect(normalizePageRange(7, 3, 100)).toEqual({ from: 3, to: 7 });
+  });
+
+  it("accepts a single page", () => {
+    expect(normalizePageRange(3, 3, 100)).toEqual({ from: 3, to: 3 });
+  });
+
+  it("accepts the full range", () => {
+    expect(normalizePageRange(1, 100, 100)).toEqual({ from: 1, to: 100 });
+  });
+
+  it("rejects ranges crossing the last page", () => {
+    expect(normalizePageRange(91, 110, 100)).toBeNull();
+  });
+
+  it("rejects ranges fully beyond the document", () => {
+    expect(normalizePageRange(101, 110, 100)).toBeNull();
+  });
+
+  it("rejects zero and negative page numbers", () => {
+    expect(normalizePageRange(0, 5, 100)).toBeNull();
+    expect(normalizePageRange(-3, 2, 100)).toBeNull();
+  });
+
+  it("rejects non-integer and non-finite input", () => {
+    expect(normalizePageRange(2.5, 5, 100)).toBeNull();
+    expect(normalizePageRange(Number.NaN, 5, 100)).toBeNull();
+    expect(normalizePageRange(1, Number.POSITIVE_INFINITY, 100)).toBeNull();
+  });
+
+  it("rejects empty documents", () => {
+    expect(normalizePageRange(1, 1, 0)).toBeNull();
   });
 });
 

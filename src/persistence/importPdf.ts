@@ -2,6 +2,7 @@ import { placeImageCentered } from "../model/image";
 import { PDF_PAGE_SCALE, pdfPageSize } from "../model/pageSize";
 import { buildPdfPages, pdfInsertIndex } from "../model/pdfPage";
 import { newId } from "../model/stroke";
+import { askPageRange } from "../store/pdfRangePrompt";
 import { useBoardStore } from "../store/useBoardStore";
 import { decryptPdf } from "./decryptPdf";
 import { deleteImages, retainImages, saveImages } from "./images";
@@ -20,6 +21,8 @@ export interface RasterizedPdfPage {
   blob: Blob;
   naturalWidth: number;
   naturalHeight: number;
+  // 0-based page index into the source PDF, kept for the export-time vector embedding.
+  pageIndex: number;
 }
 
 export interface RasterizedPdf {
@@ -92,10 +95,13 @@ export async function rasterizePdf(
   }
   try {
     if (doc.numPages < 1) throw new Error("This PDF contains no pages");
+    const range = await askPageRange(doc.numPages);
+    if (!range) throw new Error("Import cancelled");
     const pages: RasterizedPdfPage[] = [];
-    for (let index = 1; index <= doc.numPages; index++) {
+    const total = range.to - range.from + 1;
+    for (let index = range.from; index <= range.to; index++) {
       pages.push(await rasterizePage(doc, index));
-      onProgress?.(index, doc.numPages);
+      onProgress?.(pages.length, total);
     }
     let sourceBytes: Uint8Array = data;
     try {
@@ -221,6 +227,7 @@ async function rasterizePage(
     blob,
     naturalWidth: base.width,
     naturalHeight: base.height,
+    pageIndex: index - 1,
   };
 }
 

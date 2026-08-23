@@ -82,6 +82,7 @@ interface BoardState {
   presentation: boolean;
   sidebarOpen: boolean;
   pdfImports: Record<string, { done: number; total: number }>;
+  pdfRangeRequest: { numPages: number } | null;
   exporting: boolean;
   geometryEditor: { mode: "insert" } | { mode: "edit"; pageId: string; itemId: string } | null;
   color: string;
@@ -133,6 +134,7 @@ interface BoardState {
   ) => void;
   insertPdfPages: (pdfPages: PdfPageImage[], pdfSource?: { docId: string }) => void;
   setPdfImport: (notebookId: string, progress: { done: number; total: number } | null) => void;
+  setPdfRangeRequest: (request: { numPages: number } | null) => void;
   setExporting: (exporting: boolean) => void;
   openGeometry: () => void;
   editGeometry: (pageId: string, itemId: string) => void;
@@ -313,6 +315,7 @@ export const useBoardStore = create<BoardState>()((set) => ({
   presentation: false,
   sidebarOpen: false,
   pdfImports: {},
+  pdfRangeRequest: null,
   exporting: false,
   geometryEditor: null,
   color: COLORS[0],
@@ -463,6 +466,7 @@ export const useBoardStore = create<BoardState>()((set) => ({
       else delete pdfImports[notebookId];
       return { pdfImports };
     }),
+  setPdfRangeRequest: (pdfRangeRequest) => set({ pdfRangeRequest }),
   setExporting: (exporting) => set({ exporting }),
   openGeometry: () => set({ geometryEditor: { mode: "insert" }, selection: null }),
   editGeometry: (pageId, itemId) => set({ geometryEditor: { mode: "edit", pageId, itemId } }),

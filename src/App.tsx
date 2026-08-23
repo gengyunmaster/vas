@@ -3,6 +3,7 @@ import { BoardCanvas } from "./components/BoardCanvas";
 import { GeometryOverlay } from "./components/GeometryOverlay";
 import { Home } from "./components/Home";
 import { PageIndicator } from "./components/PageIndicator";
+import { PageRangeDialog } from "./components/PageRangeDialog";
 import { PageSidebar } from "./components/PageSidebar";
 import { SelectionBar } from "./components/SelectionBar";
 import { Toolbar } from "./components/Toolbar";
@@ -47,6 +48,7 @@ export default function App() {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (useBoardStore.getState().geometryEditor) return;
+      if (useBoardStore.getState().pdfRangeRequest) return;
       const target = event.target;
       const typing =
         target instanceof HTMLElement &&
@@ -154,23 +156,28 @@ export default function App() {
 
   if (!ready) return null;
 
-  return notebookId ? (
+  return (
     <>
-      <BoardCanvas />
-      <PageSidebar />
-      <Toolbar />
-      {!presentation && <SelectionBar />}
-      {!presentation && <PageIndicator />}
-      <GeometryOverlay />
+      {notebookId ? (
+        <>
+          <BoardCanvas />
+          <PageSidebar />
+          <Toolbar />
+          {!presentation && <SelectionBar />}
+          {!presentation && <PageIndicator />}
+          <GeometryOverlay />
+        </>
+      ) : (
+        <Home
+          onOpen={(id) => {
+            void openNotebook(id).catch((error: unknown) => {
+              console.error("Failed to open notebook", error);
+              window.alert("Failed to open this notebook.");
+            });
+          }}
+        />
+      )}
+      <PageRangeDialog />
     </>
-  ) : (
-    <Home
-      onOpen={(id) => {
-        void openNotebook(id).catch((error: unknown) => {
-          console.error("Failed to open notebook", error);
-          window.alert("Failed to open this notebook.");
-        });
-      }}
-    />
   );
 }
