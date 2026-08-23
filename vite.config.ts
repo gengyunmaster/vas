@@ -1,7 +1,7 @@
 import react from "@vitejs/plugin-react";
 import { loadEnv } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
-import { configDefaults, defineConfig } from "vitest/config";
+import { defineConfig } from "vitest/config";
 
 export default defineConfig(({ mode }) => {
   // GitHub Pages serves the app under /<repo>/; local dev and Docker stay at "/".
@@ -47,8 +47,6 @@ export default defineConfig(({ mode }) => {
     },
     test: {
       environment: "node",
-      // webgeo/ is the temporary upstream copy of the geometry editor (gitignored).
-      exclude: [...configDefaults.exclude, "webgeo/**"],
     },
   };
 });

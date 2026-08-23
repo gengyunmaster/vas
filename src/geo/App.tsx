@@ -127,6 +127,7 @@ export default function App({ paperColor, initialDocument, onEmbed, onCancel }: 
 
   useEffect(() => {
     applyPaperPalette(paperColor, isDarkColor(paperColor));
+    if (hostRef.current) hostRef.current.style.backgroundColor = paperColor;
     controllerRef.current?.sync(documentRef.current);
     return () => applyBoardTheme("light");
   }, [paperColor]);
