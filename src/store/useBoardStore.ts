@@ -83,6 +83,7 @@ interface BoardState {
   sidebarOpen: boolean;
   pdfImports: Record<string, { done: number; total: number }>;
   exporting: boolean;
+  geometryEditor: { mode: "insert" } | null;
   color: string;
   size: number;
   paperColor: string;
@@ -128,6 +129,8 @@ interface BoardState {
   insertPdfPages: (pdfPages: PdfPageImage[], pdfSource?: { docId: string }) => void;
   setPdfImport: (notebookId: string, progress: { done: number; total: number } | null) => void;
   setExporting: (exporting: boolean) => void;
+  openGeometry: () => void;
+  closeGeometry: () => void;
 }
 
 function withStroke(pages: Page[], pageId: string, stroke: Stroke): Page[] {
@@ -293,6 +296,7 @@ export const useBoardStore = create<BoardState>()((set) => ({
   sidebarOpen: false,
   pdfImports: {},
   exporting: false,
+  geometryEditor: null,
   color: COLORS[0],
   size: SIZES[1],
   paperColor: PAPER_COLORS[0],
@@ -442,6 +446,8 @@ export const useBoardStore = create<BoardState>()((set) => ({
       return { pdfImports };
     }),
   setExporting: (exporting) => set({ exporting }),
+  openGeometry: () => set({ geometryEditor: { mode: "insert" }, selection: null }),
+  closeGeometry: () => set({ geometryEditor: null }),
   toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
   requestScrollToPage: (index) => set({ pendingScrollToPage: index }),
   setColor: (color) => set({ color }),

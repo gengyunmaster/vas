@@ -1,0 +1,554 @@
+.geo {
+  --bg: #f6f8fa;
+  --surface: #ffffff;
+  --surface-alt: #f6f8fa;
+  --border: #d0d7de;
+  --border-strong: #afb8c1;
+  --text: #24292f;
+  --text-muted: #57606a;
+  --accent: #1f6feb;
+  --accent-hover: #1a66d8;
+  --accent-soft: #ddf4ff;
+  --on-accent: #ffffff;
+  --button-bg: #f6f8fa;
+  --button-hover: #eaeef2;
+  --badge-bg: #ddf4ff;
+  --badge-text: #0969da;
+  --danger: #cf222e;
+  --selected: #d97706;
+  --board-bg: #ffffff;
+  --menu-shadow: 0 8px 24px rgba(140, 149, 159, 0.28);
+  --dialog-shadow: 0 12px 32px rgba(31, 35, 40, 0.22);
+  --backdrop: rgba(36, 41, 47, 0.35);
+}
+
+.geo {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.geo .toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  padding: 8px 12px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.geo .tool-button {
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--button-bg);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 20px;
+  cursor: pointer;
+  transition:
+    background-color 0.12s ease,
+    border-color 0.12s ease,
+    color 0.12s ease;
+}
+
+.geo .tool-button:hover {
+  background: var(--button-hover);
+  border-color: var(--border-strong);
+}
+
+.geo .tool-button:focus-visible,
+.geo .tool-menu-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.geo .tool-button.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+
+.geo .tool-button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.geo .tool-button:disabled:hover {
+  background: var(--button-bg);
+  border-color: var(--border);
+}
+
+.geo .tool-category {
+  position: relative;
+  display: flex;
+}
+
+.geo .tool-category .category-main {
+  border-radius: 6px 0 0 6px;
+}
+
+.geo .tool-category .category-chevron {
+  margin-left: -1px;
+  padding: 6px 7px;
+  border-radius: 0 6px 6px 0;
+  color: var(--text-muted);
+}
+
+.geo .tool-category .category-chevron:hover {
+  color: var(--text);
+}
+
+.geo .tool-category .menu-trigger {
+  border-radius: 6px;
+}
+
+.geo .tool-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 1000;
+  min-width: 150px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: var(--menu-shadow);
+}
+
+.geo .tool-menu-right {
+  left: auto;
+  right: 0;
+}
+
+.geo .tool-menu-title {
+  padding: 4px 10px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.geo .tool-menu-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 5px 10px;
+  border: none;
+  border-radius: 5px;
+  background: none;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 20px;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.geo .tool-menu-item:hover {
+  background: var(--button-hover);
+}
+
+.geo .tool-menu-item.current {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.geo .tool-menu-divider {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--border);
+}
+
+.geo .menu-check {
+  display: inline-block;
+  width: 18px;
+  color: var(--accent);
+}
+
+.geo .toolbar-spacer {
+  flex: 1;
+}
+
+.geo .toolbar-separator {
+  width: 1px;
+  align-self: stretch;
+  margin: 2px 4px;
+  background: var(--border);
+}
+
+.geo .custom-tool {
+  display: inline-flex;
+}
+
+.geo .custom-tool .tool-button {
+  border-radius: 6px 0 0 6px;
+}
+
+.geo .custom-tool-delete {
+  margin-left: -1px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 0 6px 6px 0;
+  background: var(--button-bg);
+  color: var(--text-muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.geo .custom-tool-delete:hover {
+  background: var(--button-hover);
+  color: var(--danger);
+}
+
+.geo .board-wrap {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.geo .board-host {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--board-bg);
+  touch-action: none;
+  user-select: none;
+}
+
+.geo .board-host *:focus {
+  outline: none;
+}
+
+.geo .animation-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+}
+
+.geo .animation-button {
+  position: absolute;
+  transform: translate(0, -50%);
+  pointer-events: auto;
+  padding: 3px 10px;
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--accent);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.geo .animation-button:hover {
+  background: var(--accent-soft);
+}
+
+.geo .main {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.geo .inspector {
+  width: 244px;
+  flex-shrink: 0;
+  border-left: 1px solid var(--border);
+  background: var(--surface-alt);
+  overflow-y: auto;
+  padding: 12px;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.geo .editor-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.geo .kind-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--badge-bg);
+  color: var(--badge-text);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.geo .field-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.geo .field-row > span {
+  flex-shrink: 0;
+}
+
+.geo .field-row input[type="text"] {
+  width: 120px;
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.geo .field-row input[type="color"] {
+  width: 36px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: none;
+}
+
+.geo .field-row input[type="range"] {
+  width: 110px;
+}
+
+.geo .field-row select {
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.geo .plain-button {
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+  transition:
+    background-color 0.12s ease,
+    border-color 0.12s ease;
+}
+
+.geo .plain-button:hover {
+  background: var(--button-hover);
+}
+
+.geo .list-header {
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.geo .object-list.empty {
+  color: var(--text-muted);
+}
+
+.geo .list-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.geo .list-row.is-hidden .row-name,
+.geo .list-row.is-hidden .kind-badge {
+  opacity: 0.45;
+}
+
+.geo .list-select {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: none;
+  color: var(--text);
+  padding: 2px 0;
+  cursor: pointer;
+  text-align: left;
+}
+
+/* biome-ignore lint/style/noDescendingSpecificity: cascade order is intentional */
+.geo .row-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.geo .status-bar {
+  min-height: 24px;
+  padding: 3px 12px;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.geo .debug-panel {
+  position: fixed;
+  left: 8px;
+  bottom: 32px;
+  z-index: 9999;
+  min-width: 340px;
+  max-width: 480px;
+  max-height: 40vh;
+  overflow-y: auto;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: rgba(36, 41, 47, 0.88);
+  color: #d1f5d3;
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.geo .debug-toolbar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 4px;
+  color: #ffffff;
+}
+
+.geo .debug-toolbar button {
+  border: 1px solid #6e7781;
+  border-radius: 4px;
+  background: none;
+  color: #ffffff;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.geo .dialog-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 9998;
+  background: var(--backdrop);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.geo .dialog {
+  width: 380px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--dialog-shadow);
+}
+
+.geo .dialog-title {
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+
+.geo .dialog-loading {
+  color: var(--text-muted);
+  font-size: 13px;
+  padding: 12px 0;
+}
+
+.geo .dialog-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.geo .dialog-field > span {
+  flex-shrink: 0;
+  font-size: 13px;
+}
+
+.geo .dialog-field math-field {
+  flex: 1;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.geo .dialog-hint {
+  color: var(--text-muted);
+  font-size: 12px;
+  margin: -4px 0 10px;
+}
+
+.geo .range-input {
+  width: 64px;
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.geo .dialog-error {
+  color: var(--danger);
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+
+.geo .dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.geo .plain-button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+
+.geo .plain-button.primary:hover {
+  background: var(--accent-hover);
+}
+
+.geo .error-boundary {
+  max-width: 480px;
+  margin: 120px auto;
+  padding: 24px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font-family: system-ui, sans-serif;
+  text-align: center;
+}
+
+.geo .error-boundary p {
+  color: var(--danger);
+}
+
+.geo .embed-button {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+
+.geo .embed-button:hover:not(:disabled) {
+  background: var(--accent-hover);
+}

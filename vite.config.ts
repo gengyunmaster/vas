@@ -1,7 +1,7 @@
 import react from "@vitejs/plugin-react";
 import { loadEnv } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 
 export default defineConfig(({ mode }) => {
   // GitHub Pages serves the app under /<repo>/; local dev and Docker stay at "/".
@@ -35,8 +35,10 @@ export default defineConfig(({ mode }) => {
           ],
         },
         workbox: {
-          globPatterns: ["**/*.{js,mjs,css,html,svg,png,webmanifest,wasm}"],
+          globPatterns: ["**/*.{js,mjs,css,html,svg,png,webmanifest,wasm,woff2}"],
           navigateFallback: `${base}index.html`,
+          // Geometry chunks (compute-engine, jsxgraph, mathlive) exceed the 2 MiB default.
+          maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
         },
       }),
     ],
@@ -45,6 +47,8 @@ export default defineConfig(({ mode }) => {
     },
     test: {
       environment: "node",
+      // webgeo/ is the temporary upstream copy of the geometry editor (gitignored).
+      exclude: [...configDefaults.exclude, "webgeo/**"],
     },
   };
 });

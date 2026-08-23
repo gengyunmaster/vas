@@ -637,3 +637,19 @@ body {
   font-size: 11px;
   color: #999999;
 }
+
+.geometry-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: #ffffff;
+}
+
+.geometry-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #57606a;
+  font-size: 14px;
+}
