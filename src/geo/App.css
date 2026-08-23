@@ -30,6 +30,7 @@
   color: var(--text);
 }
 
+/* position/size resets neutralize vas's global .toolbar rules leaking in. */
 .geo .toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -38,6 +39,18 @@
   padding: 8px 12px;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
+  position: static;
+  top: auto;
+  right: auto;
+  border-radius: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+  z-index: auto;
+}
+
+.geo .toolbar button {
+  width: auto;
+  height: auto;
 }
 
 .geo .tool-button {
