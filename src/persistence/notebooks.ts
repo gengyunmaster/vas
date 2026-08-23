@@ -71,18 +71,19 @@ export async function savePage(notebookId: string, index: number, page: Page): P
 
 export async function replacePages(notebookId: string, pages: Page[]): Promise<void> {
   const tx = (await db()).transaction(["notebooks", "pages"], "readwrite");
+  const meta = await tx.objectStore("notebooks").get(notebookId);
+  // the notebook may have been deleted while an import was in flight; writing
+  // pages anyway would leave orphaned records behind
+  if (!meta) return;
   const store = tx.objectStore("pages");
   const keys = await store.index("by-notebook").getAllKeys(notebookId);
   for (const key of keys) await store.delete(key);
   for (const [index, page] of pages.entries()) {
     await store.put(toPageRecord(notebookId, index, page));
   }
-  const meta = await tx.objectStore("notebooks").get(notebookId);
-  if (meta) {
-    await tx
-      .objectStore("notebooks")
-      .put({ ...meta, updatedAt: Date.now(), pageCount: pages.length });
-  }
+  await tx
+    .objectStore("notebooks")
+    .put({ ...meta, updatedAt: Date.now(), pageCount: pages.length });
   await tx.done;
 }
 

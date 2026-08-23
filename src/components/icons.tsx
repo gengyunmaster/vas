@@ -177,12 +177,3 @@ export function ExportIcon() {
     </Icon>
   );
 }
-
-export function ExitIcon() {
-  return (
-    <Icon title="Exit presentation">
-      <path d="M6 6l12 12" />
-      <path d="M18 6L6 18" />
-    </Icon>
-  );
-}

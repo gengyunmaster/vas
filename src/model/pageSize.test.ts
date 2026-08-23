@@ -22,6 +22,12 @@ describe("pdfPageSize", () => {
     expect(size.width).toBe(MIN_PAGE_SIZE);
     expect(size.height).toBe(MIN_PAGE_SIZE);
   });
+
+  it("falls back to the default size for degenerate PDF pages", () => {
+    expect(pdfPageSize(0, 841.89)).toEqual({ width: 794, height: 1123 });
+    expect(pdfPageSize(Number.NaN, 100)).toEqual({ width: 794, height: 1123 });
+    expect(pdfPageSize(-10, 100)).toEqual({ width: 794, height: 1123 });
+  });
 });
 
 describe("resizePage", () => {

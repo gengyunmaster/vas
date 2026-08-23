@@ -21,7 +21,7 @@ import {
 } from "../model/stroke";
 import type { ViewState } from "../model/viewState";
 import type { ImageRecord, PdfRecord } from "./db";
-import { deleteImages, getImage, saveImages } from "./images";
+import { deleteImages, getImage, retainImages, saveImages } from "./images";
 import {
   createNotebook,
   deleteNotebook,
@@ -29,7 +29,7 @@ import {
   replacePages,
   saveViewState,
 } from "./notebooks";
-import { deletePdfs, getPdf, savePdf } from "./pdfs";
+import { deletePdfs, getPdf, retainPdfs, savePdf } from "./pdfs";
 
 export const FILE_FORMAT = "vas-notebook";
 export const FILE_VERSION = 3;
@@ -233,17 +233,18 @@ export async function downloadNotebook(id: string): Promise<void> {
     });
   }
   const zip = buildNotebookZip(json, files);
-  downloadBlob(
-    new Blob([zip.buffer as ArrayBuffer], { type: "application/zip" }),
-    `${meta.title}.vas.zip`,
-  );
+  downloadBlob(new Blob([zip.slice()], { type: "application/zip" }), `${meta.title}.vas.zip`);
+}
+
+export function sanitizeFileName(name: string): string {
+  return name.replace(/[\\/:*?"<>|]/g, "_");
 }
 
 export function downloadBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
-  anchor.download = filename.replace(/[\\/:*?"<>|]/g, "_");
+  anchor.download = sanitizeFileName(filename);
   anchor.click();
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
@@ -284,26 +285,33 @@ async function importNotebookZip(bytes: Uint8Array): Promise<string> {
   const records: ImageRecord[] = parsed.images.map((entry, index) => ({
     id: entry.imageId,
     mimeType: entry.mimeType,
-    blob: new Blob([imageData[index].buffer as ArrayBuffer], { type: entry.mimeType }),
+    blob: new Blob([imageData[index].slice()], { type: entry.mimeType }),
   }));
   const pdfData = resolvePdfEntries(entries, parsed.pdfs);
   const pdfRecords: PdfRecord[] = parsed.pdfs.map((entry, index) => ({
     id: entry.docId,
-    blob: new Blob([pdfData[index].buffer as ArrayBuffer], { type: "application/pdf" }),
+    blob: new Blob([pdfData[index].slice()], { type: "application/pdf" }),
   }));
-  const meta = await createNotebook(parsed.title);
+  const releaseImages = retainImages(parsed.images.map((entry) => entry.imageId));
+  const releasePdfs = retainPdfs(parsed.pdfs.map((entry) => entry.docId));
   try {
-    await saveImages(records);
-    for (const record of pdfRecords) await savePdf(record);
-    await replacePages(meta.id, parsed.pages);
-    if (parsed.viewState) await saveViewState(meta.id, parsed.viewState);
-  } catch (error) {
-    await deleteNotebook(meta.id);
-    await deleteImages(records.map((record) => record.id));
-    await deletePdfs(pdfRecords.map((record) => record.id));
-    throw error;
+    const meta = await createNotebook(parsed.title);
+    try {
+      await saveImages(records);
+      for (const record of pdfRecords) await savePdf(record);
+      await replacePages(meta.id, parsed.pages);
+      if (parsed.viewState) await saveViewState(meta.id, parsed.viewState);
+    } catch (error) {
+      await deleteNotebook(meta.id);
+      await deleteImages(records.map((record) => record.id)).catch(() => {});
+      await deletePdfs(pdfRecords.map((record) => record.id)).catch(() => {});
+      throw error;
+    }
+    return meta.id;
+  } finally {
+    releaseImages();
+    releasePdfs();
   }
-  return meta.id;
 }
 
 function parseImageManifest(data: Record<string, unknown>): Required<ImageManifestEntry>[] {

@@ -9,6 +9,7 @@ const VIEW_STATE_SAVE_DELAY_MS = 400;
 
 let pendingViewState: { id: string; viewState: ViewState } | null = null;
 let viewStateTimer: number | undefined;
+let sessionToken = 0;
 
 export function scheduleViewStateSave(id: string, viewState: ViewState): void {
   pendingViewState = { id, viewState };
@@ -30,8 +31,11 @@ export async function flushViewStateSave(): Promise<void> {
 }
 
 export async function openNotebook(id: string): Promise<void> {
+  const token = ++sessionToken;
   await flushViewStateSave();
   const { meta, pages } = await loadNotebook(id);
+  // a newer open or a close superseded this one; drop the stale result
+  if (token !== sessionToken) return;
   useBoardStore
     .getState()
     .loadDocument({ id: meta.id, title: meta.title, pages, viewState: meta.viewState });
@@ -45,6 +49,7 @@ export async function openNotebook(id: string): Promise<void> {
 }
 
 export async function closeNotebook(): Promise<void> {
+  sessionToken++;
   await flushViewStateSave();
   useBoardStore.getState().unloadDocument();
   try {

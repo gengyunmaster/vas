@@ -283,6 +283,7 @@ export function SettingsPanel() {
               type="button"
               title={`Paper ${c}`}
               aria-pressed={paperColor === c}
+              disabled={exporting}
               className={paperColor === c ? "swatch active" : "swatch"}
               style={{ "--swatch": c } as CSSProperties}
               onClick={() => setPaperColor(c)}
@@ -290,7 +291,7 @@ export function SettingsPanel() {
               <span />
             </button>
           ))}
-          <ColorField value={paperColor} onChange={setPaperColor} />
+          <ColorField value={paperColor} onChange={setPaperColor} disabled={exporting} />
         </div>
       </section>
       <section className="settings-section">
@@ -301,6 +302,7 @@ export function SettingsPanel() {
               key={p}
               type="button"
               aria-pressed={pattern === p}
+              disabled={exporting}
               className={pattern === p ? "text-option active" : "text-option"}
               onClick={() => setPattern(p)}
             >

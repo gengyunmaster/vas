@@ -5,7 +5,8 @@ import { type Page, trimTrailingBlankPages } from "../model/page";
 import type { Stroke } from "../model/stroke";
 import { elementsBounds } from "../model/transform";
 import { downloadZip } from "./exportZip";
-import { downloadBlob } from "./transfer";
+import { cappedRenderScale } from "./rasterize";
+import { downloadBlob, sanitizeFileName } from "./transfer";
 
 const PNG_SCALE = 2;
 
@@ -25,7 +26,7 @@ export async function exportNotebookPng(title: string, pages: Page[]): Promise<v
     const canvas = await renderPageCanvas(page);
     const blob = await canvasToPng(canvas);
     entries.push({
-      name: `${title}-page-${index + 1}.png`,
+      name: `${sanitizeFileName(title)}-page-${index + 1}.png`,
       data: new Uint8Array(await blob.arrayBuffer()),
     });
   }
@@ -41,14 +42,20 @@ export async function exportSelectionPng(
   if (!bounds) return;
   await Promise.all(images.map((image) => ensureImageLoaded(image.imageId)));
   const canvas = document.createElement("canvas");
-  paintElements(canvas, strokes, images, bounds, PNG_SCALE);
+  paintElements(
+    canvas,
+    strokes,
+    images,
+    bounds,
+    cappedRenderScale(PNG_SCALE, bounds.maxX - bounds.minX, bounds.maxY - bounds.minY),
+  );
   downloadBlob(await canvasToPng(canvas), `${title}-selection.png`);
 }
 
 async function renderPageCanvas(page: Page): Promise<HTMLCanvasElement> {
   await Promise.all(page.images.map((image) => ensureImageLoaded(image.imageId)));
   const canvas = document.createElement("canvas");
-  paintPage(canvas, page, PNG_SCALE);
+  paintPage(canvas, page, cappedRenderScale(PNG_SCALE, page.width, page.height));
   return canvas;
 }
 

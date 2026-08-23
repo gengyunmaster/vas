@@ -12,8 +12,5 @@ export function buildZip(entries: ZipEntry[]): Uint8Array {
 
 export function downloadZip(title: string, entries: ZipEntry[]): void {
   const bytes = buildZip(entries);
-  downloadBlob(
-    new Blob([bytes.buffer as ArrayBuffer], { type: "application/zip" }),
-    `${title}.zip`,
-  );
+  downloadBlob(new Blob([bytes.slice()], { type: "application/zip" }), `${title}.zip`);
 }

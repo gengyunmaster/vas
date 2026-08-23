@@ -3,6 +3,7 @@ dist
 .git
 .github
 *.log
+*.tar.gz
 .gitignore
 Dockerfile
 .dockerignore

@@ -67,7 +67,7 @@ export function clampPageSize(size: PageSize): PageSize {
 }
 
 export function boardWidth(pages: readonly Page[]): number {
-  let width = PAGE_WIDTH;
+  let width = pages.length === 0 ? PAGE_WIDTH : 0;
   for (const page of pages) width = Math.max(width, page.width);
   return width;
 }

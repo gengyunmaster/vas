@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { Board } from "../engine/board";
+import { clearImageCache } from "../engine/imageCache";
 import type { ToolKind } from "../model/stroke";
 import { startAutosave } from "../persistence/autosave";
 import { scheduleViewStateSave } from "../persistence/session";
@@ -68,6 +69,7 @@ export function BoardCanvas() {
       stopAutosave();
       unsubscribe();
       board.destroy();
+      clearImageCache();
     };
   }, []);
 

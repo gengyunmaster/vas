@@ -120,6 +120,15 @@ describe("boardWidth and pageLeftX", () => {
     expect(pageLeftX(1200, pages[0])).toBe((1200 - PAGE_WIDTH) / 2);
     expect(pageLeftX(1200, pages[1])).toBe(0);
   });
+
+  it("shrinks to the widest page when all pages are narrower than A4", () => {
+    const pages = [
+      createPage("#ffffff", "blank", { width: 300, height: 400 }),
+      createPage("#ffffff", "blank", { width: 500, height: 400 }),
+    ];
+    expect(boardWidth(pages)).toBe(500);
+    expect(pageLeftX(500, pages[0])).toBe(100);
+  });
 });
 
 describe("clampPageSize", () => {

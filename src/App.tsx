@@ -129,15 +129,22 @@ export default function App() {
 
   useEffect(() => {
     if (!presentation) return;
+    let cancelled = false;
     const root = document.documentElement;
     if (root.requestFullscreen) {
-      root.requestFullscreen().catch(() => {});
+      root
+        .requestFullscreen()
+        .then(() => {
+          if (cancelled) void document.exitFullscreen().catch(() => {});
+        })
+        .catch(() => {});
     }
     const onFullscreenChange = () => {
       if (!document.fullscreenElement) useBoardStore.getState().setPresentation(false);
     };
     document.addEventListener("fullscreenchange", onFullscreenChange);
     return () => {
+      cancelled = true;
       document.removeEventListener("fullscreenchange", onFullscreenChange);
       if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
     };

@@ -10,7 +10,7 @@ import { elementsBounds } from "../model/transform";
 import { downloadZip } from "./exportZip";
 import { collectImageDataUris } from "./imageDataUri";
 import { outlineToSvgPath } from "./svgPath";
-import { downloadBlob } from "./transfer";
+import { downloadBlob, sanitizeFileName } from "./transfer";
 
 export async function exportPageSvg(title: string, pageIndex: number, page: Page): Promise<void> {
   const imageData = await collectImageDataUris(page.images.map((image) => image.imageId));
@@ -29,7 +29,7 @@ export async function exportNotebookSvg(title: string, pages: Page[]): Promise<v
   for (const [index, page] of kept.entries()) {
     const imageData = await collectImageDataUris(page.images.map((image) => image.imageId));
     entries.push({
-      name: `${title}-page-${index + 1}.svg`,
+      name: `${sanitizeFileName(title)}-page-${index + 1}.svg`,
       data: encoder.encode(pageToSvg(page, imageData)),
     });
   }

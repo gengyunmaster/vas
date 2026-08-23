@@ -166,6 +166,18 @@ function withInsertedStroke(pages: Page[], pageId: string, index: number, stroke
   });
 }
 
+function withContinuationPage(pages: Page[], pageId: string): Page[] {
+  const lastPage = pages[pages.length - 1];
+  if (!lastPage || lastPage.id !== pageId) return pages;
+  return [
+    ...pages,
+    createPage(lastPage.paperColor, lastPage.pattern, {
+      width: lastPage.width,
+      height: lastPage.height,
+    }),
+  ];
+}
+
 function replaceById<T extends { id: string }>(items: T[], before: T[], after: T[]): T[] {
   const byId = new Map(before.map((item, i) => [item.id, after[i]]));
   return items.map((item) => byId.get(item.id) ?? item);
@@ -319,11 +331,7 @@ export const useBoardStore = create<BoardState>()((set) => ({
   addStroke: (pageId, stroke) =>
     set((state) => {
       if (!state.pages.some((p) => p.id === pageId)) return state;
-      let pages = withStroke(state.pages, pageId, stroke);
-      const lastPage = state.pages[state.pages.length - 1];
-      if (lastPage && lastPage.id === pageId) {
-        pages = [...pages, createPage(lastPage.paperColor, lastPage.pattern, lastPage)];
-      }
+      const pages = withContinuationPage(withStroke(state.pages, pageId, stroke), pageId);
       return {
         pages,
         past: [...state.past, { kind: "add-stroke", pageId, stroke }],
@@ -366,11 +374,14 @@ export const useBoardStore = create<BoardState>()((set) => ({
       if (state.pages.length <= 1) return state;
       const pages = state.pages.filter((p) => p.id !== pageId);
       if (pages.length === state.pages.length) return state;
+      const viewId = state.pages[state.viewPageIndex]?.id;
+      const followIndex = pages.findIndex((p) => p.id === viewId);
       return {
         pages,
         past: [],
         future: [],
-        viewPageIndex: Math.min(state.viewPageIndex, pages.length - 1),
+        viewPageIndex:
+          followIndex >= 0 ? followIndex : Math.min(state.viewPageIndex, pages.length - 1),
         ...(state.selection?.pageId === pageId ? { selection: null, selectionAnchor: null } : {}),
       };
     }),
@@ -469,6 +480,7 @@ export const useBoardStore = create<BoardState>()((set) => ({
     })),
   movePage: (from, to) =>
     set((state) => {
+      if (state.exporting) return state;
       const count = state.pages.length;
       if (from === to || from < 0 || to < 0 || from >= count || to >= count) return state;
       const viewId = state.pages[state.viewPageIndex]?.id;
@@ -650,19 +662,18 @@ export const useBoardStore = create<BoardState>()((set) => ({
       const dy = PLACEMENT_MARGIN - bounds.minY * fit;
       const placedStrokes = scaledStrokes.map((s) => translateStroke(s, dx, dy));
       const placedImages = scaledImages.map((i) => translateImage(i, dx, dy));
-      let pages = state.pages.map((p) =>
-        p.id === page.id
-          ? {
-              ...p,
-              strokes: [...p.strokes, ...placedStrokes],
-              images: [...p.images, ...placedImages],
-            }
-          : p,
+      const pages = withContinuationPage(
+        state.pages.map((p) =>
+          p.id === page.id
+            ? {
+                ...p,
+                strokes: [...p.strokes, ...placedStrokes],
+                images: [...p.images, ...placedImages],
+              }
+            : p,
+        ),
+        page.id,
       );
-      const lastPage = state.pages[state.pages.length - 1];
-      if (lastPage && lastPage.id === page.id) {
-        pages = [...pages, createPage(lastPage.paperColor, lastPage.pattern, lastPage)];
-      }
       return {
         pages,
         past: [
@@ -683,13 +694,10 @@ export const useBoardStore = create<BoardState>()((set) => ({
       const page = state.pages[state.viewPageIndex] ?? state.pages[0];
       if (!page) return state;
       const image = createImageItem(imageId, naturalWidth, naturalHeight, page.width, page.height);
-      let pages = state.pages.map((p) =>
-        p.id === page.id ? { ...p, images: [...p.images, image] } : p,
+      const pages = withContinuationPage(
+        state.pages.map((p) => (p.id === page.id ? { ...p, images: [...p.images, image] } : p)),
+        page.id,
       );
-      const lastPage = state.pages[state.pages.length - 1];
-      if (lastPage && lastPage.id === page.id) {
-        pages = [...pages, createPage(lastPage.paperColor, lastPage.pattern, lastPage)];
-      }
       return {
         pages,
         past: [

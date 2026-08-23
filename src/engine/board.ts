@@ -1,4 +1,4 @@
-import { type Bounds, ERASER_TOLERANCE, hitTestStroke } from "../model/hitTest";
+import { type Bounds, ERASER_TOLERANCE, hitTestStroke, strokeBounds } from "../model/hitTest";
 import type { ImageItem } from "../model/image";
 import {
   boardWidth,
@@ -13,6 +13,7 @@ import {
 import { imagesInLasso, strokesInLasso } from "../model/selection";
 import {
   createStroke,
+  effectiveStrokeSize,
   type PenKind,
   SHAPE_KINDS,
   type ShapeKind,
@@ -90,7 +91,6 @@ interface TrackedPointer {
 interface ActiveStroke {
   pointerId: number;
   button: number;
-  pageIndex: number;
   pageId: string;
   pen: PenKind;
   color: string;
@@ -103,7 +103,6 @@ interface ActiveStroke {
 
 interface EraseSession {
   pointerId: number;
-  pageIndex: number;
   pageId: string;
   removed: Set<string>;
 }
@@ -124,7 +123,6 @@ interface SelectionState {
 
 interface LassoSession {
   pointerId: number;
-  pageIndex: number;
   pageId: string;
   points: Point[];
 }
@@ -247,6 +245,8 @@ export class Board {
         this.strokeOverlayCache = null;
         this.callbacks.onSelectionChange(null);
       } else {
+        // External document change during a drag leaves the gesture anchor stale.
+        this.gesture = null;
         this.selection = { pageId: page.id, strokes, images, bounds };
       }
     }
@@ -271,6 +271,10 @@ export class Board {
         );
         this.fitted = true;
       } else {
+        // Keep the fitted zoom in sync when the board shrinks (narrowed/removed widest page).
+        if (this.fitted && this.screen.width > 0) {
+          this.viewport = { ...this.viewport, scale: fitScale(this.screen.width, board) };
+        }
         this.viewport = clampViewport(this.viewport, this.screen, next);
       }
     }
@@ -310,6 +314,7 @@ export class Board {
     this.selection = { pageId: target.pageId, strokes, images, bounds };
     this.selectionBase = null;
     this.strokeOverlayCache = null;
+    this.gesture = null;
     this.scheduleComposite();
   }
 
@@ -467,6 +472,7 @@ export class Board {
   private resize(): void {
     const dpr = window.devicePixelRatio || 1;
     this.lastDpr = dpr;
+    this.pageTurn = null;
     this.screen = { width: this.container.clientWidth, height: this.container.clientHeight };
     for (const canvas of [this.baseCanvas, this.activeCanvas]) {
       canvas.width = Math.round(this.screen.width * dpr);
@@ -517,7 +523,7 @@ export class Board {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, this.screen.width, this.screen.height);
 
-    const live = !this.pinching && !this.wheelZooming;
+    const live = !this.pinching && !this.wheelZooming && !this.pageTurn;
     const renderScale = dpr * vp.scale;
     const { first, last } = visiblePageRange(vp, this.screen, this.pages);
     const tops = pageTops(this.pages);
@@ -638,11 +644,36 @@ export class Board {
     ctx.clip();
     ctx.translate(left, top);
     drawPagePattern(ctx, page.pattern, page.paperColor, page.width, page.height);
+    // Direct drawing recomputes every stroke outline per frame; skip what the
+    // viewport cannot see (bounds include the ink margin).
+    const viewLeft = vp.x - left;
+    const viewTop = vp.y - top;
+    const viewRight = viewLeft + this.screen.width / vp.scale;
+    const viewBottom = viewTop + this.screen.height / vp.scale;
     for (const image of page.images) {
+      if (
+        image.x > viewRight ||
+        image.x + image.width < viewLeft ||
+        image.y > viewBottom ||
+        image.y + image.height < viewTop
+      ) {
+        continue;
+      }
       const bitmap = getImageBitmap(image.imageId);
       if (bitmap) ctx.drawImage(bitmap, image.x, image.y, image.width, image.height);
     }
-    for (const stroke of page.strokes) drawStroke(ctx, stroke);
+    for (const stroke of page.strokes) {
+      const bounds = strokeBounds(stroke, effectiveStrokeSize(stroke) / 2);
+      if (
+        bounds.minX > viewRight ||
+        bounds.maxX < viewLeft ||
+        bounds.minY > viewBottom ||
+        bounds.maxY < viewTop
+      ) {
+        continue;
+      }
+      drawStroke(ctx, stroke);
+    }
     ctx.restore();
     const sx = (left - vp.x) * vp.scale;
     const sy = (top - vp.y) * vp.scale;
@@ -682,14 +713,12 @@ export class Board {
     const s = dpr * vp.scale;
     const lasso = this.lasso;
     if (lasso && lasso.points.length > 0) {
-      const lassoPage = this.pages[lasso.pageIndex];
-      if (!lassoPage) return;
+      const lassoIndex = this.pages.findIndex((p) => p.id === lasso.pageId);
+      if (lassoIndex < 0) return;
+      const lassoPage = this.pages[lassoIndex];
       ctx.save();
       ctx.setTransform(s, 0, 0, s, -vp.x * s, -vp.y * s);
-      ctx.translate(
-        pageLeftX(boardWidth(this.pages), lassoPage),
-        pageTopY(this.pages, lasso.pageIndex),
-      );
+      ctx.translate(pageLeftX(boardWidth(this.pages), lassoPage), pageTopY(this.pages, lassoIndex));
       ctx.beginPath();
       ctx.moveTo(lasso.points[0].x, lasso.points[0].y);
       for (let i = 1; i < lasso.points.length; i++) {
@@ -727,7 +756,7 @@ export class Board {
           ctx.drawImage(bitmap, image.x, image.y, image.width, image.height);
         }
       }
-      const live = !this.pinching && !this.wheelZooming;
+      const live = !this.pinching && !this.wheelZooming && !this.pageTurn;
       if (live && s > maxCacheRenderScale(page)) {
         const selectedStrokeIds = new Set(sel.strokes.map((st) => st.id));
         for (const stroke of page.strokes) {
@@ -894,7 +923,6 @@ export class Board {
       if (this.canDraw(event) && hit && !this.erasing) {
         this.erasing = {
           pointerId: event.pointerId,
-          pageIndex: hit.index,
           pageId: this.pages[hit.index].id,
           removed: new Set(),
         };
@@ -986,9 +1014,14 @@ export class Board {
         this.finishLasso();
       } else {
         const lasso = this.lasso;
-        for (const e of coalesced(event)) {
-          const point = this.toPagePoint(e, lasso.pageIndex);
-          lasso.points.push({ x: point.x, y: point.y });
+        const lassoIndex = this.pages.findIndex((p) => p.id === lasso.pageId);
+        if (lassoIndex < 0) {
+          this.lasso = null;
+        } else {
+          for (const e of coalesced(event)) {
+            const point = this.toPagePoint(e, lassoIndex);
+            lasso.points.push({ x: point.x, y: point.y });
+          }
         }
       }
       this.scheduleComposite();
@@ -1130,7 +1163,6 @@ export class Board {
     this.stroke = {
       pointerId: event.pointerId,
       button: event.button,
-      pageIndex,
       pageId: page.id,
       pen: isShapeTool(tool.tool) ? "pen" : tool.tool,
       color: tool.color,
@@ -1215,7 +1247,6 @@ export class Board {
     const clamped = clampToPage(this.pages[hit.index], hit.x, hit.y);
     this.lasso = {
       pointerId: event.pointerId,
-      pageIndex: hit.index,
       pageId: this.pages[hit.index].id,
       points: [clamped],
     };
@@ -1246,11 +1277,16 @@ export class Board {
       sw: { x: bounds.maxX, y: bounds.minY },
       w: { x: bounds.maxX, y: cy },
     };
+    // Bounds include the ink margin, so an anchor can sit outside the page;
+    // clamp it back in or clampScaleToPage cannot keep the baked result on-page.
+    const page = this.pages.find((p) => p.id === this.selection?.pageId);
+    const raw = anchors[handle];
+    const anchor = page ? clampToPage(page, raw.x, raw.y) : raw;
     return {
       kind: "resize",
       pointerId,
       handle,
-      anchor: anchors[handle],
+      anchor,
       start: starts[handle],
       origBounds: bounds,
       sx: 1,

@@ -9,6 +9,7 @@ import {
   pdfEntryPath,
   resolveImageEntries,
   resolvePdfEntries,
+  sanitizeFileName,
   serializeNotebook,
 } from "./transfer";
 
@@ -334,5 +335,15 @@ describe("notebook pdf sources", () => {
     const entries = unzipSync(buildNotebookZip(json, []));
     const parsed = parseNotebookFile(strFromU8(entries[NOTEBOOK_JSON_ENTRY]));
     expect(() => resolvePdfEntries(entries, parsed.pdfs)).toThrow("Missing PDF data");
+  });
+});
+
+describe("sanitizeFileName", () => {
+  it("replaces characters that are unsafe in file names", () => {
+    expect(sanitizeFileName('a/b\\c:d*e?f"g<h>i|j')).toBe("a_b_c_d_e_f_g_h_i_j");
+  });
+
+  it("keeps safe names untouched", () => {
+    expect(sanitizeFileName("My notes-page-1.png")).toBe("My notes-page-1.png");
   });
 });

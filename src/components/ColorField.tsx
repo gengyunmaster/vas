@@ -4,9 +4,11 @@ import { normalizeHex } from "../model/color";
 export function ColorField({
   value,
   onChange,
+  disabled,
 }: {
   value: string;
   onChange: (color: string) => void;
+  disabled?: boolean;
 }) {
   return (
     <div className="color-field">
@@ -15,14 +17,27 @@ export function ColorField({
         style={{ "--value": value } as CSSProperties}
         title="Custom color"
       >
-        <input type="color" value={value} onChange={(e) => onChange(e.target.value)} />
+        <input
+          type="color"
+          value={value}
+          disabled={disabled}
+          onChange={(e) => onChange(e.target.value)}
+        />
       </label>
-      <HexInput value={value} onCommit={onChange} />
+      <HexInput value={value} onCommit={onChange} disabled={disabled} />
     </div>
   );
 }
 
-function HexInput({ value, onCommit }: { value: string; onCommit: (color: string) => void }) {
+function HexInput({
+  value,
+  onCommit,
+  disabled,
+}: {
+  value: string;
+  onCommit: (color: string) => void;
+  disabled?: boolean;
+}) {
   const [text, setText] = useState(value);
   useEffect(() => setText(value), [value]);
 
@@ -38,6 +53,7 @@ function HexInput({ value, onCommit }: { value: string; onCommit: (color: string
       value={text}
       aria-label="Hex color value"
       spellCheck={false}
+      disabled={disabled}
       onChange={(e) => setText(e.target.value)}
       onBlur={commit}
       onKeyDown={(e) => {

@@ -22,7 +22,7 @@ vas 是一款本地优先的手写笔记/白板 Web 应用，目标是提供接�
 - PDF 导入：主页导入 PDF 生成新笔记本（白纸空白模板），或在笔记本内经设置面板导入并**插入到当前页之后**（继承当前页纸色与模板）；每页栅格化（3 倍清晰度 JPEG）为**锁定**图片并**铺满整页**（允许放大，一个方向顶到页边、另一方向居中，至多一侧留白），支持密码保护文件；锁定图片不可被圈选/清除，批注层不受影响；原始 PDF 字节同时入库，导出 PDF 时以矢量图层形式嵌入（见 3.6）
 - 页面：自动续页、指定位置插页、删页、清页、缩略图导航侧栏（缩略图保持页面长宽比纵向滚动，长按拖拽排序）
 - 外观：每页独立纸色（预设 + 自定义 hex）与背景模板（空白/横线/方格/点阵/米字格），线条颜色按纸色亮度自适应
-- 其他：撤销/重做（跨页历史栈）、演示模式（隐藏全部 UI）、多笔记本管理、笔记本合并（勾选顺序即页面顺序，单选即整本复制）、视图状态记忆（滚动位置与缩放，重开恢复并随导出携带）、矢量 PDF 导出、PNG 导出、SVG 导出
+- 其他：撤销/重做（跨页历史栈）、演示模式（全屏黑底、当前页 contain 适配居中、滚轮/双指滑动/方向键翻页带纵向滚动动画、可继续书写；隐藏选区工具条与页码指示，保留右上角悬浮工具栏）、多笔记本管理、笔记本合并（勾选顺序即页面顺序，单选即整本复制）、视图状态记忆（滚动位置与缩放，重开恢复并随导出携带）、矢量 PDF 导出、PNG 导出、SVG 导出
 
 ## 2. 技术栈
 
@@ -74,7 +74,7 @@ vas 是一款本地优先的手写笔记/白板 Web 应用，目标是提供接�
 
 - 世界坐标：每页独立的逻辑尺寸 `width`/`height`（默认 794×1123，A4 比例）。笔画点坐标相对页面左上角存储，与设备分辨率、缩放级别完全解耦。
 - 板面布局：板面宽度取最宽页（`page.boardWidth`，空板默认 794），每页水平居中（`page.pageLeftX`），垂直堆叠位置由页高前缀和计算（`page.pageTops`）；`pageIndexAtY`/`pageAt` 负责屏幕坐标 → 页归属与页内局部坐标。
-- world → screen 的视口变换集中在 `engine/viewport.ts`（适配缩放按板面宽度），不从多处各算各的。页面变宽导致当前视口放不下整个板面时（调大页宽、追加更宽页），`syncPages` 自动回到横向适配缩放——桌面留白两侧对称，且不依赖横向平移（PC 鼠标滚轮只能纵向平移）。
+- world → screen 的视口变换集中在 `engine/viewport.ts`（适配缩放按板面宽度），不从多处各算各的。页面变宽导致当前视口放不下整个板面时（调大页宽、追加更宽页），`syncPages` 自动回到横向适配缩放——桌面留白两侧对称，且不依赖横向平移（PC 鼠标滚轮只能纵向平移）；fitted 状态下板面变窄（调窄或删除最宽页）同样跟随重适配。
 - 所有 canvas 按 `devicePixelRatio` 缩放，DPR 变化时重建画布，保证高分屏清晰。
 
 ### 3.4 输入处理
@@ -98,6 +98,7 @@ interface Page {
   images: ImageItem[];   // 图片层：渲染于笔迹之下，可直接在图上批注
   paperColor: string;   // 每页独立的纸张颜色
   pattern: "blank" | "lined" | "grid" | "dots" | "rice";   // 每页独立的背景模板
+  pdfSource?: { docId: string; pageIndex: number };   // PDF 底图页对原始 PDF 的引用（0 基页码）
 }
 
 interface Stroke {
@@ -106,6 +107,7 @@ interface Stroke {
   color: string;
   size: number;
   pen: "pen" | "highlighter";
+  simulatePressure: boolean;   // 非手写笔输入用速度模拟压感
   shape?: "line" | "arrow" | "rect" | "ellipse"; // 图形笔画：points = [起点, 终点]
 }
 
@@ -114,6 +116,7 @@ interface ImageItem {
   imageId: string;      // 指向 IndexedDB images 表中的原始 blob，多页/多副本可共享
   x: number; y: number; // 页内位置（页面左上角为原点）
   width: number; height: number;  // 版面尺寸，缩放/拉伸只改这里，不重编码
+  locked?: boolean;     // PDF 底图：套索跳过、Clear page 豁免、不参与选中变换
 }
 ```
 
@@ -126,16 +129,16 @@ interface ImageItem {
 - 橡皮为笔画级（命中哪条删哪条），命中判定计入马克笔的宽度系数；椭圆命中按 32 段折线轮廓测距（`shapeGeometry.ellipseOutline`，与套索共享）。
 - 新增页的颜色、模板与尺寸继承自源页（手动加页跟随当前页、自动补页跟随最后一页）。
 - 页面尺寸调整（`model/pageSize.ts` 的 `resizePage` + store `setPageSize`）：设置面板改当前页尺寸（200–5000px 取整，`clampPageSize` 收敛）；变小时非锁定内容按 `min(新/旧, 1)` 等比缩放（只缩不放）置左上角，变大时内容不动；锁定 PDF 底图始终只重新居中（放大超清晰度时的重栅格化见 PDF 导入条目）；调尺寸清空撤销历史并取消选区。跨尺寸粘贴时若选区包围盒超出目标页可用区域则等比缩小到页内（store `pasteClipboard` 的 fit）。
-- 背景模板几何由 `model/patternLayout.ts` 统一产出（按页尺寸参数化，Canvas 渲染与 PDF 导出共用）：只画完整格子、整页居中；横线模板首行下移一个行距。
+- 背景模板几何由 `model/patternLayout.ts` 统一产出（按页尺寸参数化，Canvas 渲染与 PDF/SVG 导出共用）：只画完整格子、整页居中；横线模板首行下移一个行距。
 
 ### 3.6 持久化
 
 - 实现于 `src/persistence/`。IndexedDB（版本 3）四张表：`notebooks`（元信息：标题、时间戳、页数）、`pages`（整页记录：width/height + paperColor + pattern + strokes + images + pdfSource，按 notebookId 索引）、`images`（imageId → 原始图片 blob + mimeType，全局共享，不按笔记本隔离）与 `pdfs`（docId → 原始 PDF blob，全局共享）。旧库经 upgrade 自动补建 images/pdfs 表；老的 pages 记录没有 images/pdfSource/width/height 字段，读取时归一化（尺寸缺失视为 A4 默认值）。
-- 图片字节一律存原图（不重编码）；页记录只存引用，保证自动保存轻量。渲染位图由 `engine/imageCache.ts` 按需异步解码并缓存，解码完成后通知引擎/缩略图重绘。打开笔记本时做图片 GC：全库扫描引用（含内存中当前页与剪贴板），删除无主 blob。在途 PDF 导入的 blob 由 `retainImages`/`retainPdfs` 豁免名单保护，GC 不会误删尚未挂上页面的导入产物。
+- 图片字节一律存原图（不重编码）；页记录只存引用，保证自动保存轻量。渲染位图由 `engine/imageCache.ts` 按需异步解码并缓存，解码完成后通知引擎/缩略图重绘；关闭笔记本时清空缓存（`clearImageCache`），避免多本往返累计占用内存。打开笔记本时做图片 GC：全库扫描引用（含内存中当前页与剪贴板），删除无主 blob。在途 PDF 导入的 blob 由 `retainImages`/`retainPdfs` 豁免名单保护，GC 不会误删尚未挂上页面的导入产物。
 - 自动保存：`autosave.ts` 订阅 store，页面引用变化即增量写入对应页；页数减少时整本重写（保持索引连续）。无"保存"按钮，任何时刻关闭页面都不应丢数据；写入失败会捕获并一次性弹提示。
 - 笔记本合并：`notebooks.ts` 的 `mergeNotebooks` 按用户勾选顺序拼接各笔记本的页面（单选即整本复制），页/笔画/图片条目 id 经 `clonePageWithNewIds` 重建（页 id 是 pages 表主键，必须重建），**imageId 保持不变**——全局 images 表按引用共享 blob，相同图片天然只存一份。
 - 导入/导出：`transfer.ts`。无图片的笔记导出为纯 JSON；含图片或 PDF 的导出为 zip（`notebook.json` + `images/<imageId>.<ext>` + `pdfs/<docId>.pdf`，fflate）。文件格式 `version: 3`，导入兼容 version 1/2；页面尺寸 width/height 随页序列化（读取时缺失静默归一化为 A4 默认、越界拒绝）；按文件头嗅探 zip/JSON；导入做严格运行时校验（拒绝 NaN/Infinity、页面引用必须在图片/PDF 清单内）并重建全部 id（含 imageId 与 docId 重映射）；全部校验通过后才落库，失败回滚不留残本与孤儿 blob。
-- PDF 导出为**矢量**（`exportPdf.ts`）：每页按自身尺寸出纸（jsPDF 逐页 `format` + 显式 `orientation`，pdf-lib 分层同尺寸），先经 `pageToSvg` 序列化为 SVG，再由 svg2pdf.js + jsPDF 渲染进 PDF——笔画/图形/模板/纸色均为矢量；PNG/JPEG 图片按原字节嵌入，SVG 图片保持矢量（svg2pdf 直接解析渲染），其余格式（GIF/AVIF/WebP 等）经 `rasterizeToPng` 栅格化为 PNG 嵌入（GIF 动图只取静态帧）。含 `pdfSource` 的页改走 pdf-lib 分层组装：pdf-lib 原语画纸色与模板 → 底图矩形内铺白衬底 → `embedPage` 嵌入原始 PDF 矢量页 → 批注层（`pageToSvg` 的 `annotationOnly` 输出，跳过纸色/模板/锁定图片）经 jsPDF+svg2pdf 生成单页 PDF 后 `embedPdf` 叠加在最上层；原始 PDF 嵌入失败（如加密文件，pdf-lib 无解密能力）时该页回退为 JPEG 栅格底图。导出时裁掉末尾连续空白页。PNG 导出为位图（`exportImage.ts`，导出前等待全部位图就绪）。SVG 导出为**矢量**（`exportSvg.ts`）：笔画/图形/模板/纸色均为矢量元素，位图与 SVG 图片以 data URI（base64 原字节）内嵌进 `<image>`（同时写 `href` 与 `xlink:href` 兼容老查看器），缺失图片跳过；轮廓转路径的 `outlineToSvgPath` 抽在 `svgPath.ts`，图片字节转 data URI 的 `collectImageDataUris` 抽在 `imageDataUri.ts`，PDF 与 SVG 导出共用。
+- PDF 导出为**矢量**（`exportPdf.ts`）：每页按自身尺寸出纸（jsPDF 逐页 `format` + 显式 `orientation`，pdf-lib 分层同尺寸），先经 `pageToSvg` 序列化为 SVG，再由 svg2pdf.js + jsPDF 渲染进 PDF——笔画/图形/模板/纸色均为矢量；PNG/JPEG 图片按原字节嵌入，SVG 图片保持矢量（svg2pdf 直接解析渲染），其余格式（GIF/AVIF/WebP 等）经 `rasterizeToPng` 栅格化为 PNG 嵌入（GIF 动图只取静态帧）。含 `pdfSource` 的页改走 pdf-lib 分层组装：pdf-lib 原语画纸色与模板 → 底图矩形内铺白衬底 → `embedPage` 嵌入原始 PDF 矢量页 → 批注层（`pageToSvg` 的 `annotationOnly` 输出，跳过纸色/模板/锁定图片）经 jsPDF+svg2pdf 生成单页 PDF 后 `embedPdf` 叠加在最上层；原始 PDF 嵌入失败（如加密文件，pdf-lib 无解密能力）时该页回退为 JPEG 栅格底图。导出时裁掉末尾连续空白页。PNG 导出为位图（`exportImage.ts`，导出前等待全部位图就绪）。位图栅格化倍率统一经 `rasterize.ts` 的 `cappedRenderScale` 按 16M 像素预算钳制（iOS Safari 超限静默空白），PDF 导入的 4 倍栅格化同样受其约束。SVG 导出为**矢量**（`exportSvg.ts`）：笔画/图形/模板/纸色均为矢量元素，位图与 SVG 图片以 data URI（base64 原字节）内嵌进 `<image>`（同时写 `href` 与 `xlink:href` 兼容老查看器），缺失图片跳过；轮廓转路径的 `outlineToSvgPath` 抽在 `svgPath.ts`，图片字节转 data URI 的 `collectImageDataUris` 抽在 `imageDataUri.ts`，PDF 与 SVG 导出共用。
 - 导出范围统一为三档（设置面板，范围 × 格式两个维度）：**选中部分**只含选中的笔画与图片（`selection.pickElements` 按 id 提取），无纸色/模板/锁定图片，尺寸贴合选区包围盒（`transform.elementsBounds`）——SVG 经 `pageToSvg` 的 `clipTo` 裁剪 viewBox、PNG 经 `renderPage.paintElements` 平移渲染，二者背景透明；PDF 无透明概念，为包围盒尺寸的单页白底。**当前页**为单文件所见即所得（含背景与 PDF 底图）。**整本**导出时 SVG/PNG 若超过一页自动打 zip（`exportZip.ts`，fflate），单页直接下载；三格式整本导出均裁掉末尾连续空白页。
 - 工具偏好（工具/墨色/粗细/纸色/模板/侧栏）与"上次打开的笔记本"存于 localStorage（`prefs.ts`、`session.ts`）；偏好解析必须逐字段校验，只合并有效值。
 - 视图状态（`viewState: { x, y, zoom }`）：存于 notebooks 元信息记录（不动 updatedAt），浏览时视口稳定后 400ms 防抖写入，返回主页/切换/页面隐藏时冲刷；`zoom` 为相对适配倍率（scale / fitScale(屏宽)），跨设备恢复时不越界。打开笔记本时按记录恢复视口；导入/导出的 JSON/ZIP 顶层携带同名字段（可选，严格校验）。
@@ -143,7 +146,7 @@ interface ImageItem {
 
 ### 3.7 状态管理
 
-- zustand store 分两块：UI 状态（当前工具、颜色、粗细、演示模式、侧栏等，驱动 React）与文档状态（当前笔记本、页面列表、撤销历史）。
+- zustand 单一 store（`store/useBoardStore.ts`），状态逻辑上分两类：UI 状态（当前工具、颜色、粗细、演示模式、侧栏等，驱动 React）与文档状态（当前笔记本、页面列表、撤销历史）。
 - 撤销/重做：编辑历史栈（add-stroke / remove-stroke / clear-page / add-elements / remove-elements / replace-elements），删页时清空历史；elements 类操作同时携带笔画与图片（clear-page 也含 images），replace-elements 以"前/后"快照统一承载移动、缩放与改色，一次手势提交只产生一条历史。
 - 页面级操作（addPage / deletePage / movePage / insertPdfPages / setPageSize）不进撤销历史：addPage 与 insertPdfPages 本就不产生历史，deletePage 与 setPageSize 清空历史（setPageSize 同时取消选区）；movePage 重排页面时当前浏览页按页 id 跟随。
 - 选区（selection）与剪贴板（clipboard，结构为 `{ strokes, images }`）为内存态，不进 IndexedDB；剪贴板可跨页、跨笔记本粘贴，粘贴时重建笔画与图片条目的 id（图片 blob 引用共享，不复制字节）。

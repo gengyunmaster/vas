@@ -57,10 +57,7 @@ export async function exportNotebookPdf(title: string, pages: Page[]): Promise<v
   const kept = trimTrailingBlankPages(pages);
   if (!kept.some((page) => page.pdfSource)) {
     const bytes = await renderSvgLayerPdf(kept, title, false);
-    downloadBlob(
-      new Blob([bytes.buffer as ArrayBuffer], { type: "application/pdf" }),
-      `${title}.pdf`,
-    );
+    downloadBlob(new Blob([bytes.slice()], { type: "application/pdf" }), `${title}.pdf`);
     return;
   }
   await exportLayeredPdf(title, kept);
@@ -127,10 +124,7 @@ async function exportLayeredPdf(title: string, pages: Page[]): Promise<void> {
     pdfPage.drawPage(annotationPages[index], { x: 0, y: 0, width, height });
   }
   const bytes = await finalDoc.save();
-  downloadBlob(
-    new Blob([bytes.buffer as ArrayBuffer], { type: "application/pdf" }),
-    `${title}.pdf`,
-  );
+  downloadBlob(new Blob([bytes.slice()], { type: "application/pdf" }), `${title}.pdf`);
 }
 
 async function drawSourceLayer(
