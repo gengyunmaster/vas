@@ -38,45 +38,49 @@ function makePage(overrides: Partial<Page> = {}): Page {
     pattern: "blank",
     strokes: [],
     images: [],
+    texts: [],
     ...overrides,
   };
 }
 
 describe("pageToSvg", () => {
-  it("emits an A4 viewBox and the paper color as background", () => {
-    const svg = pageToSvg(makePage({ paperColor: "#003423" }), new Map());
+  it("emits an A4 viewBox and the paper color as background", async () => {
+    const svg = await pageToSvg(makePage({ paperColor: "#003423" }), new Map());
     expect(svg).toContain('viewBox="0 0 794 1123"');
     expect(svg).toContain('<rect x="0" y="0" width="794" height="1123" fill="#003423"/>');
     expect(svg.startsWith("<svg")).toBe(true);
     expect(svg.endsWith("</svg>")).toBe(true);
   });
 
-  it("emits the page's own size as the viewBox", () => {
-    const svg = pageToSvg(makePage({ width: 1200, height: 600 }), new Map());
+  it("emits the page's own size as the viewBox", async () => {
+    const svg = await pageToSvg(makePage({ width: 1200, height: 600 }), new Map());
     expect(svg).toContain('viewBox="0 0 1200 600"');
     expect(svg).toContain('width="1200" height="600"');
   });
 
-  it("renders a pen stroke as a filled path without opacity", () => {
-    const svg = pageToSvg(makePage({ strokes: [penStroke()] }), new Map());
+  it("renders a pen stroke as a filled path without opacity", async () => {
+    const svg = await pageToSvg(makePage({ strokes: [penStroke()] }), new Map());
     expect(svg).toContain('<path d="M');
     expect(svg).toContain('fill="#1a1a1a"');
     expect(svg).not.toContain("fill-opacity");
   });
 
-  it("renders a highlighter stroke with fill-opacity", () => {
-    const svg = pageToSvg(makePage({ strokes: [penStroke({ pen: "highlighter" })] }), new Map());
+  it("renders a highlighter stroke with fill-opacity", async () => {
+    const svg = await pageToSvg(
+      makePage({ strokes: [penStroke({ pen: "highlighter" })] }),
+      new Map(),
+    );
     expect(svg).toContain('fill-opacity="0.35"');
   });
 
-  it("skips strokes with no points", () => {
+  it("skips strokes with no points", async () => {
     const empty = penStroke({ points: [] });
-    const svg = pageToSvg(makePage({ strokes: [empty] }), new Map());
+    const svg = await pageToSvg(makePage({ strokes: [empty] }), new Map());
     expect(svg).not.toContain("<path");
   });
 
-  it("renders shapes with stroke attributes", () => {
-    const svg = pageToSvg(
+  it("renders shapes with stroke attributes", async () => {
+    const svg = await pageToSvg(
       makePage({ strokes: [shapeStroke("line"), shapeStroke("ellipse"), shapeStroke("rect")] }),
       new Map(),
     );
@@ -87,66 +91,69 @@ describe("pageToSvg", () => {
     expect(svg).toContain('stroke-linecap="round"');
   });
 
-  it("renders an arrow head as extra path segments", () => {
-    const svg = pageToSvg(makePage({ strokes: [shapeStroke("arrow")] }), new Map());
+  it("renders an arrow head as extra path segments", async () => {
+    const svg = await pageToSvg(makePage({ strokes: [shapeStroke("arrow")] }), new Map());
     const arrow = svg.split("\n").find((line) => line.startsWith('<path d="M10 20'));
     expect(arrow).toBeDefined();
     expect(arrow?.match(/M/g)?.length).toBe(2);
   });
 
-  it("renders no guides for a blank pattern", () => {
-    const svg = pageToSvg(makePage({ pattern: "blank" }), new Map());
+  it("renders no guides for a blank pattern", async () => {
+    const svg = await pageToSvg(makePage({ pattern: "blank" }), new Map());
     expect(svg).not.toContain("<line");
     expect(svg).not.toContain("<circle");
   });
 
-  it("renders grid lines in black on light paper", () => {
-    const svg = pageToSvg(makePage({ pattern: "grid" }), new Map());
+  it("renders grid lines in black on light paper", async () => {
+    const svg = await pageToSvg(makePage({ pattern: "grid" }), new Map());
     expect(svg).toContain('stroke="#000000" stroke-opacity="0.16"');
   });
 
-  it("renders grid lines in white on dark paper", () => {
-    const svg = pageToSvg(makePage({ pattern: "grid", paperColor: "#003423" }), new Map());
+  it("renders grid lines in white on dark paper", async () => {
+    const svg = await pageToSvg(makePage({ pattern: "grid", paperColor: "#003423" }), new Map());
     expect(svg).toContain('stroke="#ffffff" stroke-opacity="0.22"');
   });
 
-  it("renders dots pattern as circles", () => {
-    const svg = pageToSvg(makePage({ pattern: "dots" }), new Map());
+  it("renders dots pattern as circles", async () => {
+    const svg = await pageToSvg(makePage({ pattern: "dots" }), new Map());
     expect(svg).toContain("<circle");
     expect(svg).not.toContain("<line");
   });
 
-  it("renders rice pattern dashed lines", () => {
-    const svg = pageToSvg(makePage({ pattern: "rice" }), new Map());
+  it("renders rice pattern dashed lines", async () => {
+    const svg = await pageToSvg(makePage({ pattern: "rice" }), new Map());
     expect(svg).toContain('stroke-dasharray="6 4"');
   });
 
-  it("embeds images as data URIs with both href forms", () => {
+  it("embeds images as data URIs with both href forms", async () => {
     const page = makePage({
       images: [{ id: "i1", imageId: "img1", x: 40, y: 60, width: 200, height: 100 }],
     });
     const imageData = new Map([["img1", "data:image/png;base64,AAAA"]]);
-    const svg = pageToSvg(page, imageData);
+    const svg = await pageToSvg(page, imageData);
     expect(svg).toContain(
       '<image x="40" y="60" width="200" height="100" href="data:image/png;base64,AAAA" xlink:href="data:image/png;base64,AAAA" preserveAspectRatio="none"/>',
     );
   });
 
-  it("skips images without data", () => {
+  it("skips images without data", async () => {
     const page = makePage({
       images: [{ id: "i1", imageId: "img1", x: 40, y: 60, width: 200, height: 100 }],
     });
-    const svg = pageToSvg(page, new Map());
+    const svg = await pageToSvg(page, new Map());
     expect(svg).not.toContain("<image");
   });
 
-  it("escapes XML special characters in attribute values", () => {
-    const svg = pageToSvg(makePage({ strokes: [penStroke({ color: '#fff"><' })] }), new Map());
+  it("escapes XML special characters in attribute values", async () => {
+    const svg = await pageToSvg(
+      makePage({ strokes: [penStroke({ color: '#fff"><' })] }),
+      new Map(),
+    );
     expect(svg).toContain("&quot;&gt;&lt;");
     expect(svg).not.toContain('fill="#fff"><"');
   });
 
-  it("annotation-only mode omits paper, pattern, and locked images", () => {
+  it("annotation-only mode omits paper, pattern, and locked images", async () => {
     const page = makePage({
       paperColor: "#003423",
       pattern: "grid",
@@ -160,7 +167,7 @@ describe("pageToSvg", () => {
       ["locked-img", "data:image/jpeg;base64,AAAA"],
       ["free-img", "data:image/png;base64,BBBB"],
     ]);
-    const svg = pageToSvg(page, imageData, { annotationOnly: true });
+    const svg = await pageToSvg(page, imageData, { annotationOnly: true });
     expect(svg).not.toContain("<rect");
     expect(svg).not.toContain("<line");
     expect(svg).not.toContain("locked-img");
@@ -169,8 +176,8 @@ describe("pageToSvg", () => {
     expect(svg).toContain('fill="#1a1a1a"');
   });
 
-  it("clipTo shrinks the viewBox to the given bounds without touching element coordinates", () => {
-    const svg = pageToSvg(makePage({ strokes: [penStroke()] }), new Map(), {
+  it("clipTo shrinks the viewBox to the given bounds without touching element coordinates", async () => {
+    const svg = await pageToSvg(makePage({ strokes: [penStroke()] }), new Map(), {
       annotationOnly: true,
       clipTo: { minX: 10, minY: 20, maxX: 110, maxY: 220 },
     });

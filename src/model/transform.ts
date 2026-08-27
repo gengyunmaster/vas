@@ -2,6 +2,7 @@ import { type Bounds, strokeBounds } from "./hitTest";
 import type { ImageItem } from "./image";
 import type { Point } from "./shapeGeometry";
 import { effectiveStrokeSize, type Stroke } from "./stroke";
+import { MIN_TEXT_WIDTH, type TextItem } from "./textItem";
 
 export function strokesBounds(strokes: Stroke[]): Bounds | null {
   if (strokes.length === 0) return null;
@@ -55,6 +56,39 @@ export function imagesBounds(images: ImageItem[]): Bounds | null {
   return { minX, minY, maxX, maxY };
 }
 
+// Text boxes need their laid-out height for bounds; callers resolve it from
+// the text height cache and pass it along.
+export function textBounds(text: TextItem, height: number): Bounds {
+  return { minX: text.x, minY: text.y, maxX: text.x + text.width, maxY: text.y + height };
+}
+
+export function translateText(text: TextItem, dx: number, dy: number): TextItem {
+  return { ...text, x: text.x + dx, y: text.y + dy };
+}
+
+// Selection scaling reflows text: the position follows the gesture fully, the
+// width follows horizontally, and the font size stays put so glyphs are never
+// stretched. Vertical-only drags therefore move the box without reshaping it.
+export function scaleTextReflow(text: TextItem, anchor: Point, sx: number, sy: number): TextItem {
+  return {
+    ...text,
+    x: anchor.x + (text.x - anchor.x) * sx,
+    y: anchor.y + (text.y - anchor.y) * sy,
+    width: Math.max(MIN_TEXT_WIDTH, text.width * sx),
+  };
+}
+
+// Uniform scaling for whole-content shrink-to-fit (page resize, paste fit).
+export function scaleTextUniform(text: TextItem, anchor: Point, scale: number): TextItem {
+  return {
+    ...text,
+    x: anchor.x + (text.x - anchor.x) * scale,
+    y: anchor.y + (text.y - anchor.y) * scale,
+    width: Math.max(MIN_TEXT_WIDTH, text.width * scale),
+    fontSize: Math.min(200, Math.max(6, text.fontSize * scale)),
+  };
+}
+
 export function unionBounds(a: Bounds | null, b: Bounds | null): Bounds | null {
   if (!a) return b;
   if (!b) return a;
@@ -66,8 +100,14 @@ export function unionBounds(a: Bounds | null, b: Bounds | null): Bounds | null {
   };
 }
 
-export function elementsBounds(strokes: Stroke[], images: ImageItem[]): Bounds | null {
-  return unionBounds(strokesBounds(strokes), imagesBounds(images));
+export function elementsBounds(
+  strokes: Stroke[],
+  images: ImageItem[],
+  texts: { item: TextItem; height: number }[] = [],
+): Bounds | null {
+  let bounds = unionBounds(strokesBounds(strokes), imagesBounds(images));
+  for (const { item, height } of texts) bounds = unionBounds(bounds, textBounds(item, height));
+  return bounds;
 }
 
 export function scaleStroke(stroke: Stroke, anchor: Point, sx: number, sy: number): Stroke {

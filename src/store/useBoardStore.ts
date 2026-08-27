@@ -10,16 +10,21 @@ import {
 import { resizePage } from "../model/pageSize";
 import { buildPdfPages, type PdfPageImage } from "../model/pdfPage";
 import { newId, type PenKind, type Stroke, type ToolKind } from "../model/stroke";
+import { createTextItem, DEFAULT_TEXT_FONT_SIZE, type TextItem } from "../model/textItem";
 import {
   imagesBounds,
   scaleImage,
   scaleStroke,
+  scaleTextUniform,
   strokesBounds,
+  textBounds,
   translateImage,
   translateStroke,
+  translateText,
   unionBounds,
 } from "../model/transform";
 import type { ViewState } from "../model/viewState";
+import { textItemHeight } from "../text/textHeight";
 
 export const COLORS = ["#1a1a1a", "#d64541", "#2f6fdd", "#2e9e5b", "#f2b134", "#ffffff"] as const;
 export const PAPER_COLORS = [
@@ -35,13 +40,26 @@ export const SIZES = [1.5, 2.5, 4.5] as const;
 export type Edit =
   | { kind: "add-stroke"; pageId: string; stroke: Stroke }
   | { kind: "remove-stroke"; pageId: string; index: number; stroke: Stroke }
-  | { kind: "clear-page"; pageId: string; strokes: Stroke[]; images: ImageItem[] }
-  | { kind: "add-elements"; pageId: string; strokes: Stroke[]; images: ImageItem[] }
+  | {
+      kind: "clear-page";
+      pageId: string;
+      strokes: Stroke[];
+      images: ImageItem[];
+      texts: TextItem[];
+    }
+  | {
+      kind: "add-elements";
+      pageId: string;
+      strokes: Stroke[];
+      images: ImageItem[];
+      texts: TextItem[];
+    }
   | {
       kind: "remove-elements";
       pageId: string;
       strokes: { index: number; stroke: Stroke }[];
       images: { index: number; image: ImageItem }[];
+      texts: { index: number; text: TextItem }[];
     }
   | {
       kind: "replace-elements";
@@ -50,23 +68,28 @@ export type Edit =
       strokesAfter: Stroke[];
       imagesBefore: ImageItem[];
       imagesAfter: ImageItem[];
+      textsBefore: TextItem[];
+      textsAfter: TextItem[];
     };
 
 export interface SelectionTarget {
   pageId: string;
   strokeIds: string[];
   imageIds: string[];
+  textIds: string[];
 }
 
 export interface ClipboardContent {
   strokes: Stroke[];
   images: ImageItem[];
+  texts: TextItem[];
 }
 
 interface ElementEntries {
   pageId: string;
   strokes: { index: number; stroke: Stroke }[];
   images: { index: number; image: ImageItem }[];
+  texts: { index: number; text: TextItem }[];
 }
 
 interface BoardState {
@@ -92,6 +115,8 @@ interface BoardState {
   selection: SelectionTarget | null;
   selectionAnchor: { x: number; y: number } | null;
   clipboard: ClipboardContent;
+  editingText: { pageId: string; itemId: string } | null;
+  textEditOrigin: TextItem | null;
   viewState: ViewState | null;
   loadDocument: (doc: { id: string; title: string; pages: Page[]; viewState?: ViewState }) => void;
   unloadDocument: () => void;
@@ -118,14 +143,25 @@ interface BoardState {
   setSelection: (selection: SelectionTarget | null) => void;
   setSelectionAnchor: (anchor: { x: number; y: number } | null) => void;
   transformSelection: (
-    before: { strokes: Stroke[]; images: ImageItem[] },
-    after: { strokes: Stroke[]; images: ImageItem[] },
+    before: { strokes: Stroke[]; images: ImageItem[]; texts: TextItem[] },
+    after: { strokes: Stroke[]; images: ImageItem[]; texts: TextItem[] },
   ) => void;
   recolorSelection: (color: string) => void;
   deleteSelection: () => void;
   copySelection: () => void;
   cutSelection: () => void;
   pasteClipboard: () => void;
+  addTextItem: (pageId: string, x: number, y: number) => string;
+  updateTextItem: (
+    pageId: string,
+    itemId: string,
+    patch: Partial<Pick<TextItem, "markdown" | "color" | "fontSize" | "width" | "x" | "y">>,
+  ) => void;
+  removeTextItem: (pageId: string, itemId: string) => void;
+  commitTextHistory: (pageId: string, before: TextItem, after: TextItem) => void;
+  textFontSize: number;
+  setTextFontSize: (size: number) => void;
+  setEditingText: (editing: { pageId: string; itemId: string } | null) => void;
   insertImage: (
     imageId: string,
     naturalWidth: number,
@@ -168,6 +204,7 @@ function withoutElements(
   pageId: string,
   strokeIds: Set<string>,
   imageIds: Set<string>,
+  textIds: Set<string> = new Set(),
 ): Page[] {
   return pages.map((p) =>
     p.id === pageId
@@ -175,6 +212,7 @@ function withoutElements(
           ...p,
           strokes: p.strokes.filter((s) => !strokeIds.has(s.id)),
           images: p.images.filter((i) => !imageIds.has(i.id)),
+          texts: p.texts.filter((t) => !textIds.has(t.id)),
         }
       : p,
   );
@@ -206,6 +244,17 @@ function replaceById<T extends { id: string }>(items: T[], before: T[], after: T
   return items.map((item) => byId.get(item.id) ?? item);
 }
 
+function textItemDiffers(a: TextItem, b: TextItem): boolean {
+  return (
+    a.markdown !== b.markdown ||
+    a.color !== b.color ||
+    a.fontSize !== b.fontSize ||
+    a.width !== b.width ||
+    a.x !== b.x ||
+    a.y !== b.y
+  );
+}
+
 function applyEdit(pages: Page[], edit: Edit, direction: "do" | "undo"): Page[] {
   switch (edit.kind) {
     case "add-stroke":
@@ -220,8 +269,8 @@ function applyEdit(pages: Page[], edit: Edit, direction: "do" | "undo"): Page[] 
       return pages.map((p) =>
         p.id === edit.pageId
           ? direction === "do"
-            ? { ...p, strokes: [], images: p.images.filter((i) => i.locked) }
-            : { ...p, strokes: edit.strokes, images: edit.images }
+            ? { ...p, strokes: [], images: p.images.filter((i) => i.locked), texts: [] }
+            : { ...p, strokes: edit.strokes, images: edit.images, texts: edit.texts }
           : p,
       );
     case "add-elements": {
@@ -232,6 +281,7 @@ function applyEdit(pages: Page[], edit: Edit, direction: "do" | "undo"): Page[] 
                 ...p,
                 strokes: [...p.strokes, ...edit.strokes],
                 images: [...p.images, ...edit.images],
+                texts: [...p.texts, ...edit.texts],
               }
             : p,
         );
@@ -241,6 +291,7 @@ function applyEdit(pages: Page[], edit: Edit, direction: "do" | "undo"): Page[] 
         edit.pageId,
         new Set(edit.strokes.map((s) => s.id)),
         new Set(edit.images.map((i) => i.id)),
+        new Set(edit.texts.map((t) => t.id)),
       );
     }
     case "remove-elements": {
@@ -250,6 +301,7 @@ function applyEdit(pages: Page[], edit: Edit, direction: "do" | "undo"): Page[] 
           edit.pageId,
           new Set(edit.strokes.map((e) => e.stroke.id)),
           new Set(edit.images.map((e) => e.image.id)),
+          new Set(edit.texts.map((e) => e.text.id)),
         );
       }
       return pages.map((p) => {
@@ -262,7 +314,11 @@ function applyEdit(pages: Page[], edit: Edit, direction: "do" | "undo"): Page[] 
         for (const entry of [...edit.images].sort((a, b) => a.index - b.index)) {
           images.splice(Math.min(entry.index, images.length), 0, entry.image);
         }
-        return { ...p, strokes, images };
+        const texts = [...p.texts];
+        for (const entry of [...edit.texts].sort((a, b) => a.index - b.index)) {
+          texts.splice(Math.min(entry.index, texts.length), 0, entry.text);
+        }
+        return { ...p, strokes, images, texts };
       });
     }
     case "replace-elements": {
@@ -270,12 +326,15 @@ function applyEdit(pages: Page[], edit: Edit, direction: "do" | "undo"): Page[] 
       const strokesAfter = direction === "do" ? edit.strokesAfter : edit.strokesBefore;
       const imagesBefore = direction === "do" ? edit.imagesBefore : edit.imagesAfter;
       const imagesAfter = direction === "do" ? edit.imagesAfter : edit.imagesBefore;
+      const textsBefore = direction === "do" ? edit.textsBefore : edit.textsAfter;
+      const textsAfter = direction === "do" ? edit.textsAfter : edit.textsBefore;
       return pages.map((p) =>
         p.id === edit.pageId
           ? {
               ...p,
               strokes: replaceById(p.strokes, strokesBefore, strokesAfter),
               images: replaceById(p.images, imagesBefore, imagesAfter),
+              texts: replaceById(p.texts, textsBefore, textsAfter),
             }
           : p,
       );
@@ -290,16 +349,21 @@ function selectedElements(state: BoardState): ElementEntries | null {
   if (!page) return null;
   const strokeIds = new Set(selection.strokeIds);
   const imageIds = new Set(selection.imageIds);
+  const textIds = new Set(selection.textIds);
   const strokes: { index: number; stroke: Stroke }[] = [];
   const images: { index: number; image: ImageItem }[] = [];
+  const texts: { index: number; text: TextItem }[] = [];
   page.strokes.forEach((stroke, index) => {
     if (strokeIds.has(stroke.id)) strokes.push({ index, stroke });
   });
   page.images.forEach((image, index) => {
     if (imageIds.has(image.id)) images.push({ index, image });
   });
-  if (strokes.length === 0 && images.length === 0) return null;
-  return { pageId: page.id, strokes, images };
+  page.texts.forEach((text, index) => {
+    if (textIds.has(text.id)) texts.push({ index, text });
+  });
+  if (strokes.length === 0 && images.length === 0 && texts.length === 0) return null;
+  return { pageId: page.id, strokes, images, texts };
 }
 
 export const useBoardStore = create<BoardState>()((set) => ({
@@ -324,7 +388,9 @@ export const useBoardStore = create<BoardState>()((set) => ({
   pattern: "blank",
   selection: null,
   selectionAnchor: null,
-  clipboard: { strokes: [], images: [] },
+  clipboard: { strokes: [], images: [], texts: [] },
+  editingText: null,
+  textEditOrigin: null,
   viewState: null,
   loadDocument: (doc) =>
     set({
@@ -337,6 +403,8 @@ export const useBoardStore = create<BoardState>()((set) => ({
       pendingScrollToPage: null,
       selection: null,
       selectionAnchor: null,
+      editingText: null,
+      textEditOrigin: null,
       viewState: doc.viewState ?? null,
     }),
   unloadDocument: () =>
@@ -350,6 +418,8 @@ export const useBoardStore = create<BoardState>()((set) => ({
       pendingScrollToPage: null,
       selection: null,
       selectionAnchor: null,
+      editingText: null,
+      textEditOrigin: null,
       viewState: null,
       presentation: false,
     }),
@@ -408,21 +478,33 @@ export const useBoardStore = create<BoardState>()((set) => ({
         viewPageIndex:
           followIndex >= 0 ? followIndex : Math.min(state.viewPageIndex, pages.length - 1),
         ...(state.selection?.pageId === pageId ? { selection: null, selectionAnchor: null } : {}),
+        ...(state.editingText?.pageId === pageId
+          ? { editingText: null, textEditOrigin: null }
+          : {}),
       };
     }),
   clearPage: (pageId) =>
     set((state) => {
       const page = state.pages.find((p) => p.id === pageId);
       const hasUnlockedContent =
-        page && (page.strokes.length > 0 || page.images.some((i) => !i.locked));
+        page &&
+        (page.strokes.length > 0 || page.images.some((i) => !i.locked) || page.texts.length > 0);
       if (!page || !hasUnlockedContent) return state;
       return {
         pages: state.pages.map((p) =>
-          p.id === pageId ? { ...p, strokes: [], images: p.images.filter((i) => i.locked) } : p,
+          p.id === pageId
+            ? { ...p, strokes: [], images: p.images.filter((i) => i.locked), texts: [] }
+            : p,
         ),
         past: [
           ...state.past,
-          { kind: "clear-page", pageId, strokes: page.strokes, images: page.images },
+          {
+            kind: "clear-page",
+            pageId,
+            strokes: page.strokes,
+            images: page.images,
+            texts: page.texts,
+          },
         ],
         future: [],
         ...(state.selection?.pageId === pageId ? { selection: null, selectionAnchor: null } : {}),
@@ -450,11 +532,51 @@ export const useBoardStore = create<BoardState>()((set) => ({
       };
     }),
   setViewPageIndex: (index) => set({ viewPageIndex: index }),
-  setTool: (tool) =>
+  setTool: (tool) => {
+    if (tool !== "text" && useBoardStore.getState().editingText) {
+      useBoardStore.getState().setEditingText(null);
+    }
     set((state) => ({
       tool,
       lastPenKind: tool === "pen" || tool === "highlighter" ? tool : state.lastPenKind,
-    })),
+    }));
+  },
+  setEditingText: (editing) => {
+    const state = useBoardStore.getState();
+    if (editing) {
+      if (state.editingText) state.setEditingText(null);
+      const page = useBoardStore.getState().pages.find((p) => p.id === editing.pageId);
+      const item = page?.texts.find((t) => t.id === editing.itemId);
+      if (!item) return;
+      set({ editingText: editing, textEditOrigin: { ...item } });
+      return;
+    }
+    const current = state.editingText;
+    const origin = state.textEditOrigin;
+    if (!current) return;
+    set({ editingText: null, textEditOrigin: null });
+    const page = useBoardStore.getState().pages.find((p) => p.id === current.pageId);
+    const item = page?.texts.find((t) => t.id === current.itemId);
+    if (!page || !item) return;
+    if (!item.markdown.trim()) {
+      useBoardStore.getState().removeTextItem(current.pageId, item.id);
+      return;
+    }
+    if (!origin) return;
+    if (!origin.markdown.trim()) {
+      set((s) => ({
+        past: [
+          ...s.past,
+          { kind: "add-elements", pageId: page.id, strokes: [], images: [], texts: [item] },
+        ],
+        future: [],
+      }));
+      return;
+    }
+    if (textItemDiffers(origin, item)) {
+      useBoardStore.getState().commitTextHistory(page.id, origin, item);
+    }
+  },
   setPresentation: (on) =>
     set(
       on ? { presentation: true, selection: null, selectionAnchor: null } : { presentation: false },
@@ -492,6 +614,65 @@ export const useBoardStore = create<BoardState>()((set) => ({
             strokesAfter: [],
             imagesBefore: [before],
             imagesAfter: [after],
+            textsBefore: [],
+            textsAfter: [],
+          },
+        ],
+        future: [],
+      };
+    }),
+  textFontSize: DEFAULT_TEXT_FONT_SIZE,
+  setTextFontSize: (size) => set({ textFontSize: size }),
+  addTextItem: (pageId, x, y) => {
+    const state = useBoardStore.getState();
+    const page = state.pages.find((p) => p.id === pageId);
+    const item = createTextItem(
+      x,
+      y,
+      state.textFontSize,
+      state.color,
+      page?.width ?? 0,
+      page?.height ?? 0,
+    );
+    set((current) => {
+      if (!current.pages.some((p) => p.id === pageId)) return current;
+      return {
+        pages: current.pages.map((p) =>
+          p.id === pageId ? { ...p, texts: [...p.texts, item] } : p,
+        ),
+      };
+    });
+    return item.id;
+  },
+  updateTextItem: (pageId, itemId, patch) =>
+    set((state) => ({
+      pages: state.pages.map((p) =>
+        p.id === pageId
+          ? { ...p, texts: p.texts.map((t) => (t.id === itemId ? { ...t, ...patch } : t)) }
+          : p,
+      ),
+    })),
+  removeTextItem: (pageId, itemId) =>
+    set((state) => ({
+      pages: state.pages.map((p) =>
+        p.id === pageId ? { ...p, texts: p.texts.filter((t) => t.id !== itemId) } : p,
+      ),
+    })),
+  commitTextHistory: (pageId, before, after) =>
+    set((state) => {
+      if (!state.pages.some((p) => p.id === pageId)) return state;
+      return {
+        past: [
+          ...state.past,
+          {
+            kind: "replace-elements",
+            pageId,
+            strokesBefore: [],
+            strokesAfter: [],
+            imagesBefore: [],
+            imagesAfter: [],
+            textsBefore: [before],
+            textsAfter: [after],
           },
         ],
         future: [],
@@ -575,7 +756,8 @@ export const useBoardStore = create<BoardState>()((set) => ({
       if (
         before.strokes.length !== after.strokes.length ||
         before.images.length !== after.images.length ||
-        (before.strokes.length === 0 && before.images.length === 0)
+        before.texts.length !== after.texts.length ||
+        (before.strokes.length === 0 && before.images.length === 0 && before.texts.length === 0)
       ) {
         return state;
       }
@@ -587,6 +769,7 @@ export const useBoardStore = create<BoardState>()((set) => ({
                 ...p,
                 strokes: replaceById(p.strokes, before.strokes, after.strokes),
                 images: replaceById(p.images, before.images, after.images),
+                texts: replaceById(p.texts, before.texts, after.texts),
               }
             : p,
         ),
@@ -599,6 +782,8 @@ export const useBoardStore = create<BoardState>()((set) => ({
             strokesAfter: after.strokes,
             imagesBefore: before.images,
             imagesAfter: after.images,
+            textsBefore: before.texts,
+            textsAfter: after.texts,
           },
         ],
         future: [],
@@ -607,23 +792,40 @@ export const useBoardStore = create<BoardState>()((set) => ({
   recolorSelection: (color) =>
     set((state) => {
       const selected = selectedElements(state);
-      if (!selected || selected.strokes.length === 0) return state;
-      const before = selected.strokes.map((e) => e.stroke);
-      if (before.every((s) => s.color === color)) return state;
-      const after = before.map((s) => ({ ...s, color }));
+      if (!selected || (selected.strokes.length === 0 && selected.texts.length === 0)) {
+        return state;
+      }
+      const strokesBefore = selected.strokes.map((e) => e.stroke);
+      const textsBefore = selected.texts.map((e) => e.text);
+      if (
+        strokesBefore.every((s) => s.color === color) &&
+        textsBefore.every((t) => t.color === color)
+      ) {
+        return state;
+      }
+      const strokesAfter = strokesBefore.map((s) => ({ ...s, color }));
+      const textsAfter = textsBefore.map((t) => ({ ...t, color }));
       return {
         pages: state.pages.map((p) =>
-          p.id === selected.pageId ? { ...p, strokes: replaceById(p.strokes, before, after) } : p,
+          p.id === selected.pageId
+            ? {
+                ...p,
+                strokes: replaceById(p.strokes, strokesBefore, strokesAfter),
+                texts: replaceById(p.texts, textsBefore, textsAfter),
+              }
+            : p,
         ),
         past: [
           ...state.past,
           {
             kind: "replace-elements",
             pageId: selected.pageId,
-            strokesBefore: before,
-            strokesAfter: after,
+            strokesBefore,
+            strokesAfter,
             imagesBefore: [],
             imagesAfter: [],
+            textsBefore,
+            textsAfter,
           },
         ],
         future: [],
@@ -639,6 +841,7 @@ export const useBoardStore = create<BoardState>()((set) => ({
           selected.pageId,
           new Set(selected.strokes.map((e) => e.stroke.id)),
           new Set(selected.images.map((e) => e.image.id)),
+          new Set(selected.texts.map((e) => e.text.id)),
         ),
         past: [
           ...state.past,
@@ -647,6 +850,7 @@ export const useBoardStore = create<BoardState>()((set) => ({
             pageId: selected.pageId,
             strokes: selected.strokes,
             images: selected.images,
+            texts: selected.texts,
           },
         ],
         future: [],
@@ -662,6 +866,7 @@ export const useBoardStore = create<BoardState>()((set) => ({
         clipboard: {
           strokes: structuredClone(selected.strokes.map((e) => e.stroke)),
           images: structuredClone(selected.images.map((e) => e.image)),
+          texts: structuredClone(selected.texts.map((e) => e.text)),
         },
       };
     }),
@@ -673,12 +878,14 @@ export const useBoardStore = create<BoardState>()((set) => ({
         clipboard: {
           strokes: structuredClone(selected.strokes.map((e) => e.stroke)),
           images: structuredClone(selected.images.map((e) => e.image)),
+          texts: structuredClone(selected.texts.map((e) => e.text)),
         },
         pages: withoutElements(
           state.pages,
           selected.pageId,
           new Set(selected.strokes.map((e) => e.stroke.id)),
           new Set(selected.images.map((e) => e.image.id)),
+          new Set(selected.texts.map((e) => e.text.id)),
         ),
         past: [
           ...state.past,
@@ -687,6 +894,7 @@ export const useBoardStore = create<BoardState>()((set) => ({
             pageId: selected.pageId,
             strokes: selected.strokes,
             images: selected.images,
+            texts: selected.texts,
           },
         ],
         future: [],
@@ -697,12 +905,21 @@ export const useBoardStore = create<BoardState>()((set) => ({
   pasteClipboard: () =>
     set((state) => {
       const clip = state.clipboard;
-      if (clip.strokes.length === 0 && clip.images.length === 0) return state;
+      if (clip.strokes.length === 0 && clip.images.length === 0 && clip.texts.length === 0) {
+        return state;
+      }
       const page = state.pages[state.viewPageIndex] ?? state.pages[0];
       if (!page) return state;
       const strokes = clip.strokes.map((s) => ({ ...structuredClone(s), id: newId() }));
       const images = clip.images.map((i) => ({ ...structuredClone(i), id: newId() }));
-      const bounds = unionBounds(strokesBounds(strokes), imagesBounds(images));
+      const texts = clip.texts.map((t) => ({ ...structuredClone(t), id: newId() }));
+      const bounds = unionBounds(
+        unionBounds(strokesBounds(strokes), imagesBounds(images)),
+        texts.reduce<ReturnType<typeof imagesBounds>>(
+          (acc, t) => unionBounds(acc, textBounds(t, textItemHeight(t))),
+          null,
+        ),
+      );
       if (!bounds) return state;
       const fit = Math.min(
         1,
@@ -713,10 +930,12 @@ export const useBoardStore = create<BoardState>()((set) => ({
       const scaledStrokes =
         fit === 1 ? strokes : strokes.map((s) => scaleStroke(s, origin, fit, fit));
       const scaledImages = fit === 1 ? images : images.map((i) => scaleImage(i, origin, fit, fit));
+      const scaledTexts = fit === 1 ? texts : texts.map((t) => scaleTextUniform(t, origin, fit));
       const dx = PLACEMENT_MARGIN - bounds.minX * fit;
       const dy = PLACEMENT_MARGIN - bounds.minY * fit;
       const placedStrokes = scaledStrokes.map((s) => translateStroke(s, dx, dy));
       const placedImages = scaledImages.map((i) => translateImage(i, dx, dy));
+      const placedTexts = scaledTexts.map((t) => translateText(t, dx, dy));
       const pages = withContinuationPage(
         state.pages.map((p) =>
           p.id === page.id
@@ -724,6 +943,7 @@ export const useBoardStore = create<BoardState>()((set) => ({
                 ...p,
                 strokes: [...p.strokes, ...placedStrokes],
                 images: [...p.images, ...placedImages],
+                texts: [...p.texts, ...placedTexts],
               }
             : p,
         ),
@@ -733,13 +953,20 @@ export const useBoardStore = create<BoardState>()((set) => ({
         pages,
         past: [
           ...state.past,
-          { kind: "add-elements", pageId: page.id, strokes: placedStrokes, images: placedImages },
+          {
+            kind: "add-elements",
+            pageId: page.id,
+            strokes: placedStrokes,
+            images: placedImages,
+            texts: placedTexts,
+          },
         ],
         future: [],
         selection: {
           pageId: page.id,
           strokeIds: placedStrokes.map((s) => s.id),
           imageIds: placedImages.map((i) => i.id),
+          textIds: placedTexts.map((t) => t.id),
         },
         tool: "select",
       };
@@ -758,10 +985,16 @@ export const useBoardStore = create<BoardState>()((set) => ({
         pages,
         past: [
           ...state.past,
-          { kind: "add-elements", pageId: page.id, strokes: [], images: [image] },
+          {
+            kind: "add-elements",
+            pageId: page.id,
+            strokes: [],
+            images: [image],
+            texts: [],
+          },
         ],
         future: [],
-        selection: { pageId: page.id, strokeIds: [], imageIds: [image.id] },
+        selection: { pageId: page.id, strokeIds: [], imageIds: [image.id], textIds: [] },
         tool: "select",
       };
     }),

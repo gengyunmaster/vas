@@ -63,15 +63,15 @@ function loadMathjax(): Promise<MathjaxContext> {
 
 const glyphCache = new Map<string, LatexGlyph | null>();
 
-// Inline math, matching how the editor's KaTeX labels are typeset. Returns
-// null when the source cannot be parsed or the output is not a single SVG.
-export async function renderLatex(latex: string): Promise<LatexGlyph | null> {
-  const cached = glyphCache.get(latex);
+// Returns null when the source cannot be parsed or the output is not a single SVG.
+export async function renderLatex(latex: string, display = false): Promise<LatexGlyph | null> {
+  const key = `${display ? "d" : "i"}:${latex}`;
+  const cached = glyphCache.get(key);
   if (cached !== undefined) return cached;
   let glyph: LatexGlyph | null = null;
   try {
     const { html, adaptor } = await loadMathjax();
-    const container = adaptor.outerHTML(html.convert(latex, { display: false }));
+    const container = adaptor.outerHTML(html.convert(latex, { display }));
     const svgStart = container.indexOf("<svg");
     const svgCount = container.match(/<svg[\s>]/g)?.length ?? 0;
     if (svgStart >= 0 && svgCount === 1) {
@@ -91,6 +91,6 @@ export async function renderLatex(latex: string): Promise<LatexGlyph | null> {
   } catch {
     glyph = null;
   }
-  glyphCache.set(latex, glyph);
+  glyphCache.set(key, glyph);
   return glyph;
 }

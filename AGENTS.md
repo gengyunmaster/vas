@@ -16,7 +16,8 @@ vas 是一款本地优先的手写笔记/白板 Web 应用，目标是提供接�
 
 已实现的主要功能：
 
-- 工具：钢笔（压感）、马克笔、橡皮（笔画级）、激光笔（渐隐轨迹，不落数据）、图形（直线/箭头/矩形/椭圆）、套索选择
+- 工具：钢笔（压感）、马克笔、橡皮（笔画级）、激光笔（渐隐轨迹，不落数据）、图形（直线/箭头/矩形/椭圆）、套索选择、文字（键盘输入）
+- 文字：Text 工具点页面任意位置放置文本框，源码 textarea 编辑 + 页面上实时预览；支持 markdown 子集（标题/列表/引用/代码/粗斜体/删除线/链接/分割线）与 LaTeX 公式（`$...$` 行内、`$$...$$` 行间，屏幕 KaTeX、导出 MathJax 矢量字形，复用几何画板管线）；`{#hex|text}` 语法混排文字颜色；文内图片只允许引用笔记本内已存图片（`![](image:<imageId>)`，外部 URL 被剥除）；宽度可调、高度随内容自动增长，触底拒收输入；图层位于图片之上、笔迹之下；参与套索（外接矩形）、拖动、改色、删除、剪切/复制/粘贴；选区缩放只改宽度重排（字号不变）；橡皮不擦
 - 选择：套索圈选（自动闭合；笔画与圈相交或落入圈内即整条选中），选中后可拖动移动、八手柄缩放/拉伸（角手柄等比、边手柄单向，全程矢量）、改色、删除、剪切/复制/粘贴（粘贴到当前页左上角并自动选中，借此实现跨页/跨笔记本搬运）
 - 图片：插入图片（按钮或 Ctrl+V 读取系统剪贴板），渲染于笔迹之下可直接批注，橡皮不可擦；随选区移动/缩放/拉伸/删除/剪切/复制/粘贴；超大图片自动等比缩小到页内；存原图不重编码
 - PDF 导入：主页导入 PDF 生成新笔记本（白纸空白模板），或在笔记本内经设置面板导入并**插入到当前页之后**（继承当前页纸色与模板）；文件选定（含密码输入）后弹出页码范围对话框，显示总页数，支持反填自动排序与单页，越界报错重填、可取消；每页栅格化（3 倍清晰度 JPEG）为**锁定**图片并**铺满整页**（允许放大，一个方向顶到页边、另一方向居中，至多一侧留白），支持密码保护文件；锁定图片不可被圈选/清除，批注层不受影响；**完整原始 PDF**（不截取范围）同时入库，导出 PDF 时以矢量图层形式嵌入（见 3.6）
@@ -43,8 +44,11 @@ vas 是一款本地优先的手写笔记/白板 Web 应用，目标是提供接�
 | 几何画板渲染 | jsxgraph | 几何编辑器（`src/geo/`）的画板绘制与拖拽交互，编辑器整体随 `GeometryOverlay` 懒加载 |
 | 公式输入 | mathlive | 几何编辑器的函数/表达式输入框（math-field，输出 LaTeX） |
 | 表达式求值 | @cortex-js/compute-engine | LaTeX 表达式 → 数值求值（函数图像、滑块、变量） |
-| 画板标签渲染 | katex | 几何编辑器画布上的数学标签（HTML overlay，仅供屏幕显示） |
-| 导出标签矢量化 | @mathjax/src | MathJax v4 动态 `import()` 懒加载；嵌入/导出时把 LaTeX 标签转为 SVG 矢量字形 |
+| 画板标签渲染 | katex | 几何编辑器画布与文字项公式的屏幕渲染（HTML overlay，仅供屏幕显示） |
+| 导出标签矢量化 | @mathjax/src | MathJax v4 动态 `import()` 懒加载；嵌入/导出时把 LaTeX 标签与文内公式转为 SVG 矢量字形 |
+| Markdown 引擎 | markdown-it | 文字项解析；自写三条规则：行内/行间公式、`{#hex|text}` 混排颜色、图片 sanitize（只放行 `image:<imageId>`）；不开 `html:true`（防 XSS） |
+| PDF 文字字体 | @pdf-lib/fontkit | 动态 `import()` 按需加载；导出 PDF 时内嵌子集化 Noto Sans SC（regular/bold）绘制真实可选中矢量文字 |
+| 屏幕/导出统一字体 | Noto Sans SC 子集 TTF | `public/fonts/`（GB2312 字符集子集，`scripts/subset-fonts.mjs` 生成）；`src/fonts.ts` 注入 @font-face，屏幕排版与导出度量同源 |
 | PWA | vite-plugin-pwa | generateSW，autoUpdate |
 | Lint / 格式化 | Biome |  |
 | 单元测试 | Vitest | 纯 node 环境，个别组件测试用 jsdom（文件头 `@vitest-environment jsdom` pragma） |
@@ -68,6 +72,10 @@ vas 是一款本地优先的手写笔记/白板 Web 应用，目标是提供接�
 1. **页面位图缓存层**：每页一个离屏 canvas，缓存该页已提交笔画；只保留可视页及相邻页，滚动远离后淘汰。
 2. **活动笔画层**：一个覆盖全屏的透明 canvas，正在书写的当前笔画与激光笔轨迹在此逐帧绘制；笔画结束后合并进页面缓存层。
 3. **React UI 层**：普通 DOM，与 canvas 叠加。
+
+文字项是例外：它们走 DOM overlay（`components/TextOverlay.tsx`），**不进页面位图缓存**——位置由渲染引擎逐帧经 `text/textFrameBus.ts` 发布（绕开 React 60fps 状态往返），内容由 store 驱动；选中手势期间由 overlay 按 gesture 快照命令式应用 CSS transform。
+
+层叠顺序必须与导出一致（纸色/模板 < 图片 < 文字 < 笔迹）：文字层经 `createPortal` 挂在 `.board` 容器**内部**（`.board` 是 fixed 元素、自带层叠上下文，挂在外面会压住全部 canvas），z 序为基础画布 < 文字层（z 8）< 活动画布（z 9）。含文字的页面其已提交笔迹不进基础缓存，改由独立的透明墨迹缓存（`Board.inkCache`，复用 `PageCache`、派生 `{...page, images: [], pattern: "blank", paperColor: "transparent"}` 页）合成到活动画布一侧（`renderPageInk`），选区手势中的图片则改绘到基础画布以保持图片在文字之下；无文字的页面走原单缓存路径，零额外开销。
 
 ### 3.2 渲染循环
 
@@ -102,6 +110,7 @@ interface Page {
   height: number;
   strokes: Stroke[];
   images: ImageItem[];   // 图片层：渲染于笔迹之下，可直接在图上批注
+  texts: TextItem[];    // 文字层：图片之上、笔迹之下，DOM overlay 屏幕渲染
   paperColor: string;   // 每页独立的纸张颜色
   pattern: "blank" | "lined" | "grid" | "dots" | "rice";   // 每页独立的背景模板
   pdfSource?: { docId: string; pageIndex: number };   // PDF 底图页对原始 PDF 的引用（0 基页码）
@@ -125,12 +134,22 @@ interface ImageItem {
   locked?: boolean;     // PDF 底图：套索跳过、Clear page 豁免、不参与选中变换
   geometryId?: string;  // 几何画板嵌入图形：指向 geometries 表中的可编辑文档
 }
+
+interface TextItem {
+  id: string;
+  x: number; y: number; // 页内位置
+  width: number;        // 盒宽固定可调；高度永远由排版导出，不落库
+  fontSize: number;
+  color: string;        // 基础墨色；{#hex|text} 语法可混排更多颜色
+  markdown: string;     // markdown 源码，可含 $公式$ 与 ![](image:<imageId>)
+}
 ```
 
 - 类型定义集中在 `src/model/`，全项目引用同一来源，不重复定义。
-- 工具集 `TOOL_KINDS`：pen / highlighter / eraser / laser / select / line / arrow / rect / ellipse；laser 不留墨迹，图形走独立渲染与命中分支（`engine/shapes.ts`、`model/hitTest.ts`、`model/shapeGeometry.ts`）。
-- 套索命中（`model/selection.ts`）：圈自动闭合（首尾连边），笔画与圈相交、落入圈内、或圈整体落在粗笔迹墨迹内均算选中；图形按其轮廓几何判定（椭圆以 32 段折线近似）；图片按矩形与圈的相交/包含判定。
-- 选区变换（`model/transform.ts`）：移动/缩放为纯函数仿射变换，松手提交时才把新坐标写回笔画（bake）；笔迹粗细按 √(sx·sy) 几何均值跟随缩放；移动与缩放均被约束在当前页边界内，不支持跨页拖拽与旋转。
+- 工具集 `TOOL_KINDS`：pen / highlighter / eraser / laser / select / text / line / arrow / rect / ellipse；laser 不留墨迹，图形走独立渲染与命中分支（`engine/shapes.ts`、`model/hitTest.ts`、`model/shapeGeometry.ts`）。
+- 文字（`model/textItem.ts` + `src/markdown/` + `src/text/`）：markdown-it 自写规则产出平铺 Block[]（`markdown/blocks.ts`），屏幕经 `markdown/html.ts` 渲染为安全 HTML（全转义、KaTeX 公式、文内图片 object URL），导出共用纯函数排版引擎 `text/layout.ts`（canvas measureText 度量 + MathJax 字形 + CJK 逐字断行/Latin 按词）；`text/textHeight.ts` 缓存排版高度供套索/包围盒等同步消费者使用；编辑器（`components/TextEditor.tsx`）乐观更新 + 次帧实测，触底（页底 - 8px）回退到最后接受值。再编辑入口：Text 工具点击既有文本，或套索选中单个文本框后点 SelectionBar 的 Edit（进入编辑时清空选区）。编辑生命周期：`addTextItem`/`updateTextItem` 静默无历史，`setEditingText(null)` 时 finalize——空内容静默删除、新项补一条 add-elements、改旧项补一条 replace-elements（`textEditOrigin` 快照对比）。
+- 套索命中（`model/selection.ts`）：圈自动闭合（首尾连边），笔画与圈相交、落入圈内、或圈整体落在粗笔迹墨迹内均算选中；图形按其轮廓几何判定（椭圆以 32 段折线近似）；图片按矩形与圈的相交/包含判定；文字按外接矩形（高度取 textHeight 缓存）判定。
+- 选区变换（`model/transform.ts`）：移动/缩放为纯函数仿射变换，松手提交时才把新坐标写回笔画（bake）；笔迹粗细按 √(sx·sy) 几何均值跟随缩放；文字选区缩放只改宽度重排（`scaleTextReflow`，字号不变），页面尺寸调整/粘贴 fit 走 `scaleTextUniform`（字号同步缩放）；移动与缩放均被约束在当前页边界内，不支持跨页拖拽与旋转。
 - 图片（`model/image.ts`）：插入/粘贴时若超出页面可用区域则等比缩小到页内，初始位置为页内左上角（`PLACEMENT_MARGIN`）；一律渲染于纸色/模板之上、笔迹之下，橡皮不命中图片；只含图片的页面不算空白页（`trimTrailingBlankPages`）。图片可带 `locked: true`（PDF 底图）：套索跳过（`imagesInLasso` 过滤）、Clear page 豁免、不参与选中变换；普通插入图片不锁定。
 - PDF 导入（`persistence/importPdf.ts`）：pdf.js 懒加载（库与 worker 均按需），`rasterizePdf` 逐页按固定 4 倍（PDF 点数 ×4，与原 A4 页的 3 倍清晰度等价，与目标页尺寸解耦）栅格化为 JPEG 为共享入口——主页导入据此生成新笔记本（白纸空白模板），**页尺寸取自 PDF 页**（`pdfPageSize`：点数 × 4/3 取整并收敛到 200–5000，A4 PDF 恰好得 794×1123，混尺寸 PDF 产生对应尺寸页）；笔记本内导入走 `importPdfIntoNotebook`：任务**绑定 notebookId**，完成时若该笔记本仍打开则经 `insertPdfPages` 插入到当前浏览页之后并滚动到首个新页，若已关闭或切走则按该笔记本持久化的视图状态定位"当前页"（`pdfInsertIndex`），在 DB 层直接插入到该页之后（`replacePages`）。新页纸色、模板与尺寸继承插入点前一页；页面级插入不进撤销历史，与 addPage 一致。页面构建统一由 `model/pdfPage.ts` 的 `buildPdfPages` 承担（两条导入路径与 store 共用，页尺寸经 `sizeFor` 回调注入）。导入进度存于 store 的 `pdfImports`（按 notebookId 记录），设置面板的进度行据此跨组件卸载存活。**页码范围选择**：文档加载成功（含密码通过后）经 `store/pdfRangePrompt.ts` 的 ask/settle 桥接弹出 `PageRangeDialog`（显示总页数、预填 1–N），管线 await 用户选择——`normalizePageRange`（`model/pdfPage.ts`，纯函数）负责反填排序与校验（非整数/越界返回 null，对话框内报错重填），取消则抛 "Import cancelled" 中止整个导入；范围只决定栅格化与插入哪些页，存储仍是完整 PDF，故 `pdfSource.pageIndex` 记录**真实 0 基页码**（`RasterizedPdfPage.pageIndex`，范围导入时不再等于数组下标）。图片按**整页**适配（`placeImageCentered`：允许放大，一个方向顶到页边、另一方向居中，至多一侧留白）并带 `locked`；密码保护文件经 `onPassword` 弹窗输入，取消时报友好提示；主页导入在全部页渲染完成后才建库落库，失败回滚。**原始 PDF 字节整份保留**：导入时先经 qpdf wasm（`decryptPdf.ts`，动态加载）跑 `--decrypt` 去除密码保护（密码来自 pdf.js `onPassword` 弹窗捕获，解密失败回退存原字节），再由 `saveSourcePdf` 存入全局 `pdfs` 表（不裁剪、与 images 表同款的按引用共享）——库内与 zip 备份中的 PDF 均为无密码版本；每页记录 `pdfSource: { docId, pageIndex }`（0 基页码）；合并笔记本时 `clonePageWithNewIds` 原样携带该引用；打开笔记本时 GC 无引用的 PDF。调整 PDF 底图页的尺寸时底图只重新居中，仅当页面放大超过原栅格清晰度才经 `reRasterizePdfBase` 从原始 PDF 重渲染替换（加密未解密文件回退沿用旧图）。
 - 橡皮为笔画级（命中哪条删哪条），命中判定计入马克笔的宽度系数；椭圆命中按 32 段折线轮廓测距（`shapeGeometry.ellipseOutline`，与套索共享）。
@@ -141,13 +160,13 @@ interface ImageItem {
 
 ### 3.6 持久化
 
-- 实现于 `src/persistence/`。IndexedDB（版本 4）五张表：`notebooks`（元信息：标题、时间戳、页数）、`pages`（整页记录：width/height + paperColor + pattern + strokes + images + pdfSource，按 notebookId 索引）、`images`（imageId → 原始图片 blob + mimeType，全局共享，不按笔记本隔离）、`pdfs`（docId → 原始 PDF blob，全局共享）与 `geometries`（geometryId → webgeo 文档 JSON 字符串，全局共享，几何图形再编辑的依据）。旧库经 upgrade 自动补建 images/pdfs/geometries 表；老的 pages 记录没有 images/pdfSource/width/height 字段，读取时归一化（尺寸缺失视为 A4 默认值）。
-- 图片字节一律存原图（不重编码）；页记录只存引用，保证自动保存轻量。渲染位图由 `engine/imageCache.ts` 按需异步解码并缓存，解码完成后通知引擎/缩略图重绘；关闭笔记本时清空缓存（`clearImageCache`），避免多本往返累计占用内存。打开笔记本时做图片 GC：全库扫描引用（含内存中当前页与剪贴板），删除无主 blob；几何文档同款 GC（`geometries.ts` 的 `gcUnreferencedGeometries`，扫 pages.images 的 geometryId + 内存页 + 剪贴板）。在途 PDF 导入的 blob 由 `retainImages`/`retainPdfs` 豁免名单保护，GC 不会误删尚未挂上页面的导入产物。
+- 实现于 `src/persistence/`。IndexedDB（版本 4）五张表：`notebooks`（元信息：标题、时间戳、页数）、`pages`（整页记录：width/height + paperColor + pattern + strokes + images + texts + pdfSource，按 notebookId 索引）、`images`（imageId → 原始图片 blob + mimeType，全局共享，不按笔记本隔离）、`pdfs`（docId → 原始 PDF blob，全局共享）与 `geometries`（geometryId → webgeo 文档 JSON 字符串，全局共享，几何图形再编辑的依据）。旧库经 upgrade 自动补建 images/pdfs/geometries 表；老的 pages 记录没有 images/pdfSource/width/height/texts 字段，读取时归一化（尺寸缺失视为 A4 默认值，texts 缺失视为空）。
+- 图片字节一律存原图（不重编码）；页记录只存引用，保证自动保存轻量。渲染位图由 `engine/imageCache.ts` 按需异步解码并缓存，解码完成后通知引擎/缩略图重绘；关闭笔记本时清空缓存（`clearImageCache`），避免多本往返累计占用内存。打开笔记本时做图片 GC：全库扫描引用（pages.images + **pages.texts 的 `image:` 引用** + 内存中当前页与剪贴板），删除无主 blob；几何文档同款 GC（`geometries.ts` 的 `gcUnreferencedGeometries`，扫 pages.images 的 geometryId + 内存页 + 剪贴板）。在途 PDF 导入的 blob 由 `retainImages`/`retainPdfs` 豁免名单保护，GC 不会误删尚未挂上页面的导入产物。
 - 自动保存：`autosave.ts` 订阅 store，页面引用变化即增量写入对应页；页数减少时整本重写（保持索引连续）。无"保存"按钮，任何时刻关闭页面都不应丢数据；写入失败会捕获并一次性弹提示。
 - 笔记本合并：`notebooks.ts` 的 `mergeNotebooks` 按用户勾选顺序拼接各笔记本的页面（单选即整本复制），页/笔画/图片条目 id 经 `clonePageWithNewIds` 重建（页 id 是 pages 表主键，必须重建），**imageId 保持不变**——全局 images 表按引用共享 blob，相同图片天然只存一份。
-- 导入/导出：`transfer.ts`。无图片的笔记导出为纯 JSON；含图片、PDF 或几何图形的导出为 zip（`notebook.json` + `images/<imageId>.<ext>` + `pdfs/<docId>.pdf` + `geometries/<geometryId>.json`，fflate）。文件格式 `version: 4`，导入兼容 version 1–3；页面尺寸 width/height 随页序列化（读取时缺失静默归一化为 A4 默认、越界拒绝）；按文件头嗅探 zip/JSON；导入做严格运行时校验（拒绝 NaN/Infinity、页面引用必须在图片/PDF/几何清单内）并重建全部 id（含 imageId、docId 与 geometryId 重映射）；全部校验通过后才落库，失败回滚不留残本与孤儿 blob。图片条目携带可选 `geometryId`；导出时收集被引用的几何文档写入清单与 zip 条目，缺失记录时剥掉 geometryId 降级为普通图片。
-- PDF 导出为**矢量**（`exportPdf.ts`）：每页按自身尺寸出纸（jsPDF 逐页 `format` + 显式 `orientation`，pdf-lib 分层同尺寸），先经 `pageToSvg` 序列化为 SVG，再由 svg2pdf.js + jsPDF 渲染进 PDF——笔画/图形/模板/纸色均为矢量；PNG/JPEG 图片按原字节嵌入，SVG 图片保持矢量（svg2pdf 直接解析渲染），其余格式（GIF/AVIF/WebP 等）经 `rasterizeToPng` 栅格化为 PNG 嵌入（GIF 动图只取静态帧）。含 `pdfSource` 的页改走 pdf-lib 分层组装：pdf-lib 原语画纸色与模板 → 底图矩形内铺白衬底 → `embedPage` 嵌入原始 PDF 矢量页 → 批注层（`pageToSvg` 的 `annotationOnly` 输出，跳过纸色/模板/锁定图片）经 jsPDF+svg2pdf 生成单页 PDF 后 `embedPdf` 叠加在最上层；原始 PDF 嵌入失败（如加密文件，pdf-lib 无解密能力）时该页回退为 JPEG 栅格底图。导出时裁掉末尾连续空白页。PNG 导出为位图（`exportImage.ts`，导出前等待全部位图就绪）。位图栅格化倍率统一经 `rasterize.ts` 的 `cappedRenderScale` 按 16M 像素预算钳制（iOS Safari 超限静默空白），PDF 导入的 4 倍栅格化同样受其约束。SVG 导出为**矢量**（`exportSvg.ts`）：笔画/图形/模板/纸色均为矢量元素，位图与 SVG 图片以 data URI（base64 原字节）内嵌进 `<image>`（同时写 `href` 与 `xlink:href` 兼容老查看器），缺失图片跳过；轮廓转路径的 `outlineToSvgPath` 抽在 `svgPath.ts`，图片字节转 data URI 的 `collectImageDataUris` 抽在 `imageDataUri.ts`，PDF 与 SVG 导出共用。
-- 导出范围统一为三档（设置面板，范围 × 格式两个维度）：**选中部分**只含选中的笔画与图片（`selection.pickElements` 按 id 提取），无纸色/模板/锁定图片，尺寸贴合选区包围盒（`transform.elementsBounds`）——SVG 经 `pageToSvg` 的 `clipTo` 裁剪 viewBox、PNG 经 `renderPage.paintElements` 平移渲染，二者背景透明；PDF 无透明概念，为包围盒尺寸的单页白底。**当前页**为单文件所见即所得（含背景与 PDF 底图）。**整本**导出时 SVG/PNG 若超过一页自动打 zip（`exportZip.ts`，fflate），单页直接下载；三格式整本导出均裁掉末尾连续空白页。
+- 导入/导出：`transfer.ts`。无图片的笔记导出为纯 JSON；含图片、PDF 或几何图形的导出为 zip（`notebook.json` + `images/<imageId>.<ext>` + `pdfs/<docId>.pdf` + `geometries/<geometryId>.json`，fflate）。文件格式 `version: 5`（v5 新增每页 texts 文字项），导入兼容 version 1–4（texts 缺失静默视为空）；页面尺寸 width/height 随页序列化（读取时缺失静默归一化为 A4 默认、越界拒绝）；按文件头嗅探 zip/JSON；导入做严格运行时校验（拒绝 NaN/Infinity、页面引用必须在图片/PDF/几何清单内——**含 texts 内的 `image:` 引用，重映射全部 id**，含 imageId、docId 与 geometryId 重映射）；全部校验通过后才落库，失败回滚不留残本与孤儿 blob。图片条目携带可选 `geometryId`；导出时收集被引用的几何文档写入清单与 zip 条目，缺失记录时剥掉 geometryId 降级为普通图片；texts 内指向缺失 blob 的 `image:` 引用在导出时剥除（`dropUnknownTextImageRefs`）。
+- PDF 导出为**矢量**（`exportPdf.ts`）：每页按自身尺寸出纸（jsPDF 逐页 `format` + 显式 `orientation`，pdf-lib 分层同尺寸），先经 `pageToSvg` 序列化为 SVG，再由 svg2pdf.js + jsPDF 渲染进 PDF——笔画/图形/模板/纸色均为矢量；PNG/JPEG 图片按原字节嵌入，SVG 图片保持矢量（svg2pdf 直接解析渲染），其余格式（GIF/AVIF/WebP 等）经 `rasterizeToPng` 栅格化为 PNG 嵌入（GIF 动图只取静态帧）。含 `pdfSource` **或文字项**的笔记本改走 pdf-lib 分层组装：pdf-lib 原语画纸色与模板 → 底图矩形内铺白衬底 → `embedPage` 嵌入原始 PDF 矢量页 → **文字层（`pdfTextLayer.ts`：pdf-lib 原语画引用条/代码底色/分割线装饰，`drawText` 以内嵌子集 Noto Sans SC 绘制真实可选中文字，斜体经变换矩阵合成 oblique；字体按字重惰性嵌入、**禁用 pdf-lib 的 `subset: true`**——其二次子集化会破坏该字体的字形映射导致大面积缺字，直接整嵌我们已子集化的 TTF）** → 批注层（`pageToSvg` 的 `annotationOnly` + `textMode: "pathsOnly"` 输出，跳过纸色/模板/锁定图片与 `<text>`，保留公式字形与文内图片）经 jsPDF+svg2pdf 生成单页 PDF 后 `embedPdf` 叠加在最上层；原始 PDF 嵌入失败（如加密文件，pdf-lib 无解密能力）时该页回退为 JPEG 栅格底图。导出时裁掉末尾连续空白页。PNG 导出为位图（`exportImage.ts`，导出前等待全部位图就绪，文字经 `text/paintTexts.ts` 逐 run 栅格绘制——公式字形 SVG 先转位图再贴）。位图栅格化倍率统一经 `rasterize.ts` 的 `cappedRenderScale` 按 16M 像素预算钳制（iOS Safari 超限静默空白），PDF 导入的 4 倍栅格化同样受其约束。SVG 导出为**矢量**（`exportSvg.ts`）：笔画/图形/模板/纸色均为矢量元素，文字保留真实 `<text>` 元素（查看端系统字体渲染，字体回退链声明在 font-family 内），公式为 MathJax 矢量字形；位图与 SVG 图片以 data URI（base64 原字节）内嵌进 `<image>`（同时写 `href` 与 `xlink:href` 兼容老查看器），缺失图片跳过；轮廓转路径的 `outlineToSvgPath` 抽在 `svgPath.ts`，图片字节转 data URI 的 `collectImageDataUris` 抽在 `imageDataUri.ts`，PDF 与 SVG 导出共用。
+- 导出范围统一为三档（设置面板，范围 × 格式两个维度）：**选中部分**只含选中的笔画、图片与文字（`selection.pickElements` 按 id 提取），无纸色/模板/锁定图片，尺寸贴合选区包围盒（`transform.elementsBounds`）——SVG 经 `pageToSvg` 的 `clipTo` 裁剪 viewBox、PNG 经 `renderPage.paintElements` 平移渲染，二者背景透明；PDF 无透明概念，为包围盒尺寸的单页白底（含文字时同样走 pdf-lib 文字层）。**当前页**为单文件所见即所得（含背景与 PDF 底图）。**整本**导出时 SVG/PNG 若超过一页自动打 zip（`exportZip.ts`，fflate），单页直接下载；三格式整本导出均裁掉末尾连续空白页。
 - 工具偏好（工具/墨色/粗细/纸色/模板/侧栏）与"上次打开的笔记本"存于 localStorage（`prefs.ts`、`session.ts`）；偏好解析必须逐字段校验，只合并有效值。
 - 视图状态（`viewState: { x, y, zoom }`）：存于 notebooks 元信息记录（不动 updatedAt），浏览时视口稳定后 400ms 防抖写入，返回主页/切换/页面隐藏时冲刷；`zoom` 为相对适配倍率（scale / fitScale(屏宽)），跨设备恢复时不越界。打开笔记本时按记录恢复视口；导入/导出的 JSON/ZIP 顶层携带同名字段（可选，严格校验）。
 - 序列化与解析逻辑必须有单元测试覆盖。
@@ -155,9 +174,10 @@ interface ImageItem {
 ### 3.7 状态管理
 
 - zustand 单一 store（`store/useBoardStore.ts`），状态逻辑上分两类：UI 状态（当前工具、颜色、粗细、演示模式、侧栏等，驱动 React）与文档状态（当前笔记本、页面列表、撤销历史）。
-- 撤销/重做：编辑历史栈（add-stroke / remove-stroke / clear-page / add-elements / remove-elements / replace-elements），删页时清空历史；elements 类操作同时携带笔画与图片（clear-page 也含 images），replace-elements 以"前/后"快照统一承载移动、缩放与改色，一次手势提交只产生一条历史。
+- 撤销/重做：编辑历史栈（add-stroke / remove-stroke / clear-page / add-elements / remove-elements / replace-elements），删页时清空历史；elements 类操作同时携带笔画、图片与文字（clear-page 也含 images/texts），replace-elements 以"前/后"快照统一承载移动、缩放与改色，一次手势提交只产生一条历史。
 - 页面级操作（addPage / deletePage / movePage / insertPdfPages / setPageSize）不进撤销历史：addPage 与 insertPdfPages 本就不产生历史，deletePage 与 setPageSize 清空历史（setPageSize 同时取消选区）；movePage 重排页面时当前浏览页按页 id 跟随。
-- 选区（selection）与剪贴板（clipboard，结构为 `{ strokes, images }`）为内存态，不进 IndexedDB；剪贴板可跨页、跨笔记本粘贴，粘贴时重建笔画与图片条目的 id（图片 blob 引用共享，不复制字节）。
+- 选区（selection，`{ pageId, strokeIds, imageIds, textIds }`）与剪贴板（clipboard，结构为 `{ strokes, images, texts }`）为内存态，不进 IndexedDB；剪贴板可跨页、跨笔记本粘贴，粘贴时重建笔画、图片与文字条目的 id（图片 blob 引用共享，不复制字节）。
+- 文字编辑态：`editingText`（`{ pageId, itemId } | null`）+ `textEditOrigin`（打开时的快照，关闭时对比产生历史）；Done、Esc、切换工具都经 `setEditingText(null)` 单出口 finalize；删页/关闭笔记本时清理。
 - 任务态：`pdfImports`（按 notebookId 的在途 PDF 导入进度）、`exporting`（导出进行中）与 `pdfRangeRequest`（待决的 PDF 页码范围询问，`store/pdfRangePrompt.ts` 桥接给导入管线 await，对话框打开期间 App 键盘快捷键挂起）存于 store，跨组件卸载存活；导出期间引擎 pointerdown、键盘编辑快捷键、系统粘贴与设置面板的文档变更按钮统一闸门禁用（导出本身基于点击时的不可变快照，闸门是为杜绝并发变更的隐患）。
 - 几何编辑器开关态：`geometryEditor`（`{ mode: "insert" } | { mode: "edit"; pageId; itemId } | null`）；编辑模式的 Embed 走 `replaceGeometryImage`（replace-elements 历史，图片条目 id 保持不变，选区不失效），替换后的页面矩形由 `model/image.ts` 的 `rescaledImageRect` 计算——保持旧图的显示缩放（sx/sy 相对旧 SVG 自然尺寸）与锚点位置，新内容包围盒变化时按比例缩放，超出页边界时等比收敛并钳位，旧自然尺寸不可得时回退为新插入尺寸；旧 blob 与旧几何文档由下次 GC 回收。
 - 选区的实时交互（套索轨迹、拖动/缩放手势预览）由渲染引擎持有，store 只保留选区快照供浮动工具条定位；选中期间页面缓存按"剔除选中元素"渲染，选中元素改在活动层绘制。
@@ -166,7 +186,7 @@ interface ImageItem {
 ### 3.8 PWA
 
 - `vite-plugin-pwa`（generateSW，autoUpdate）在构建时生成 Service Worker，预缓存**全部**构建产物，包括按需加载的 pdf-lib chunk 与图标——首次访问后完全离线可用。
-- `workbox.globPatterns` 必须始终覆盖 js/mjs/css/html/svg/png/webmanifest/wasm；新增静态资源类型时同步检查（pdf.js worker 以 .mjs 产出、qpdf 以 .wasm 产出，漏配会导致离线时 PDF 导入/解密失效）。
+- `workbox.globPatterns` 必须始终覆盖 js/mjs/css/html/svg/png/webmanifest/wasm/ttf；新增静态资源类型时同步检查（pdf.js worker 以 .mjs 产出、qpdf 以 .wasm 产出、文字字体以 .ttf 产出，漏配会导致离线时 PDF 导入/解密/文字导出失效）。
 - Service Worker 要求**安全上下文**（HTTPS 或 localhost）。HTTP + IP 地址访问时 PWA 不生效，正式部署需由反向代理终止 TLS。
 - 图标由 `scripts/generate-icons.mjs` 生成（`node scripts/generate-icons.mjs`），输出到 `public/icons/`；改设计后需重新运行。
 
@@ -186,7 +206,8 @@ interface ImageItem {
 ```
 src/
   components/    React UI 组件（Home 主页、Toolbar、SettingsPanel、PageSidebar、SelectionBar、
-                 ColorField、GeometryOverlay 几何编辑器宿主、PageRangeDialog 页码范围对话框、icons 等）
+                 ColorField、GeometryOverlay 几何编辑器宿主、PageRangeDialog 页码范围对话框、
+                 TextOverlay 文字层 overlay、TextEditor 文字源码编辑器、icons 等）
   engine/        渲染引擎：board（输入状态机与编排，含套索/选区手势）、viewport（视口变换）、
                  pageCache（页面位图缓存）、renderPage/renderStroke/patterns/shapes（渲染）、
                  imageCache（图片位图异步解码缓存）、canvas（2D 上下文工具）
@@ -196,7 +217,15 @@ src/
   model/         数据模型与纯函数：stroke（笔画与工具枚举）、page（页面几何与板面布局）、
                  pageSize（页面尺寸调整）、color（颜色）、hitTest（橡皮命中检测）、patternLayout（背景模板布局）、
                  shapeGeometry（图形几何）、selection（套索命中）、transform（选区仿射变换）、
-                 image（图片条目与版面放置）、pdfPage（PDF 页面构建与插入位置）、viewState（视图状态）
+                 image（图片条目与版面放置）、pdfPage（PDF 页面构建与插入位置）、viewState（视图状态）、
+                 textItem（文字条目）
+  markdown/      文字项 markdown 管线：md（markdown-it 封装与三条自写规则）、
+                 blocks（解析结果为平铺 Block[]）、html（屏幕渲染为安全 HTML）、katex（懒加载封装）
+  text/          文字排版与导出：layout（纯函数排版引擎，canvas measureText 度量 +
+                 MathJax 字形 + CJK 逐字断行/Latin 按词）、measure（度量缓存）、
+                 textHeight（排版高度缓存，供套索/包围盒同步消费）、textFrameBus（逐帧位置发布通道）、
+                 textElements（overlay 测量注册表）、layoutItem（条目排版入口）、
+                 paintTexts（PNG 逐 run 栅格绘制）、textToSvg（SVG `<text>` 输出）
   store/         zustand stores（useBoardStore 主 store、pdfRangePrompt 页码范围询问桥接）
   persistence/   持久化：db（IndexedDB 连接）、notebooks（CRUD）、transfer（导入导出，zip/JSON）、
                  images（图片 blob 存取与 GC）、pdfs（原始 PDF blob 存取与 GC）、
@@ -205,9 +234,11 @@ src/
                  decryptPdf（qpdf wasm 去除 PDF 密码保护）、
                  autosave（页面自动保存）、prefs（工具偏好）、session（打开/关闭笔记本）、
                  exportPdf（矢量 PDF）、exportImage（PNG）、exportSvg（矢量 SVG）、exportZip（多页打包）、
+                 pdfTextLayer（PDF 文字层：pdf-lib drawText + 子集字体）、
                  svgPath（轮廓转路径共用）与 imageDataUri（图片字节转 data URI 共用）
   pwa/           service worker 注册
-public/          PWA 图标（scripts/generate-icons.mjs 生成）
+public/          PWA 图标（scripts/generate-icons.mjs 生成）与 fonts/（Noto Sans SC 子集 TTF，
+                 scripts/subset-fonts.mjs 生成，屏幕排版与导出度量同源）
 scripts/         一次性工具脚本
 deploy/          nginx 配置（Docker 运行阶段使用）
 docs/            README 截图等文档素材

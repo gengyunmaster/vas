@@ -19,6 +19,14 @@ import {
   type Stroke,
   type StrokePoint,
 } from "../model/stroke";
+import {
+  dropUnknownTextImageRefs,
+  MAX_TEXT_MARKDOWN_LENGTH,
+  MIN_TEXT_WIDTH,
+  remapTextImageRefs,
+  type TextItem,
+  textImageRefs,
+} from "../model/textItem";
 import type { ViewState } from "../model/viewState";
 import type { GeometryRecord, ImageRecord, PdfRecord } from "./db";
 import { deleteGeometries, getGeometry, saveGeometries } from "./geometries";
@@ -33,7 +41,9 @@ import {
 import { deletePdfs, getPdf, retainPdfs, savePdf } from "./pdfs";
 
 export const FILE_FORMAT = "vas-notebook";
-export const FILE_VERSION = 4;
+// v5 adds per-page text items (markdown + LaTeX); older versions read fine
+// because texts default to an empty list.
+export const FILE_VERSION = 5;
 export const NOTEBOOK_JSON_ENTRY = "notebook.json";
 
 const FALLBACK_INK = "#1a1a1a";
@@ -91,6 +101,14 @@ export function serializeNotebook(
           height: image.height,
           ...(image.locked ? { locked: true } : {}),
           ...(image.geometryId ? { geometryId: image.geometryId } : {}),
+        })),
+        texts: page.texts.map((text) => ({
+          x: text.x,
+          y: text.y,
+          width: text.width,
+          fontSize: text.fontSize,
+          color: text.color,
+          markdown: text.markdown,
         })),
         ...(page.pdfSource ? { pdfSource: page.pdfSource } : {}),
       })),
@@ -226,6 +244,9 @@ export async function downloadNotebook(id: string): Promise<void> {
       referenced.add(image.imageId);
       if (image.geometryId) referencedGeometries.add(image.geometryId);
     }
+    for (const text of page.texts) {
+      for (const imageId of textImageRefs(text.markdown)) referenced.add(imageId);
+    }
     if (page.pdfSource) referencedPdfs.add(page.pdfSource.docId);
   }
   const records = new Map<string, ImageRecord>();
@@ -252,6 +273,10 @@ export async function downloadNotebook(id: string): Promise<void> {
           ? { ...image, geometryId: undefined }
           : image,
       ),
+    texts: page.texts.map((text) => ({
+      ...text,
+      markdown: dropUnknownTextImageRefs(text.markdown, (imageId) => records.has(imageId)),
+    })),
     ...(page.pdfSource && !pdfRecords.has(page.pdfSource.docId) ? { pdfSource: undefined } : {}),
   }));
   const manifest: ImageManifestEntry[] = [...records.values()].map((record) => ({
@@ -451,8 +476,31 @@ function parsePage(
       : "blank",
     strokes: raw.strokes.map(parseStroke),
     images: parsePageImages(raw.images, remap, geometryRemap),
+    texts: parsePageTexts(raw.texts, remap),
     ...(raw.pdfSource !== undefined ? { pdfSource: parsePdfSource(raw.pdfSource, pdfRemap) } : {}),
   };
+}
+
+function parsePageTexts(raw: unknown, remap: Map<string, string>): TextItem[] {
+  if (raw === undefined) return [];
+  if (!Array.isArray(raw)) throw new Error("Invalid page texts");
+  return raw.map((entry) => {
+    if (!isRecord(entry) || typeof entry.markdown !== "string") throw new Error("Invalid text");
+    if (entry.markdown.length > MAX_TEXT_MARKDOWN_LENGTH) throw new Error("Text is too long");
+    const fontSize = parseFiniteNumber(entry.fontSize, "text font size");
+    if (fontSize < 6 || fontSize > 200) throw new Error("Invalid text font size");
+    const width = parseFiniteNumber(entry.width, "text width");
+    if (width < MIN_TEXT_WIDTH) throw new Error("Invalid text width");
+    return {
+      id: newId(),
+      x: parseFiniteNumber(entry.x, "text x"),
+      y: parseFiniteNumber(entry.y, "text y"),
+      width,
+      fontSize,
+      color: parseColor(entry.color, FALLBACK_INK),
+      markdown: remapTextImageRefs(entry.markdown, remap),
+    };
+  });
 }
 
 function parsePageImages(

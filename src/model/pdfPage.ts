@@ -43,6 +43,7 @@ export function buildPdfPages(
       width: size.width,
       height: size.height,
       strokes: [],
+      texts: [],
       images: [
         {
           id: newId(),

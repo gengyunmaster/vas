@@ -4,11 +4,14 @@ import type { ImageItem } from "../model/image";
 import { type Page, type PdfSource, trimTrailingBlankPages } from "../model/page";
 import { PATTERN_DASH, patternLayout } from "../model/patternLayout";
 import type { Stroke } from "../model/stroke";
+import { type TextItem, textImageRefs } from "../model/textItem";
 import { elementsBounds } from "../model/transform";
+import { textItemHeight } from "../text/textHeight";
 import { pageToSvg } from "./exportSvg";
 import { collectImageDataUris } from "./imageDataUri";
 import { getImage } from "./images";
 import { getPdf } from "./pdfs";
+import { createPdfTextFonts, drawPdfTextItems } from "./pdfTextLayer";
 import { rasterizeToPng } from "./rasterize";
 import { downloadBlob } from "./transfer";
 
@@ -25,16 +28,55 @@ export async function exportSelectionPdf(
   page: Page,
   strokes: Stroke[],
   images: ImageItem[],
+  texts: TextItem[] = [],
 ): Promise<void> {
-  const bounds = elementsBounds(strokes, images);
-  if (!bounds) return;
-  const [{ jsPDF }, { svg2pdf }] = await Promise.all([import("jspdf"), import("svg2pdf.js")]);
-  const width = (bounds.maxX - bounds.minX) * PT_PER_UNIT;
-  const height = (bounds.maxY - bounds.minY) * PT_PER_UNIT;
-  const imageData = await collectImageDataUris(
-    images.map((image) => image.imageId),
-    true,
+  const bounds = elementsBounds(
+    strokes,
+    images,
+    texts.map((item) => ({ item, height: textItemHeight(item) })),
   );
+  if (!bounds) return;
+  const imageData = await collectImageDataUris(selectionImageIds(images, texts), true);
+  const widthUnits = bounds.maxX - bounds.minX;
+  const heightUnits = bounds.maxY - bounds.minY;
+  const width = widthUnits * PT_PER_UNIT;
+  const height = heightUnits * PT_PER_UNIT;
+  const cropped = { ...page, strokes, images, texts };
+  if (texts.length > 0) {
+    // svg2pdf drops <text>: selection with text goes through pdf-lib so the
+    // text stays real vector glyphs; math and images ride the SVG layer.
+    const pdflib: PdfLib = await import("pdf-lib");
+    const [{ svg2pdf }] = await Promise.all([import("svg2pdf.js")]);
+    const { jsPDF } = await import("jspdf");
+    const doc = await pdflib.PDFDocument.create();
+    doc.setTitle(title);
+    const pdfPage = doc.addPage([width, height]);
+    pdfPage.drawRectangle({ x: 0, y: 0, width, height, color: pdflib.rgb(1, 1, 1) });
+    const fonts = createPdfTextFonts(doc, (await import("@pdf-lib/fontkit")).default);
+    await drawPdfTextItems(pdflib, pdfPage, texts, fonts, {
+      offsetX: bounds.minX,
+      offsetY: bounds.minY,
+      heightUnits,
+    });
+    const annotation = await singlePageSvgPdf(
+      jsPDF,
+      svg2pdf,
+      await pageToSvg(cropped, imageData, {
+        annotationOnly: true,
+        clipTo: bounds,
+        textMode: "pathsOnly",
+      }),
+      width,
+      height,
+      title,
+    );
+    const [embedded] = await doc.embedPdf(annotation, [0]);
+    if (embedded) pdfPage.drawPage(embedded, { x: 0, y: 0, width, height });
+    const bytes = await doc.save();
+    downloadBlob(new Blob([bytes.slice()], { type: "application/pdf" }), `${title}-selection.pdf`);
+    return;
+  }
+  const [{ jsPDF }, { svg2pdf }] = await Promise.all([import("jspdf"), import("svg2pdf.js")]);
   // jsPDF swaps a wider-than-tall format array in portrait mode; state the orientation explicitly
   const doc = new jsPDF({
     unit: "pt",
@@ -43,7 +85,11 @@ export async function exportSelectionPdf(
   });
   doc.setDocumentProperties({ title });
   const svg = new DOMParser().parseFromString(
-    pageToSvg({ ...page, strokes, images }, imageData, { annotationOnly: true, clipTo: bounds }),
+    await pageToSvg(cropped, imageData, {
+      annotationOnly: true,
+      clipTo: bounds,
+      textMode: "none",
+    }),
     "image/svg+xml",
   ).documentElement;
   await svg2pdf(svg, doc, { x: 0, y: 0, width, height });
@@ -53,10 +99,36 @@ export async function exportSelectionPdf(
   );
 }
 
+function selectionImageIds(images: ImageItem[], texts: TextItem[]): string[] {
+  const ids = new Set(images.map((image) => image.imageId));
+  for (const text of texts) for (const id of textImageRefs(text.markdown)) ids.add(id);
+  return [...ids];
+}
+
+async function singlePageSvgPdf(
+  jsPDF: typeof import("jspdf")["jsPDF"],
+  svg2pdf: typeof import("svg2pdf.js")["svg2pdf"],
+  svgText: string,
+  width: number,
+  height: number,
+  title: string,
+): Promise<Uint8Array> {
+  const doc = new jsPDF({
+    unit: "pt",
+    format: [width, height],
+    orientation: pdfOrientation(width, height),
+  });
+  doc.setDocumentProperties({ title });
+  const svg = new DOMParser().parseFromString(svgText, "image/svg+xml").documentElement;
+  await svg2pdf(svg, doc, { x: 0, y: 0, width, height });
+  return new Uint8Array(doc.output("arraybuffer"));
+}
+
 export async function exportNotebookPdf(title: string, pages: Page[]): Promise<void> {
   const kept = trimTrailingBlankPages(pages);
-  if (!kept.some((page) => page.pdfSource)) {
-    const bytes = await renderSvgLayerPdf(kept, title, false);
+  const layered = kept.some((page) => page.pdfSource || page.texts.length > 0);
+  if (!layered) {
+    const bytes = await renderSvgLayerPdf(kept, title, false, "all");
     downloadBlob(new Blob([bytes.slice()], { type: "application/pdf" }), `${title}.pdf`);
     return;
   }
@@ -67,6 +139,7 @@ async function renderSvgLayerPdf(
   pages: Page[],
   title: string,
   annotationOnly: boolean,
+  textMode: "all" | "pathsOnly" | "none",
 ): Promise<Uint8Array> {
   const [{ jsPDF }, { svg2pdf }] = await Promise.all([import("jspdf"), import("svg2pdf.js")]);
   const firstWidth = pages[0].width * PT_PER_UNIT;
@@ -82,12 +155,9 @@ async function renderSvgLayerPdf(
     const height = page.height * PT_PER_UNIT;
     if (index > 0) doc.addPage([width, height], pdfOrientation(width, height));
     const images = annotationOnly ? page.images.filter((image) => !image.locked) : page.images;
-    const imageData = await collectImageDataUris(
-      images.map((image) => image.imageId),
-      true,
-    );
+    const imageData = await collectImageDataUris(selectionImageIds(images, page.texts), true);
     const svg = new DOMParser().parseFromString(
-      pageToSvg(page, imageData, { annotationOnly }),
+      await pageToSvg(page, imageData, { annotationOnly, textMode }),
       "image/svg+xml",
     ).documentElement;
     await svg2pdf(svg, doc, { x: 0, y: 0, width, height });
@@ -97,9 +167,13 @@ async function renderSvgLayerPdf(
 
 async function exportLayeredPdf(title: string, pages: Page[]): Promise<void> {
   const pdflib: PdfLib = await import("pdf-lib");
-  const annotationBytes = await renderSvgLayerPdf(pages, title, true);
+  const annotationBytes = await renderSvgLayerPdf(pages, title, true, "pathsOnly");
   const finalDoc = await pdflib.PDFDocument.create();
   finalDoc.setTitle(title);
+  const hasTexts = pages.some((page) => page.texts.length > 0);
+  const fonts = hasTexts
+    ? createPdfTextFonts(finalDoc, (await import("@pdf-lib/fontkit")).default)
+    : null;
   const annotationDoc = await pdflib.PDFDocument.load(annotationBytes);
   const annotationPages = await finalDoc.embedPdf(annotationDoc, annotationDoc.getPageIndices());
   const caches = {
@@ -120,6 +194,13 @@ async function exportLayeredPdf(title: string, pages: Page[]): Promise<void> {
     drawPattern(pdflib, pdfPage, page, page.paperColor);
     if (page.pdfSource) {
       await drawSourceLayer(pdflib, finalDoc, pdfPage, page, caches);
+    }
+    if (fonts && page.texts.length > 0) {
+      await drawPdfTextItems(pdflib, pdfPage, page.texts, fonts, {
+        offsetX: 0,
+        offsetY: 0,
+        heightUnits: page.height,
+      });
     }
     pdfPage.drawPage(annotationPages[index], { x: 0, y: 0, width, height });
   }

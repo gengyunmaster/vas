@@ -65,11 +65,18 @@ export function SettingsPanel() {
   );
   const canClear = useBoardStore((state) => {
     const page = state.pages[state.viewPageIndex];
-    return (page?.strokes.length ?? 0) > 0 || (page?.images.some((i) => !i.locked) ?? false);
+    return (
+      (page?.strokes.length ?? 0) > 0 ||
+      (page?.images.some((i) => !i.locked) ?? false) ||
+      (page?.texts.length ?? 0) > 0
+    );
   });
   const canDeletePage = useBoardStore((state) => state.pages.length > 1);
   const canPaste = useBoardStore(
-    (state) => state.clipboard.strokes.length > 0 || state.clipboard.images.length > 0,
+    (state) =>
+      state.clipboard.strokes.length > 0 ||
+      state.clipboard.images.length > 0 ||
+      state.clipboard.texts.length > 0,
   );
   const sidebarOpen = useBoardStore((state) => state.sidebarOpen);
   const presentation = useBoardStore((state) => state.presentation);
@@ -118,10 +125,15 @@ export function SettingsPanel() {
           ? state.pages.find((candidate) => candidate.id === selection.pageId)
           : undefined;
         if (!selection || !page) return;
-        const { strokes, images } = pickElements(page, selection.strokeIds, selection.imageIds);
-        if (format === "pdf") await exportSelectionPdf(title, page, strokes, images);
-        else if (format === "svg") await exportSelectionSvg(title, page, strokes, images);
-        else await exportSelectionPng(title, strokes, images);
+        const { strokes, images, texts } = pickElements(
+          page,
+          selection.strokeIds,
+          selection.imageIds,
+          selection.textIds,
+        );
+        if (format === "pdf") await exportSelectionPdf(title, page, strokes, images, texts);
+        else if (format === "svg") await exportSelectionSvg(title, page, strokes, images, texts);
+        else await exportSelectionPng(title, strokes, images, texts);
       } else if (exportRange === "page") {
         const page = state.pages[state.viewPageIndex];
         if (!page) return;
@@ -204,6 +216,14 @@ export function SettingsPanel() {
             onClick={() => setTool("select")}
           >
             Select
+          </button>
+          <button
+            type="button"
+            aria-pressed={tool === "text"}
+            className={tool === "text" ? "text-option active" : "text-option"}
+            onClick={() => setTool("text")}
+          >
+            Text
           </button>
         </div>
       </section>

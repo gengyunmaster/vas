@@ -23,6 +23,7 @@ function samplePage(): Page {
     paperColor: "#003423",
     pattern: "grid",
     images: [],
+    texts: [],
     strokes: [
       {
         id: "stroke-1",
@@ -434,6 +435,89 @@ describe("notebook geometries", () => {
     expect(() => resolveGeometryEntries(entries, parsed.geometries)).toThrow(
       "Missing geometry data",
     );
+  });
+});
+
+describe("notebook text items", () => {
+  function textedPage(): Page {
+    return {
+      ...samplePage(),
+      images: [{ id: "item-1", imageId: "blob-1", x: 40, y: 40, width: 200, height: 100 }],
+      texts: [
+        {
+          id: "text-1",
+          x: 60,
+          y: 80,
+          width: 360,
+          fontSize: 24,
+          color: "#d64541",
+          markdown: "# Title\n\nwith ![inline](image:blob-1) image and $x^2$",
+        },
+      ],
+    };
+  }
+
+  it("round-trips text items and remaps markdown image refs", () => {
+    const text = serializeNotebook(
+      "Texts",
+      [textedPage()],
+      [{ imageId: "blob-1", mimeType: "image/png" }],
+    );
+    const parsed = parseNotebookFile(text);
+    const item = parsed.pages[0].texts[0];
+    expect(item.id).not.toBe("text-1");
+    expect(item).toMatchObject({ x: 60, y: 80, width: 360, fontSize: 24, color: "#d64541" });
+    const newImageId = parsed.images[0].imageId;
+    expect(item.markdown).toBe(`# Title\n\nwith ![inline](image:${newImageId}) image and $x^2$`);
+  });
+
+  it("rejects a text referencing an image missing from the manifest", () => {
+    const text = JSON.stringify({
+      format: "vas-notebook",
+      version: 5,
+      pages: [
+        {
+          strokes: [],
+          texts: [
+            {
+              x: 0,
+              y: 0,
+              width: 200,
+              fontSize: 24,
+              color: "#1a1a1a",
+              markdown: "![](image:ghost)",
+            },
+          ],
+        },
+      ],
+    });
+    expect(() => parseNotebookFile(text)).toThrow("unknown image");
+  });
+
+  it("rejects invalid text geometry and overlong markdown", () => {
+    const base = { x: 0, y: 0, width: 200, fontSize: 24, color: "#1a1a1a", markdown: "ok" };
+    const wrap = (textEntry: unknown) =>
+      JSON.stringify({
+        format: "vas-notebook",
+        version: 5,
+        pages: [{ strokes: [], texts: [textEntry] }],
+      });
+    expect(() => parseNotebookFile(wrap({ ...base, width: 10 }))).toThrow("Invalid text width");
+    expect(() => parseNotebookFile(wrap({ ...base, fontSize: 500 }))).toThrow(
+      "Invalid text font size",
+    );
+    expect(() => parseNotebookFile(wrap({ ...base, markdown: "x".repeat(20001) }))).toThrow(
+      "Text is too long",
+    );
+  });
+
+  it("reads v4 files without texts as empty text lists", () => {
+    const text = JSON.stringify({
+      format: "vas-notebook",
+      version: 4,
+      pages: [{ strokes: [] }],
+    });
+    expect(parseNotebookFile(text).pages[0].texts).toEqual([]);
   });
 });
 

@@ -2,6 +2,7 @@ import { type DBSchema, type IDBPDatabase, openDB } from "idb";
 import type { ImageItem } from "../model/image";
 import type { PagePattern, PdfSource } from "../model/page";
 import type { Stroke } from "../model/stroke";
+import type { TextItem } from "../model/textItem";
 import type { ViewState } from "../model/viewState";
 
 export interface NotebookRecord {
@@ -23,6 +24,7 @@ export interface PageRecord {
   pattern: PagePattern;
   strokes: Stroke[];
   images?: ImageItem[];
+  texts?: TextItem[];
   pdfSource?: PdfSource;
 }
 

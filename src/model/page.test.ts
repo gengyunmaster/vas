@@ -148,6 +148,7 @@ describe("trimTrailingBlankPages", () => {
     height: PAGE_HEIGHT,
     strokes: [],
     images: [],
+    texts: [],
     paperColor: "#ffffff",
     pattern: "blank" as const,
   });
@@ -218,6 +219,7 @@ describe("clonePageWithNewIds", () => {
         },
       ],
       images: [{ id: "i1", imageId: "blob-1", x: 40, y: 40, width: 100, height: 50, locked: true }],
+      texts: [],
     };
     const clone = clonePageWithNewIds(source);
     expect(clone.id).not.toBe(source.id);

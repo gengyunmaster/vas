@@ -7,7 +7,7 @@ import {
   type Page,
   type PageSize,
 } from "./page";
-import { scaleImage, scaleStroke } from "./transform";
+import { scaleImage, scaleStroke, scaleTextUniform } from "./transform";
 
 // PDF points are 1/72in, world units are 96dpi px; A4 PDF maps exactly to 794x1123
 export const PDF_PAGE_SCALE = 4 / 3;
@@ -48,5 +48,7 @@ export function resizePage(page: Page, size: PageSize): Page {
           ? image
           : scaleImage(image, anchor, scale, scale),
     ),
+    texts:
+      scale === 1 ? page.texts : page.texts.map((text) => scaleTextUniform(text, anchor, scale)),
   };
 }

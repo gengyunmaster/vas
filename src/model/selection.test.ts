@@ -265,6 +265,7 @@ describe("pickElements", () => {
         { id: "i1", imageId: "m1", x: 0, y: 0, width: 10, height: 10 },
         { id: "i2", imageId: "m2", x: 5, y: 5, width: 10, height: 10 },
       ],
+      texts: [],
     };
     const picked = pickElements(page, ["b"], ["i2"]);
     expect(picked.strokes).toEqual([b]);
