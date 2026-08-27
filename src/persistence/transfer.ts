@@ -101,6 +101,7 @@ export function serializeNotebook(
           height: image.height,
           ...(image.locked ? { locked: true } : {}),
           ...(image.geometryId ? { geometryId: image.geometryId } : {}),
+          ...(image.pdfSource ? { pdfSource: image.pdfSource } : {}),
         })),
         texts: page.texts.map((text) => ({
           x: text.x,
@@ -243,6 +244,7 @@ export async function downloadNotebook(id: string): Promise<void> {
     for (const image of page.images) {
       referenced.add(image.imageId);
       if (image.geometryId) referencedGeometries.add(image.geometryId);
+      if (image.pdfSource) referencedPdfs.add(image.pdfSource.docId);
     }
     for (const text of page.texts) {
       for (const imageId of textImageRefs(text.markdown)) referenced.add(imageId);
@@ -268,11 +270,16 @@ export async function downloadNotebook(id: string): Promise<void> {
     ...page,
     images: page.images
       .filter((image) => records.has(image.imageId))
-      .map((image) =>
-        image.geometryId && !geometryRecords.has(image.geometryId)
-          ? { ...image, geometryId: undefined }
-          : image,
-      ),
+      .map((image) => {
+        let clean = image;
+        if (clean.geometryId && !geometryRecords.has(clean.geometryId)) {
+          clean = { ...clean, geometryId: undefined };
+        }
+        if (clean.pdfSource && !pdfRecords.has(clean.pdfSource.docId)) {
+          clean = { ...clean, pdfSource: undefined };
+        }
+        return clean;
+      }),
     texts: page.texts.map((text) => ({
       ...text,
       markdown: dropUnknownTextImageRefs(text.markdown, (imageId) => records.has(imageId)),
@@ -475,7 +482,7 @@ function parsePage(
       ? (raw.pattern as PagePattern)
       : "blank",
     strokes: raw.strokes.map(parseStroke),
-    images: parsePageImages(raw.images, remap, geometryRemap),
+    images: parsePageImages(raw.images, remap, pdfRemap, geometryRemap),
     texts: parsePageTexts(raw.texts, remap),
     ...(raw.pdfSource !== undefined ? { pdfSource: parsePdfSource(raw.pdfSource, pdfRemap) } : {}),
   };
@@ -506,6 +513,7 @@ function parsePageTexts(raw: unknown, remap: Map<string, string>): TextItem[] {
 function parsePageImages(
   raw: unknown,
   remap: Map<string, string>,
+  pdfRemap: Map<string, string>,
   geometryRemap: Map<string, string>,
 ): ImageItem[] {
   if (raw === undefined) return [];
@@ -520,6 +528,8 @@ function parsePageImages(
       geometryId = geometryRemap.get(entry.geometryId);
       if (!geometryId) throw new Error("Image references an unknown geometry");
     }
+    const pdfSource =
+      entry.pdfSource !== undefined ? parsePdfSource(entry.pdfSource, pdfRemap) : undefined;
     return {
       id: newId(),
       imageId,
@@ -529,6 +539,7 @@ function parsePageImages(
       height: parsePositiveNumber(entry.height, "image height"),
       ...(entry.locked === true ? { locked: true } : {}),
       ...(geometryId ? { geometryId } : {}),
+      ...(pdfSource ? { pdfSource } : {}),
     };
   });
 }

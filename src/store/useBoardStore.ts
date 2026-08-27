@@ -5,6 +5,7 @@ import {
   type Page,
   type PagePattern,
   type PageSize,
+  type PdfSource,
   PLACEMENT_MARGIN,
 } from "../model/page";
 import { resizePage } from "../model/pageSize";
@@ -105,7 +106,7 @@ interface BoardState {
   presentation: boolean;
   sidebarOpen: boolean;
   pdfImports: Record<string, { done: number; total: number }>;
-  pdfRangeRequest: { numPages: number } | null;
+  pdfRangeRequest: { numPages: number; mode: "range" | "single" } | null;
   exporting: boolean;
   geometryEditor: { mode: "insert" } | { mode: "edit"; pageId: string; itemId: string } | null;
   color: string;
@@ -166,11 +167,11 @@ interface BoardState {
     imageId: string,
     naturalWidth: number,
     naturalHeight: number,
-    geometryId?: string,
+    extra?: { geometryId?: string; pdfSource?: PdfSource },
   ) => void;
   insertPdfPages: (pdfPages: PdfPageImage[], pdfSource?: { docId: string }) => void;
   setPdfImport: (notebookId: string, progress: { done: number; total: number } | null) => void;
-  setPdfRangeRequest: (request: { numPages: number } | null) => void;
+  setPdfRangeRequest: (request: { numPages: number; mode: "range" | "single" } | null) => void;
   setExporting: (exporting: boolean) => void;
   openGeometry: () => void;
   editGeometry: (pageId: string, itemId: string) => void;
@@ -971,12 +972,13 @@ export const useBoardStore = create<BoardState>()((set) => ({
         tool: "select",
       };
     }),
-  insertImage: (imageId, naturalWidth, naturalHeight, geometryId) =>
+  insertImage: (imageId, naturalWidth, naturalHeight, extra) =>
     set((state) => {
       const page = state.pages[state.viewPageIndex] ?? state.pages[0];
       if (!page) return state;
       const image = createImageItem(imageId, naturalWidth, naturalHeight, page.width, page.height);
-      if (geometryId) image.geometryId = geometryId;
+      if (extra?.geometryId) image.geometryId = extra.geometryId;
+      if (extra?.pdfSource) image.pdfSource = extra.pdfSource;
       const pages = withContinuationPage(
         state.pages.map((p) => (p.id === page.id ? { ...p, images: [...p.images, image] } : p)),
         page.id,

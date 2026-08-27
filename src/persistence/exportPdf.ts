@@ -42,9 +42,11 @@ export async function exportSelectionPdf(
   const width = widthUnits * PT_PER_UNIT;
   const height = heightUnits * PT_PER_UNIT;
   const cropped = { ...page, strokes, images, texts };
-  if (texts.length > 0) {
-    // svg2pdf drops <text>: selection with text goes through pdf-lib so the
-    // text stays real vector glyphs; math and images ride the SVG layer.
+  const pdfImages = images.filter((image) => image.pdfSource);
+  if (texts.length > 0 || pdfImages.length > 0) {
+    // svg2pdf drops <text> and cannot embed source PDFs: selections with text or
+    // PDF-backed images go through pdf-lib so text stays real vector glyphs and
+    // PDF images keep their vector form. Math and images ride the SVG layers.
     const pdflib: PdfLib = await import("pdf-lib");
     const [{ svg2pdf }] = await Promise.all([import("svg2pdf.js")]);
     const { jsPDF } = await import("jspdf");
@@ -52,17 +54,45 @@ export async function exportSelectionPdf(
     doc.setTitle(title);
     const pdfPage = doc.addPage([width, height]);
     pdfPage.drawRectangle({ x: 0, y: 0, width, height, color: pdflib.rgb(1, 1, 1) });
-    const fonts = createPdfTextFonts(doc, (await import("@pdf-lib/fontkit")).default);
-    await drawPdfTextItems(pdflib, pdfPage, texts, fonts, {
-      offsetX: bounds.minX,
-      offsetY: bounds.minY,
-      heightUnits,
-    });
+    const view = { offsetX: bounds.minX, offsetY: bounds.minY, heightUnits };
+    const caches = {
+      sources: new Map<string, PDFDocument | null>(),
+      embedded: new Map<string, PDFEmbeddedPage | null>(),
+    };
+    for (const image of pdfImages) {
+      await drawPdfImage(pdflib, doc, pdfPage, image, view, caches);
+    }
+    const regularImages = images.filter((image) => !image.pdfSource);
+    if (regularImages.length > 0) {
+      const layerBytes = await singlePageSvgPdf(
+        jsPDF,
+        svg2pdf,
+        await pageToSvg({ ...page, strokes: [], images: regularImages, texts: [] }, imageData, {
+          annotationOnly: true,
+          imagesOnly: true,
+          clipTo: bounds,
+        }),
+        width,
+        height,
+        title,
+      );
+      const [layer] = await doc.embedPdf(layerBytes, [0]);
+      if (layer) pdfPage.drawPage(layer, { x: 0, y: 0, width, height });
+    }
+    if (texts.length > 0) {
+      const fonts = createPdfTextFonts(doc, (await import("@pdf-lib/fontkit")).default);
+      await drawPdfTextItems(pdflib, pdfPage, texts, fonts, {
+        offsetX: bounds.minX,
+        offsetY: bounds.minY,
+        heightUnits,
+      });
+    }
     const annotation = await singlePageSvgPdf(
       jsPDF,
       svg2pdf,
       await pageToSvg(cropped, imageData, {
         annotationOnly: true,
+        skipImages: true,
         clipTo: bounds,
         textMode: "pathsOnly",
       }),
@@ -126,20 +156,24 @@ async function singlePageSvgPdf(
 
 export async function exportNotebookPdf(title: string, pages: Page[]): Promise<void> {
   const kept = trimTrailingBlankPages(pages);
-  const layered = kept.some((page) => page.pdfSource || page.texts.length > 0);
+  const layered = kept.some(
+    (page) =>
+      page.pdfSource || page.texts.length > 0 || page.images.some((image) => image.pdfSource),
+  );
   if (!layered) {
-    const bytes = await renderSvgLayerPdf(kept, title, false, "all");
+    const bytes = await renderSvgLayerPdf(kept, title, "all");
     downloadBlob(new Blob([bytes.slice()], { type: "application/pdf" }), `${title}.pdf`);
     return;
   }
   await exportLayeredPdf(title, kept);
 }
 
+type SvgLayer = "all" | "images" | "strokes";
+
 async function renderSvgLayerPdf(
   pages: Page[],
   title: string,
-  annotationOnly: boolean,
-  textMode: "all" | "pathsOnly" | "none",
+  layer: SvgLayer,
 ): Promise<Uint8Array> {
   const [{ jsPDF }, { svg2pdf }] = await Promise.all([import("jspdf"), import("svg2pdf.js")]);
   const firstWidth = pages[0].width * PT_PER_UNIT;
@@ -154,12 +188,36 @@ async function renderSvgLayerPdf(
     const width = page.width * PT_PER_UNIT;
     const height = page.height * PT_PER_UNIT;
     if (index > 0) doc.addPage([width, height], pdfOrientation(width, height));
-    const images = annotationOnly ? page.images.filter((image) => !image.locked) : page.images;
-    const imageData = await collectImageDataUris(selectionImageIds(images, page.texts), true);
-    const svg = new DOMParser().parseFromString(
-      await pageToSvg(page, imageData, { annotationOnly, textMode }),
-      "image/svg+xml",
-    ).documentElement;
+    let svgText: string;
+    if (layer === "images") {
+      // PDF-backed images are embedded by pdf-lib instead; locked base images too.
+      const images = page.images.filter((image) => !image.locked && !image.pdfSource);
+      const imageData = await collectImageDataUris(
+        images.map((image) => image.imageId),
+        true,
+      );
+      svgText = await pageToSvg({ ...page, images }, imageData, {
+        annotationOnly: true,
+        imagesOnly: true,
+      });
+    } else if (layer === "strokes") {
+      const imageData = await collectImageDataUris(
+        page.texts.flatMap((text) => textImageRefs(text.markdown)),
+        true,
+      );
+      svgText = await pageToSvg(page, imageData, {
+        annotationOnly: true,
+        skipImages: true,
+        textMode: "pathsOnly",
+      });
+    } else {
+      const imageData = await collectImageDataUris(
+        selectionImageIds(page.images, page.texts),
+        true,
+      );
+      svgText = await pageToSvg(page, imageData, {});
+    }
+    const svg = new DOMParser().parseFromString(svgText, "image/svg+xml").documentElement;
     await svg2pdf(svg, doc, { x: 0, y: 0, width, height });
   }
   return new Uint8Array(doc.output("arraybuffer"));
@@ -167,7 +225,11 @@ async function renderSvgLayerPdf(
 
 async function exportLayeredPdf(title: string, pages: Page[]): Promise<void> {
   const pdflib: PdfLib = await import("pdf-lib");
-  const annotationBytes = await renderSvgLayerPdf(pages, title, true, "pathsOnly");
+  const annotationBytes = await renderSvgLayerPdf(pages, title, "strokes");
+  const hasImageLayer = pages.some((page) =>
+    page.images.some((image) => !image.locked && !image.pdfSource),
+  );
+  const imageLayerBytes = hasImageLayer ? await renderSvgLayerPdf(pages, title, "images") : null;
   const finalDoc = await pdflib.PDFDocument.create();
   finalDoc.setTitle(title);
   const hasTexts = pages.some((page) => page.texts.length > 0);
@@ -176,6 +238,10 @@ async function exportLayeredPdf(title: string, pages: Page[]): Promise<void> {
     : null;
   const annotationDoc = await pdflib.PDFDocument.load(annotationBytes);
   const annotationPages = await finalDoc.embedPdf(annotationDoc, annotationDoc.getPageIndices());
+  const imageLayerDoc = imageLayerBytes ? await pdflib.PDFDocument.load(imageLayerBytes) : null;
+  const imageLayerPages = imageLayerDoc
+    ? await finalDoc.embedPdf(imageLayerDoc, imageLayerDoc.getPageIndices())
+    : null;
   const caches = {
     sources: new Map<string, PDFDocument | null>(),
     embedded: new Map<string, PDFEmbeddedPage | null>(),
@@ -195,6 +261,14 @@ async function exportLayeredPdf(title: string, pages: Page[]): Promise<void> {
     if (page.pdfSource) {
       await drawSourceLayer(pdflib, finalDoc, pdfPage, page, caches);
     }
+    const view = { offsetX: 0, offsetY: 0, heightUnits: page.height };
+    for (const image of page.images) {
+      if (!image.locked && image.pdfSource) {
+        await drawPdfImage(pdflib, finalDoc, pdfPage, image, view, caches);
+      }
+    }
+    const imageLayer = imageLayerPages?.[index];
+    if (imageLayer) pdfPage.drawPage(imageLayer, { x: 0, y: 0, width, height });
     if (fonts && page.texts.length > 0) {
       await drawPdfTextItems(pdflib, pdfPage, page.texts, fonts, {
         offsetX: 0,
@@ -206,6 +280,36 @@ async function exportLayeredPdf(title: string, pages: Page[]): Promise<void> {
   }
   const bytes = await finalDoc.save();
   downloadBlob(new Blob([bytes.slice()], { type: "application/pdf" }), `${title}.pdf`);
+}
+
+// A PDF-backed image embeds its original page as a vector Form XObject. Unlike
+// the locked base, no white backing is drawn: source pages that paint no
+// background stay transparent, matching the raster preview.
+async function drawPdfImage(
+  pdflib: PdfLib,
+  finalDoc: PDFDocument,
+  pdfPage: PDFPage,
+  image: ImageItem,
+  view: { offsetX: number; offsetY: number; heightUnits: number },
+  caches: {
+    sources: Map<string, PDFDocument | null>;
+    embedded: Map<string, PDFEmbeddedPage | null>;
+  },
+): Promise<void> {
+  const source = image.pdfSource;
+  if (!source) return;
+  const rect = {
+    x: (image.x - view.offsetX) * PT_PER_UNIT,
+    y: (view.heightUnits - (image.y - view.offsetY) - image.height) * PT_PER_UNIT,
+    width: image.width * PT_PER_UNIT,
+    height: image.height * PT_PER_UNIT,
+  };
+  const embedded = await embedSourcePage(pdflib, finalDoc, source, caches);
+  if (embedded) {
+    pdfPage.drawPage(embedded, rect);
+    return;
+  }
+  await drawRasterFallback(finalDoc, pdfPage, image.imageId, rect);
 }
 
 async function drawSourceLayer(

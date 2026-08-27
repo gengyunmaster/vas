@@ -87,6 +87,10 @@ export async function pageToSvg(
     // images (svg2pdf drops <text>, so the PDF pipeline draws text itself);
     // "none" skips text items entirely.
     textMode?: "all" | "pathsOnly" | "none";
+    // Layered PDF export splits images and strokes into separate passes so the
+    // pdf-lib text layer can sit between them, matching the on-screen z-order.
+    imagesOnly?: boolean;
+    skipImages?: boolean;
   } = {},
 ): Promise<string> {
   const view = options.clipTo ?? { minX: 0, minY: 0, maxX: page.width, maxY: page.height };
@@ -95,32 +99,36 @@ export async function pageToSvg(
   const parts = [
     `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="${fmt(view.minX)} ${fmt(view.minY)} ${fmt(viewWidth)} ${fmt(viewHeight)}" width="${fmt(viewWidth)}" height="${fmt(viewHeight)}">`,
   ];
-  if (!options.annotationOnly) {
+  if (!options.annotationOnly && !options.imagesOnly) {
     parts.push(
       `<rect x="${fmt(view.minX)}" y="${fmt(view.minY)}" width="${fmt(viewWidth)}" height="${fmt(viewHeight)}" fill="${escapeXml(page.paperColor)}"/>`,
       ...patternToSvg(page),
     );
   }
-  for (const image of page.images) {
-    if (options.annotationOnly && image.locked) continue;
-    const dataUri = imageData.get(image.imageId);
-    if (!dataUri) continue;
-    const href = escapeXml(dataUri);
-    parts.push(
-      `<image x="${fmt(image.x)}" y="${fmt(image.y)}" width="${fmt(image.width)}" height="${fmt(image.height)}" href="${href}" xlink:href="${href}" preserveAspectRatio="none"/>`,
-    );
+  if (!options.skipImages) {
+    for (const image of page.images) {
+      if (options.annotationOnly && image.locked) continue;
+      const dataUri = imageData.get(image.imageId);
+      if (!dataUri) continue;
+      const href = escapeXml(dataUri);
+      parts.push(
+        `<image x="${fmt(image.x)}" y="${fmt(image.y)}" width="${fmt(image.width)}" height="${fmt(image.height)}" href="${href}" xlink:href="${href}" preserveAspectRatio="none"/>`,
+      );
+    }
   }
   const textMode = options.textMode ?? "all";
-  if (textMode !== "none" && page.texts.length > 0) {
+  if (!options.imagesOnly && textMode !== "none" && page.texts.length > 0) {
     const measure = await createTextMeasurer();
     for (const item of page.texts) {
       const layout = await layoutTextItem(item, measure, naturalSize);
       parts.push(...textItemToSvg(item, layout, imageData, textMode));
     }
   }
-  for (const stroke of page.strokes) {
-    const element = strokeToSvg(stroke);
-    if (element) parts.push(element);
+  if (!options.imagesOnly) {
+    for (const stroke of page.strokes) {
+      const element = strokeToSvg(stroke);
+      if (element) parts.push(element);
+    }
   }
   parts.push("</svg>");
   return parts.join("\n");

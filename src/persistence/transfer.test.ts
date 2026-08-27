@@ -341,6 +341,90 @@ describe("notebook pdf sources", () => {
   });
 });
 
+describe("pdf-backed images", () => {
+  function pdfImagePage(): Page {
+    return {
+      ...samplePage(),
+      images: [
+        {
+          id: "item-1",
+          imageId: "blob-1",
+          x: 10,
+          y: 20,
+          width: 300,
+          height: 400,
+          pdfSource: { docId: "pdf-1", pageIndex: 4 },
+        },
+      ],
+    };
+  }
+
+  it("round-trips an image pdf source and remaps both ids", () => {
+    const text = serializeNotebook(
+      "Pdf image",
+      [pdfImagePage()],
+      [{ imageId: "blob-1", mimeType: "image/png" }],
+      undefined,
+      [{ docId: "pdf-1" }],
+    );
+    const parsed = parseNotebookFile(text);
+    expect(parsed.pdfs).toHaveLength(1);
+    const item = parsed.pages[0].images[0];
+    expect(item.imageId).toBe(parsed.images[0].imageId);
+    expect(item.pdfSource?.docId).not.toBe("pdf-1");
+    expect(item.pdfSource).toEqual({ docId: parsed.pdfs[0].docId, pageIndex: 4 });
+  });
+
+  it("rejects an image referencing a pdf missing from the manifest", () => {
+    const text = JSON.stringify({
+      format: "vas-notebook",
+      version: 5,
+      images: [{ imageId: "blob-1", mimeType: "image/png" }],
+      pages: [
+        {
+          strokes: [],
+          images: [
+            {
+              imageId: "blob-1",
+              x: 0,
+              y: 0,
+              width: 10,
+              height: 10,
+              pdfSource: { docId: "ghost", pageIndex: 0 },
+            },
+          ],
+        },
+      ],
+    });
+    expect(() => parseNotebookFile(text)).toThrow("unknown pdf");
+  });
+
+  it("rejects an invalid image pdf source page index", () => {
+    const text = JSON.stringify({
+      format: "vas-notebook",
+      version: 5,
+      images: [{ imageId: "blob-1", mimeType: "image/png" }],
+      pdfs: [{ docId: "pdf-1" }],
+      pages: [
+        {
+          strokes: [],
+          images: [
+            {
+              imageId: "blob-1",
+              x: 0,
+              y: 0,
+              width: 10,
+              height: 10,
+              pdfSource: { docId: "pdf-1", pageIndex: -1 },
+            },
+          ],
+        },
+      ],
+    });
+    expect(() => parseNotebookFile(text)).toThrow("Invalid pdf source page index");
+  });
+});
+
 describe("notebook geometries", () => {
   function geometryPage(): Page {
     return {

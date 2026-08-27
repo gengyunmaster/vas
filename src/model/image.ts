@@ -1,4 +1,4 @@
-import { PLACEMENT_MARGIN } from "./page";
+import { type PdfSource, PLACEMENT_MARGIN } from "./page";
 import { newId } from "./stroke";
 
 export interface ImageItem {
@@ -11,6 +11,9 @@ export interface ImageItem {
   locked?: boolean;
   // Geometry figures keep their editable source document in the geometry table.
   geometryId?: string;
+  // PDF page inserted as an image: imageId holds the raster preview while
+  // pdfSource points at the original document for vector PDF export.
+  pdfSource?: PdfSource;
 }
 
 export function placeImageSize(

@@ -27,7 +27,11 @@ self-hosted instance keep separate data; use export / import to move notebooks a
   vector), recolor, delete, and cut / copy / paste — across pages and notebooks
 - **Images** — insert images (button or paste from the system clipboard) and annotate
   over them; images move / scale / copy along with the selection; oversized images are
-  auto-fit to the page and stored at original quality
+  auto-fit to the page and stored at original quality. The picker also accepts **PDF
+  files**: after the same password/decrypt flow you pick a single page, which is
+  inserted as a regular (selectable, movable, scalable) image — rendered on screen as
+  a 4x transparent-background preview (the white backdrop is keyed out), stored with
+  the full original PDF, and re-embedded as a true vector page on PDF export
 - **PDF import** — import a PDF from the home screen to create a notebook, or into the
   open notebook (pages inserted after the current one, inheriting its style); every page
   is rendered at 4x point resolution, scaled to fill the sheet, and locked in place
@@ -58,9 +62,11 @@ self-hosted instance keep separate data; use export / import to move notebooks a
   for notebooks with images, PDF pages, or geometry figures, both re-importable
 - **Vector PDF export** — strokes stay sharp at any zoom level, inserted SVG images stay
   vector too, raster images embedded from the original bytes (JPEG/PNG); imported PDF
-  pages keep their original bytes, which are re-embedded as a true vector layer beneath
-  your annotations on export (with raster fallback for encrypted files); text is drawn
-  as real, selectable PDF text with an embedded subset of Noto Sans SC
+  pages (both locked base pages and PDFs inserted as images) keep their original bytes,
+  which are re-embedded as a true vector layer on export (with raster fallback for
+  encrypted files); text is drawn
+  as real, selectable PDF text with an embedded subset of Noto Sans SC; layers stack in
+  the same order as on screen (paper < images < text < ink)
 - **Flexible export scopes** — every export offers three scopes: the current selection
   (clipped to its bounds, transparent background, no paper color / guides / PDF base
   image — white background for PDF, which has no transparency concept), the current

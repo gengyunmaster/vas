@@ -28,11 +28,19 @@ export function retainPdfs(ids: string[]): () => void {
 export async function gcUnreferencedPdfs(): Promise<void> {
   const database = await db();
   const keep = new Set<string>();
-  for (const page of await database.getAll("pages")) {
+  const collect = (page: {
+    pdfSource?: { docId: string };
+    images?: { pdfSource?: { docId: string } }[];
+  }) => {
     if (page.pdfSource) keep.add(page.pdfSource.docId);
-  }
-  for (const page of useBoardStore.getState().pages) {
-    if (page.pdfSource) keep.add(page.pdfSource.docId);
+    for (const image of page.images ?? []) {
+      if (image.pdfSource) keep.add(image.pdfSource.docId);
+    }
+  };
+  for (const page of await database.getAll("pages")) collect(page);
+  for (const page of useBoardStore.getState().pages) collect(page);
+  for (const image of useBoardStore.getState().clipboard.images) {
+    if (image.pdfSource) keep.add(image.pdfSource.docId);
   }
   for (const id of retained) keep.add(id);
   const tx = database.transaction("pdfs", "readwrite");

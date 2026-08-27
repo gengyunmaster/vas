@@ -13,7 +13,11 @@ import { SHAPE_KINDS, type ShapeKind } from "../model/stroke";
 import { exportNotebookPng, exportPagePng, exportSelectionPng } from "../persistence/exportImage";
 import { exportNotebookPdf, exportSelectionPdf } from "../persistence/exportPdf";
 import { exportNotebookSvg, exportPageSvg, exportSelectionSvg } from "../persistence/exportSvg";
-import { importPdfIntoNotebook, reRasterizePdfBase } from "../persistence/importPdf";
+import {
+  importPdfIntoNotebook,
+  insertPdfImageFile,
+  reRasterizePdfBase,
+} from "../persistence/importPdf";
 import { insertImageFile } from "../persistence/insertImage";
 import { COLORS, PAPER_COLORS, SIZES, useBoardStore } from "../store/useBoardStore";
 import { ColorField } from "./ColorField";
@@ -155,11 +159,14 @@ export function SettingsPanel() {
 
   const pickImage = async (file: File | undefined) => {
     if (!file) return;
+    const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
     try {
-      await insertImageFile(file);
+      if (isPdf) await insertPdfImageFile(file);
+      else await insertImageFile(file);
     } catch (error) {
+      if (error instanceof Error && error.message.startsWith("Import cancelled")) return;
       console.error("Failed to insert image", error);
-      window.alert("Failed to insert image.");
+      window.alert(error instanceof Error ? error.message : "Failed to insert image.");
     }
   };
 
@@ -390,7 +397,7 @@ export function SettingsPanel() {
           <input
             ref={imageInputRef}
             type="file"
-            accept="image/*"
+            accept="image/*,.pdf,application/pdf"
             hidden
             onChange={(e) => {
               void pickImage(e.target.files?.[0]);

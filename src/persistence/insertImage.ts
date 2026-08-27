@@ -15,5 +15,5 @@ export async function insertImageFile(file: File, geometryId?: string): Promise<
   primeImage(imageId, decoded);
   useBoardStore
     .getState()
-    .insertImage(imageId, decoded.naturalWidth, decoded.naturalHeight, geometryId);
+    .insertImage(imageId, decoded.naturalWidth, decoded.naturalHeight, { geometryId });
 }

@@ -522,6 +522,16 @@ describe("selection and clipboard", () => {
     expect(useBoardStore.getState().pages).toHaveLength(2);
   });
 
+  it("insertImage keeps an optional pdf source reference", () => {
+    useBoardStore
+      .getState()
+      .insertImage("blob-1", 200, 100, { pdfSource: { docId: "pdf-1", pageIndex: 2 } });
+    expect(useBoardStore.getState().pages[0].images[0].pdfSource).toEqual({
+      docId: "pdf-1",
+      pageIndex: 2,
+    });
+  });
+
   it("clearPage also clears images and undo restores them", () => {
     const pageId = useBoardStore.getState().pages[0].id;
     useBoardStore.setState({

@@ -10,6 +10,7 @@ export function PageRangeDialog() {
   const [error, setError] = useState<string | null>(null);
 
   const numPages = request?.numPages ?? 0;
+  const single = request?.mode === "single";
   useEffect(() => {
     if (!request) return;
     setFirst("1");
@@ -29,7 +30,9 @@ export function PageRangeDialog() {
   if (!request) return null;
 
   const confirm = () => {
-    const range = normalizePageRange(Number(first), Number(last), numPages);
+    const range = single
+      ? normalizePageRange(Number(first), Number(first), numPages)
+      : normalizePageRange(Number(first), Number(last), numPages);
     if (!range) {
       setError(`Enter whole page numbers between 1 and ${numPages}.`);
       return;
@@ -57,10 +60,11 @@ export function PageRangeDialog() {
   return (
     <div className="dialog-overlay">
       <div className="dialog" role="dialog" aria-modal="true" aria-label="Import PDF">
-        <div className="dialog-title">Import PDF</div>
+        <div className="dialog-title">{single ? "Insert PDF page" : "Import PDF"}</div>
         <p className="dialog-text">
-          This PDF has {numPages} {numPages === 1 ? "page" : "pages"}. Choose the page range to
-          import.
+          {single
+            ? `This PDF has ${numPages} ${numPages === 1 ? "page" : "pages"}. Choose the page to insert.`
+            : `This PDF has ${numPages} ${numPages === 1 ? "page" : "pages"}. Choose the page range to import.`}
         </p>
         <form
           noValidate
@@ -70,8 +74,8 @@ export function PageRangeDialog() {
           }}
         >
           <div className="page-range-fields">
-            {field("From", first, setFirst)}
-            {field("To", last, setLast)}
+            {field(single ? "Page" : "From", first, setFirst)}
+            {!single && field("To", last, setLast)}
           </div>
           {error && <div className="dialog-error">{error}</div>}
           <div className="dialog-actions">
@@ -79,7 +83,7 @@ export function PageRangeDialog() {
               Cancel
             </button>
             <button type="submit" className="primary">
-              Import
+              {single ? "Insert" : "Import"}
             </button>
           </div>
         </form>
