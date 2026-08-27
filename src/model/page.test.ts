@@ -148,6 +148,7 @@ describe("trimTrailingBlankPages", () => {
     height: PAGE_HEIGHT,
     strokes: [],
     images: [],
+    texts: [],
     paperColor: "#ffffff",
     pattern: "blank" as const,
   });
@@ -218,6 +219,7 @@ describe("clonePageWithNewIds", () => {
         },
       ],
       images: [{ id: "i1", imageId: "blob-1", x: 40, y: 40, width: 100, height: 50, locked: true }],
+      texts: [],
     };
     const clone = clonePageWithNewIds(source);
     expect(clone.id).not.toBe(source.id);
@@ -251,5 +253,25 @@ describe("clonePageWithNewIds", () => {
     const clone = clonePageWithNewIds(source);
     expect(clone.pdfSource).toEqual({ docId: "pdf-1", pageIndex: 3 });
     expect(clonePageWithNewIds(createPage("#ffffff")).pdfSource).toBeUndefined();
+  });
+
+  it("keeps image pdf source references", () => {
+    const source: Page = {
+      ...createPage("#ffffff"),
+      images: [
+        {
+          id: "i1",
+          imageId: "blob-1",
+          x: 0,
+          y: 0,
+          width: 10,
+          height: 10,
+          pdfSource: { docId: "pdf-1", pageIndex: 2 },
+        },
+      ],
+    };
+    const clone = clonePageWithNewIds(source);
+    expect(clone.images[0].id).not.toBe("i1");
+    expect(clone.images[0].pdfSource).toEqual({ docId: "pdf-1", pageIndex: 2 });
   });
 });

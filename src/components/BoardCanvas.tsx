@@ -1,25 +1,28 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { Board } from "../engine/board";
 import { clearImageCache } from "../engine/imageCache";
 import type { ToolKind } from "../model/stroke";
 import { startAutosave } from "../persistence/autosave";
 import { scheduleViewStateSave } from "../persistence/session";
 import { useBoardStore } from "../store/useBoardStore";
+import { textItemHeight } from "../text/textHeight";
+import { TextOverlay } from "./TextOverlay";
 
 function cursorForTool(tool: ToolKind): string {
   if (tool === "eraser") return "cell";
   if (tool === "laser") return "none";
   if (tool === "select") return "default";
+  if (tool === "text") return "text";
   return "crosshair";
 }
 
 export function BoardCanvas() {
-  const containerRef = useRef<HTMLDivElement>(null);
+  const [container, setContainer] = useState<HTMLDivElement | null>(null);
   const sidebarOpen = useBoardStore((state) => state.sidebarOpen);
   const presentation = useBoardStore((state) => state.presentation);
 
   useEffect(() => {
-    const container = containerRef.current;
     if (!container) return;
     const board = new Board(container, {
       getTool: () => {
@@ -37,6 +40,21 @@ export function BoardCanvas() {
       onSelectionAnchor: (anchor) => useBoardStore.getState().setSelectionAnchor(anchor),
       onTransformSelection: (before, after) =>
         useBoardStore.getState().transformSelection(before, after),
+      onTextTap: (pageId, x, y) => {
+        const state = useBoardStore.getState();
+        const page = state.pages.find((p) => p.id === pageId);
+        if (!page) return;
+        const existing = [...page.texts].reverse().find((t) => {
+          const height = textItemHeight(t);
+          return x >= t.x - 6 && x <= t.x + t.width + 6 && y >= t.y - 6 && y <= t.y + height + 6;
+        });
+        if (existing) {
+          state.setEditingText({ pageId, itemId: existing.id });
+          return;
+        }
+        const itemId = state.addTextItem(pageId, x, y);
+        state.setEditingText({ pageId, itemId });
+      },
       onViewportChange: (viewState) => {
         const { notebookId } = useBoardStore.getState();
         if (notebookId) scheduleViewStateSave(notebookId, viewState);
@@ -71,7 +89,7 @@ export function BoardCanvas() {
       board.destroy();
       clearImageCache();
     };
-  }, []);
+  }, [container]);
 
   const className = [
     "board",
@@ -80,5 +98,11 @@ export function BoardCanvas() {
   ]
     .filter(Boolean)
     .join(" ");
-  return <div ref={containerRef} className={className} />;
+  // The text overlay must sit between the base and active canvases; portaling
+  // it into the board container puts all three in one stacking context.
+  return (
+    <div ref={setContainer} className={className}>
+      {container ? createPortal(<TextOverlay />, container) : null}
+    </div>
+  );
 }

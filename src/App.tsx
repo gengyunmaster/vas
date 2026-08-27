@@ -3,8 +3,10 @@ import { BoardCanvas } from "./components/BoardCanvas";
 import { GeometryOverlay } from "./components/GeometryOverlay";
 import { Home } from "./components/Home";
 import { PageIndicator } from "./components/PageIndicator";
+import { PageRangeDialog } from "./components/PageRangeDialog";
 import { PageSidebar } from "./components/PageSidebar";
 import { SelectionBar } from "./components/SelectionBar";
+import { TextEditor } from "./components/TextEditor";
 import { Toolbar } from "./components/Toolbar";
 import { insertImageFile } from "./persistence/insertImage";
 import { createNotebook, listNotebooks } from "./persistence/notebooks";
@@ -47,13 +49,16 @@ export default function App() {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (useBoardStore.getState().geometryEditor) return;
+      if (useBoardStore.getState().pdfRangeRequest) return;
       const target = event.target;
       const typing =
         target instanceof HTMLElement &&
         (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
       if (event.key === "Escape") {
         const state = useBoardStore.getState();
-        if (state.presentation) {
+        if (state.editingText) {
+          state.setEditingText(null);
+        } else if (state.presentation) {
           state.setPresentation(false);
         } else if (!typing && state.selection) {
           state.setSelection(null);
@@ -114,7 +119,11 @@ export default function App() {
         });
         return;
       }
-      if (state.clipboard.strokes.length > 0 || state.clipboard.images.length > 0) {
+      if (
+        state.clipboard.strokes.length > 0 ||
+        state.clipboard.images.length > 0 ||
+        state.clipboard.texts.length > 0
+      ) {
         event.preventDefault();
         state.pasteClipboard();
       }
@@ -154,23 +163,29 @@ export default function App() {
 
   if (!ready) return null;
 
-  return notebookId ? (
+  return (
     <>
-      <BoardCanvas />
-      <PageSidebar />
-      <Toolbar />
-      {!presentation && <SelectionBar />}
-      {!presentation && <PageIndicator />}
-      <GeometryOverlay />
+      {notebookId ? (
+        <>
+          <BoardCanvas />
+          <PageSidebar />
+          <Toolbar />
+          {!presentation && <SelectionBar />}
+          {!presentation && <PageIndicator />}
+          <TextEditor />
+          <GeometryOverlay />
+        </>
+      ) : (
+        <Home
+          onOpen={(id) => {
+            void openNotebook(id).catch((error: unknown) => {
+              console.error("Failed to open notebook", error);
+              window.alert("Failed to open this notebook.");
+            });
+          }}
+        />
+      )}
+      <PageRangeDialog />
     </>
-  ) : (
-    <Home
-      onOpen={(id) => {
-        void openNotebook(id).catch((error: unknown) => {
-          console.error("Failed to open notebook", error);
-          window.alert("Failed to open this notebook.");
-        });
-      }}
-    />
   );
 }

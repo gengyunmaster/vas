@@ -13,7 +13,11 @@ import { SHAPE_KINDS, type ShapeKind } from "../model/stroke";
 import { exportNotebookPng, exportPagePng, exportSelectionPng } from "../persistence/exportImage";
 import { exportNotebookPdf, exportSelectionPdf } from "../persistence/exportPdf";
 import { exportNotebookSvg, exportPageSvg, exportSelectionSvg } from "../persistence/exportSvg";
-import { importPdfIntoNotebook, reRasterizePdfBase } from "../persistence/importPdf";
+import {
+  importPdfIntoNotebook,
+  insertPdfImageFile,
+  reRasterizePdfBase,
+} from "../persistence/importPdf";
 import { insertImageFile } from "../persistence/insertImage";
 import { COLORS, PAPER_COLORS, SIZES, useBoardStore } from "../store/useBoardStore";
 import { ColorField } from "./ColorField";
@@ -65,11 +69,18 @@ export function SettingsPanel() {
   );
   const canClear = useBoardStore((state) => {
     const page = state.pages[state.viewPageIndex];
-    return (page?.strokes.length ?? 0) > 0 || (page?.images.some((i) => !i.locked) ?? false);
+    return (
+      (page?.strokes.length ?? 0) > 0 ||
+      (page?.images.some((i) => !i.locked) ?? false) ||
+      (page?.texts.length ?? 0) > 0
+    );
   });
   const canDeletePage = useBoardStore((state) => state.pages.length > 1);
   const canPaste = useBoardStore(
-    (state) => state.clipboard.strokes.length > 0 || state.clipboard.images.length > 0,
+    (state) =>
+      state.clipboard.strokes.length > 0 ||
+      state.clipboard.images.length > 0 ||
+      state.clipboard.texts.length > 0,
   );
   const sidebarOpen = useBoardStore((state) => state.sidebarOpen);
   const presentation = useBoardStore((state) => state.presentation);
@@ -118,10 +129,15 @@ export function SettingsPanel() {
           ? state.pages.find((candidate) => candidate.id === selection.pageId)
           : undefined;
         if (!selection || !page) return;
-        const { strokes, images } = pickElements(page, selection.strokeIds, selection.imageIds);
-        if (format === "pdf") await exportSelectionPdf(title, page, strokes, images);
-        else if (format === "svg") await exportSelectionSvg(title, page, strokes, images);
-        else await exportSelectionPng(title, strokes, images);
+        const { strokes, images, texts } = pickElements(
+          page,
+          selection.strokeIds,
+          selection.imageIds,
+          selection.textIds,
+        );
+        if (format === "pdf") await exportSelectionPdf(title, page, strokes, images, texts);
+        else if (format === "svg") await exportSelectionSvg(title, page, strokes, images, texts);
+        else await exportSelectionPng(title, strokes, images, texts);
       } else if (exportRange === "page") {
         const page = state.pages[state.viewPageIndex];
         if (!page) return;
@@ -143,11 +159,14 @@ export function SettingsPanel() {
 
   const pickImage = async (file: File | undefined) => {
     if (!file) return;
+    const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
     try {
-      await insertImageFile(file);
+      if (isPdf) await insertPdfImageFile(file);
+      else await insertImageFile(file);
     } catch (error) {
+      if (error instanceof Error && error.message.startsWith("Import cancelled")) return;
       console.error("Failed to insert image", error);
-      window.alert("Failed to insert image.");
+      window.alert(error instanceof Error ? error.message : "Failed to insert image.");
     }
   };
 
@@ -204,6 +223,14 @@ export function SettingsPanel() {
             onClick={() => setTool("select")}
           >
             Select
+          </button>
+          <button
+            type="button"
+            aria-pressed={tool === "text"}
+            className={tool === "text" ? "text-option active" : "text-option"}
+            onClick={() => setTool("text")}
+          >
+            Text
           </button>
         </div>
       </section>
@@ -370,7 +397,7 @@ export function SettingsPanel() {
           <input
             ref={imageInputRef}
             type="file"
-            accept="image/*"
+            accept="image/*,.pdf,application/pdf"
             hidden
             onChange={(e) => {
               void pickImage(e.target.files?.[0]);

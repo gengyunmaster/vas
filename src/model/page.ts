@@ -1,6 +1,7 @@
 import type { ImageItem } from "./image";
 import type { Stroke } from "./stroke";
 import { newId } from "./stroke";
+import type { TextItem } from "./textItem";
 
 export const PAGE_WIDTH = 794;
 export const PAGE_HEIGHT = 1123;
@@ -32,6 +33,7 @@ export interface Page {
   height: number;
   strokes: Stroke[];
   images: ImageItem[];
+  texts: TextItem[];
   paperColor: string;
   pattern: PagePattern;
   pdfSource?: PdfSource;
@@ -54,6 +56,7 @@ export function createPage(
     height: size.height,
     strokes: [],
     images: [],
+    texts: [],
     paperColor,
     pattern,
   };
@@ -133,7 +136,12 @@ export function clampToPage(page: Page, x: number, y: number): { x: number; y: n
 
 export function trimTrailingBlankPages(pages: Page[]): Page[] {
   let end = pages.length;
-  while (end > 1 && pages[end - 1].strokes.length === 0 && pages[end - 1].images.length === 0) {
+  while (
+    end > 1 &&
+    pages[end - 1].strokes.length === 0 &&
+    pages[end - 1].images.length === 0 &&
+    pages[end - 1].texts.length === 0
+  ) {
     end--;
   }
   return pages.slice(0, end);
@@ -152,6 +160,7 @@ export function clonePageWithNewIds(page: Page): Page {
       points: stroke.points.map((point) => ({ ...point })),
     })),
     images: page.images.map((image) => ({ ...image, id: newId() })),
+    texts: page.texts.map((text) => ({ ...text, id: newId() })),
     ...(page.pdfSource ? { pdfSource: { ...page.pdfSource } } : {}),
   };
 }

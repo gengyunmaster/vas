@@ -1,3 +1,4 @@
+import { ensureImageLoaded, getImageBitmap } from "../engine/imageCache";
 import { getOutlinePoints, HIGHLIGHTER_ALPHA } from "../engine/renderStroke";
 import { isDarkColor } from "../model/color";
 import type { Bounds } from "../model/hitTest";
@@ -6,15 +7,20 @@ import { type Page, trimTrailingBlankPages } from "../model/page";
 import { PATTERN_DASH, patternLayout } from "../model/patternLayout";
 import { arrowHead } from "../model/shapeGeometry";
 import type { Stroke } from "../model/stroke";
+import { type TextItem, textImageRefs } from "../model/textItem";
 import { elementsBounds } from "../model/transform";
+import { layoutTextItem } from "../text/layoutItem";
+import { createTextMeasurer } from "../text/measure";
+import { textItemHeight } from "../text/textHeight";
+import { textItemToSvg } from "../text/textToSvg";
 import { downloadZip } from "./exportZip";
 import { collectImageDataUris } from "./imageDataUri";
 import { outlineToSvgPath } from "./svgPath";
 import { downloadBlob, sanitizeFileName } from "./transfer";
 
 export async function exportPageSvg(title: string, pageIndex: number, page: Page): Promise<void> {
-  const imageData = await collectImageDataUris(page.images.map((image) => image.imageId));
-  const svg = pageToSvg(page, imageData);
+  const imageData = await collectPageImageData(page);
+  const svg = await pageToSvg(page, imageData);
   downloadBlob(new Blob([svg], { type: "image/svg+xml" }), `${title}-page-${pageIndex + 1}.svg`);
 }
 
@@ -27,10 +33,10 @@ export async function exportNotebookSvg(title: string, pages: Page[]): Promise<v
   const entries: { name: string; data: Uint8Array }[] = [];
   const encoder = new TextEncoder();
   for (const [index, page] of kept.entries()) {
-    const imageData = await collectImageDataUris(page.images.map((image) => image.imageId));
+    const imageData = await collectPageImageData(page);
     entries.push({
       name: `${sanitizeFileName(title)}-page-${index + 1}.svg`,
-      data: encoder.encode(pageToSvg(page, imageData)),
+      data: encoder.encode(await pageToSvg(page, imageData)),
     });
   }
   downloadZip(title, entries);
@@ -41,49 +47,96 @@ export async function exportSelectionSvg(
   page: Page,
   strokes: Stroke[],
   images: ImageItem[],
+  texts: TextItem[] = [],
 ): Promise<void> {
-  const bounds = elementsBounds(strokes, images);
+  const bounds = elementsBounds(
+    strokes,
+    images,
+    texts.map((item) => ({ item, height: textItemHeight(item) })),
+  );
   if (!bounds) return;
-  const imageData = await collectImageDataUris(images.map((image) => image.imageId));
-  const svg = pageToSvg({ ...page, strokes, images }, imageData, {
+  const imageData = await collectSelectionImageData(images, texts);
+  const svg = await pageToSvg({ ...page, strokes, images, texts }, imageData, {
     annotationOnly: true,
     clipTo: bounds,
   });
   downloadBlob(new Blob([svg], { type: "image/svg+xml" }), `${title}-selection.svg`);
 }
 
-export function pageToSvg(
+function collectPageImageData(page: Page): Promise<Map<string, string>> {
+  return collectSelectionImageData(page.images, page.texts);
+}
+
+async function collectSelectionImageData(
+  images: ImageItem[],
+  texts: TextItem[],
+): Promise<Map<string, string>> {
+  const ids = new Set(images.map((image) => image.imageId));
+  for (const text of texts) for (const id of textImageRefs(text.markdown)) ids.add(id);
+  await Promise.all([...ids].map((id) => ensureImageLoaded(id)));
+  return collectImageDataUris([...ids]);
+}
+
+export async function pageToSvg(
   page: Page,
   imageData: Map<string, string>,
-  options: { annotationOnly?: boolean; clipTo?: Bounds } = {},
-): string {
+  options: {
+    annotationOnly?: boolean;
+    clipTo?: Bounds;
+    // "all" keeps real <text>; "pathsOnly" emits only math glyphs and embedded
+    // images (svg2pdf drops <text>, so the PDF pipeline draws text itself);
+    // "none" skips text items entirely.
+    textMode?: "all" | "pathsOnly" | "none";
+    // Layered PDF export splits images and strokes into separate passes so the
+    // pdf-lib text layer can sit between them, matching the on-screen z-order.
+    imagesOnly?: boolean;
+    skipImages?: boolean;
+  } = {},
+): Promise<string> {
   const view = options.clipTo ?? { minX: 0, minY: 0, maxX: page.width, maxY: page.height };
   const viewWidth = view.maxX - view.minX;
   const viewHeight = view.maxY - view.minY;
   const parts = [
     `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="${fmt(view.minX)} ${fmt(view.minY)} ${fmt(viewWidth)} ${fmt(viewHeight)}" width="${fmt(viewWidth)}" height="${fmt(viewHeight)}">`,
   ];
-  if (!options.annotationOnly) {
+  if (!options.annotationOnly && !options.imagesOnly) {
     parts.push(
       `<rect x="${fmt(view.minX)}" y="${fmt(view.minY)}" width="${fmt(viewWidth)}" height="${fmt(viewHeight)}" fill="${escapeXml(page.paperColor)}"/>`,
       ...patternToSvg(page),
     );
   }
-  for (const image of page.images) {
-    if (options.annotationOnly && image.locked) continue;
-    const dataUri = imageData.get(image.imageId);
-    if (!dataUri) continue;
-    const href = escapeXml(dataUri);
-    parts.push(
-      `<image x="${fmt(image.x)}" y="${fmt(image.y)}" width="${fmt(image.width)}" height="${fmt(image.height)}" href="${href}" xlink:href="${href}" preserveAspectRatio="none"/>`,
-    );
+  if (!options.skipImages) {
+    for (const image of page.images) {
+      if (options.annotationOnly && image.locked) continue;
+      const dataUri = imageData.get(image.imageId);
+      if (!dataUri) continue;
+      const href = escapeXml(dataUri);
+      parts.push(
+        `<image x="${fmt(image.x)}" y="${fmt(image.y)}" width="${fmt(image.width)}" height="${fmt(image.height)}" href="${href}" xlink:href="${href}" preserveAspectRatio="none"/>`,
+      );
+    }
   }
-  for (const stroke of page.strokes) {
-    const element = strokeToSvg(stroke);
-    if (element) parts.push(element);
+  const textMode = options.textMode ?? "all";
+  if (!options.imagesOnly && textMode !== "none" && page.texts.length > 0) {
+    const measure = await createTextMeasurer();
+    for (const item of page.texts) {
+      const layout = await layoutTextItem(item, measure, naturalSize);
+      parts.push(...textItemToSvg(item, layout, imageData, textMode));
+    }
+  }
+  if (!options.imagesOnly) {
+    for (const stroke of page.strokes) {
+      const element = strokeToSvg(stroke);
+      if (element) parts.push(element);
+    }
   }
   parts.push("</svg>");
   return parts.join("\n");
+}
+
+function naturalSize(imageId: string): { width: number; height: number } | null {
+  const bitmap = getImageBitmap(imageId);
+  return bitmap ? { width: bitmap.naturalWidth, height: bitmap.naturalHeight } : null;
 }
 
 function strokeToSvg(stroke: Stroke): string {

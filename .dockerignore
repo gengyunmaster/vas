@@ -2,6 +2,7 @@ node_modules
 dist
 .git
 .github
+font-src
 *.log
 *.tar.gz
 .gitignore

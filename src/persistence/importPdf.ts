@@ -1,7 +1,9 @@
+import { decodeBlob, primeImage } from "../engine/imageCache";
 import { placeImageCentered } from "../model/image";
 import { PDF_PAGE_SCALE, pdfPageSize } from "../model/pageSize";
 import { buildPdfPages, pdfInsertIndex } from "../model/pdfPage";
 import { newId } from "../model/stroke";
+import { askPageRange } from "../store/pdfRangePrompt";
 import { useBoardStore } from "../store/useBoardStore";
 import { decryptPdf } from "./decryptPdf";
 import { deleteImages, retainImages, saveImages } from "./images";
@@ -20,6 +22,8 @@ export interface RasterizedPdfPage {
   blob: Blob;
   naturalWidth: number;
   naturalHeight: number;
+  // 0-based page index into the source PDF, kept for the export-time vector embedding.
+  pageIndex: number;
 }
 
 export interface RasterizedPdf {
@@ -62,6 +66,7 @@ export async function saveSourcePdf(sourceBytes: Uint8Array): Promise<string> {
 export async function rasterizePdf(
   file: File,
   onProgress?: (done: number, total: number) => void,
+  options: { promptMode?: "range" | "single"; transparent?: boolean } = {},
 ): Promise<RasterizedPdf> {
   const pdfjs = await loadPdfJs();
   const data = new Uint8Array(await file.arrayBuffer());
@@ -92,10 +97,13 @@ export async function rasterizePdf(
   }
   try {
     if (doc.numPages < 1) throw new Error("This PDF contains no pages");
+    const range = await askPageRange(doc.numPages, options.promptMode ?? "range");
+    if (!range) throw new Error("Import cancelled");
     const pages: RasterizedPdfPage[] = [];
-    for (let index = 1; index <= doc.numPages; index++) {
-      pages.push(await rasterizePage(doc, index));
-      onProgress?.(index, doc.numPages);
+    const total = range.to - range.from + 1;
+    for (let index = range.from; index <= range.to; index++) {
+      pages.push(await rasterizePage(doc, index, options.transparent ?? false));
+      onProgress?.(pages.length, total);
     }
     let sourceBytes: Uint8Array = data;
     try {
@@ -106,6 +114,39 @@ export async function rasterizePdf(
     return { pages, sourceBytes };
   } finally {
     void task.destroy();
+  }
+}
+
+export async function insertPdfImageFile(file: File): Promise<void> {
+  const { pages, sourceBytes } = await rasterizePdf(file, undefined, {
+    promptMode: "single",
+    transparent: true,
+  });
+  const raster = pages[0];
+  if (!raster) throw new Error("This PDF contains no pages");
+  const releaseImage = retainImages([raster.imageId]);
+  let releasePdf: (() => void) | undefined;
+  let docId: string | undefined;
+  try {
+    docId = await saveSourcePdf(sourceBytes);
+    releasePdf = retainPdfs([docId]);
+    await saveRasterizedImages([raster]);
+    primeImage(raster.imageId, await decodeBlob(raster.blob));
+    useBoardStore
+      .getState()
+      .insertImage(
+        raster.imageId,
+        raster.naturalWidth * PDF_PAGE_SCALE,
+        raster.naturalHeight * PDF_PAGE_SCALE,
+        { pdfSource: { docId, pageIndex: raster.pageIndex } },
+      );
+  } catch (error) {
+    await deleteImages([raster.imageId]).catch(() => {});
+    if (docId) await deletePdfs([docId]).catch(() => {});
+    throw error;
+  } finally {
+    releaseImage();
+    releasePdf?.();
   }
 }
 
@@ -199,6 +240,7 @@ export async function importPdfIntoNotebook(
 async function rasterizePage(
   doc: import("pdfjs-dist").PDFDocumentProxy,
   index: number,
+  transparent: boolean,
 ): Promise<RasterizedPdfPage> {
   const pdfPage = await doc.getPage(index);
   const base = pdfPage.getViewport({ scale: 1 });
@@ -208,20 +250,64 @@ async function rasterizePage(
   const canvas = document.createElement("canvas");
   canvas.width = Math.max(1, Math.ceil(viewport.width));
   canvas.height = Math.max(1, Math.ceil(viewport.height));
-  await pdfPage.render({ canvas, viewport }).promise;
+  // pdf.js always paints an opaque background (white unless overridden); for the
+  // transparent path we key the white backdrop back out afterwards.
+  await pdfPage.render({
+    canvas,
+    viewport,
+    background: "#ffffff",
+  }).promise;
+  if (transparent) applyBackgroundKeying(canvas);
+  const alpha = transparent && canvasHasTransparency(canvas);
+  const mimeType = alpha ? "image/png" : "image/jpeg";
   const blob = await new Promise<Blob | null>((resolve) =>
-    canvas.toBlob(resolve, "image/jpeg", JPEG_QUALITY),
+    canvas.toBlob(resolve, mimeType, JPEG_QUALITY),
   );
   if (!blob) throw new Error(`Failed to rasterize page ${index}`);
   canvas.width = 0;
   canvas.height = 0;
   return {
     imageId: newId(),
-    mimeType: "image/jpeg",
+    mimeType,
     blob,
     naturalWidth: base.width,
     naturalHeight: base.height,
+    pageIndex: index - 1,
   };
+}
+
+function canvasHasTransparency(canvas: HTMLCanvasElement): boolean {
+  const context = canvas.getContext("2d");
+  if (!context) return false;
+  const data = context.getImageData(0, 0, canvas.width, canvas.height).data;
+  for (let i = 3; i < data.length; i += 4) {
+    if ((data[i] ?? 255) < 255) return true;
+  }
+  return false;
+}
+
+// pdf.js composites every page onto an opaque white canvas, so a PDF page
+// inserted as an image gets its backdrop keyed out here: near-white pixels
+// become transparent, which removes both the implicit white and any explicitly
+// painted white background. The trade-off is that genuinely white content is
+// indistinguishable from white paper and goes transparent along with it.
+const KEYED_WHITE = 248;
+
+function applyBackgroundKeying(canvas: HTMLCanvasElement): void {
+  const context = canvas.getContext("2d");
+  if (!context) return;
+  const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+  const data = imageData.data;
+  for (let i = 0; i < data.length; i += 4) {
+    if (
+      (data[i] ?? 0) >= KEYED_WHITE &&
+      (data[i + 1] ?? 0) >= KEYED_WHITE &&
+      (data[i + 2] ?? 0) >= KEYED_WHITE
+    ) {
+      data[i + 3] = 0;
+    }
+  }
+  context.putImageData(imageData, 0, 0);
 }
 
 // After a page resize the stored JPEG may no longer cover the larger placement at
@@ -258,7 +344,7 @@ export async function reRasterizePdfBase(pageId: string): Promise<void> {
     const canvas = document.createElement("canvas");
     canvas.width = Math.max(1, Math.ceil(viewport.width));
     canvas.height = Math.max(1, Math.ceil(viewport.height));
-    await pdfPage.render({ canvas, viewport }).promise;
+    await pdfPage.render({ canvas, viewport, background: "#ffffff" }).promise;
     const blob = await new Promise<Blob | null>((resolve) =>
       canvas.toBlob(resolve, "image/jpeg", JPEG_QUALITY),
     );

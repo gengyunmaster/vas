@@ -1,6 +1,7 @@
 node_modules
 dist
 coverage
+font-src
 *.local
 *.log
 *.tar.gz

@@ -10,7 +10,7 @@ import {
   pageTops,
   pageTopY,
 } from "../model/page";
-import { imagesInLasso, strokesInLasso } from "../model/selection";
+import { imagesInLasso, strokesInLasso, textsInLasso } from "../model/selection";
 import {
   createStroke,
   effectiveStrokeSize,
@@ -21,20 +21,23 @@ import {
   type StrokePoint,
   type ToolKind,
 } from "../model/stroke";
+import type { TextItem } from "../model/textItem";
 import {
   clampMoveDelta,
   clampScaleToPage,
-  imagesBounds,
+  elementsBounds,
   scaleBounds,
   scaleImage,
   scaleStroke,
-  strokesBounds,
+  scaleTextReflow,
   translateBounds,
   translateImage,
   translateStroke,
-  unionBounds,
+  translateText,
 } from "../model/transform";
 import type { ViewState } from "../model/viewState";
+import { publishTextFrame, type SelectionGestureSnapshot } from "../text/textFrameBus";
+import { textItemHeight } from "../text/textHeight";
 import { get2dContext } from "./canvas";
 import { getImageBitmap, onImageLoaded } from "./imageCache";
 import { maxCacheRenderScale, PageCache } from "./pageCache";
@@ -66,6 +69,7 @@ export interface SelectionSnapshot {
   pageId: string;
   strokeIds: string[];
   imageIds: string[];
+  textIds: string[];
 }
 
 interface BoardCallbacks {
@@ -76,9 +80,10 @@ interface BoardCallbacks {
   onSelectionChange: (selection: SelectionSnapshot | null) => void;
   onSelectionAnchor: (anchor: Point | null) => void;
   onTransformSelection: (
-    before: { strokes: Stroke[]; images: ImageItem[] },
-    after: { strokes: Stroke[]; images: ImageItem[] },
+    before: { strokes: Stroke[]; images: ImageItem[]; texts: TextItem[] },
+    after: { strokes: Stroke[]; images: ImageItem[]; texts: TextItem[] },
   ) => void;
+  onTextTap: (pageId: string, x: number, y: number) => void;
   onViewportChange: (viewState: ViewState) => void;
 }
 
@@ -118,6 +123,7 @@ interface SelectionState {
   pageId: string;
   strokes: Stroke[];
   images: ImageItem[];
+  texts: TextItem[];
   bounds: Bounds;
 }
 
@@ -162,6 +168,9 @@ export class Board {
   private readonly activeCtx: CanvasRenderingContext2D;
   private readonly observer: ResizeObserver;
   private readonly cache = new PageCache();
+  private readonly inkCache = new PageCache();
+  private readonly derivedBase = new WeakMap<Page, Page>();
+  private readonly derivedInk = new WeakMap<Page, Page>();
 
   private pages: Page[] = [];
   private viewport: Viewport = { x: 0, y: 0, scale: 1 };
@@ -204,7 +213,7 @@ export class Board {
     this.container = container;
     this.callbacks = callbacks;
     this.baseCanvas = createLayer();
-    this.activeCanvas = createLayer();
+    this.activeCanvas = createLayer("board-layer board-layer-active");
     container.append(this.baseCanvas, this.activeCanvas);
     this.baseCtx = get2dContext(this.baseCanvas);
     this.activeCtx = get2dContext(this.activeCanvas);
@@ -235,9 +244,11 @@ export class Board {
       const page = next.find((p) => p.id === this.selection?.pageId);
       const strokeIds = new Set(this.selection.strokes.map((s) => s.id));
       const imageIds = new Set(this.selection.images.map((i) => i.id));
+      const textIds = new Set(this.selection.texts.map((t) => t.id));
       const strokes = page?.strokes.filter((s) => strokeIds.has(s.id)) ?? [];
       const images = page?.images.filter((i) => imageIds.has(i.id)) ?? [];
-      const bounds = unionBounds(strokesBounds(strokes), imagesBounds(images));
+      const texts = page?.texts.filter((t) => textIds.has(t.id)) ?? [];
+      const bounds = this.selectionBounds(strokes, images, texts);
       if (!page || !bounds) {
         this.selection = null;
         this.gesture = null;
@@ -247,7 +258,7 @@ export class Board {
       } else {
         // External document change during a drag leaves the gesture anchor stale.
         this.gesture = null;
-        this.selection = { pageId: page.id, strokes, images, bounds };
+        this.selection = { pageId: page.id, strokes, images, texts, bounds };
       }
     }
     if (this.presenting) {
@@ -297,9 +308,11 @@ export class Board {
     if (!page) return;
     const strokeIds = new Set(target.strokeIds);
     const imageIds = new Set(target.imageIds);
+    const textIds = new Set(target.textIds);
     const strokes = page.strokes.filter((s) => strokeIds.has(s.id));
     const images = page.images.filter((i) => imageIds.has(i.id));
-    const bounds = unionBounds(strokesBounds(strokes), imagesBounds(images));
+    const texts = page.texts.filter((t) => textIds.has(t.id));
+    const bounds = this.selectionBounds(strokes, images, texts);
     if (!bounds) return;
     if (
       this.selection &&
@@ -307,15 +320,29 @@ export class Board {
       this.selection.strokes.length === strokes.length &&
       this.selection.strokes.every((s) => strokeIds.has(s.id)) &&
       this.selection.images.length === images.length &&
-      this.selection.images.every((i) => imageIds.has(i.id))
+      this.selection.images.every((i) => imageIds.has(i.id)) &&
+      this.selection.texts.length === texts.length &&
+      this.selection.texts.every((t) => textIds.has(t.id))
     ) {
       return;
     }
-    this.selection = { pageId: target.pageId, strokes, images, bounds };
+    this.selection = { pageId: target.pageId, strokes, images, texts, bounds };
     this.selectionBase = null;
     this.strokeOverlayCache = null;
     this.gesture = null;
     this.scheduleComposite();
+  }
+
+  private selectionBounds(
+    strokes: Stroke[],
+    images: ImageItem[],
+    texts: TextItem[],
+  ): Bounds | null {
+    return elementsBounds(
+      strokes,
+      images,
+      texts.map((item) => ({ item, height: textItemHeight(item) })),
+    );
   }
 
   scrollToPage(index: number): void {
@@ -546,15 +573,16 @@ export class Board {
       const page = this.pages[i];
       if (!page) continue;
       const left = pageLeftX(board, page);
+      const basePage = this.basePageFor(page);
       if (live && renderScale > maxCacheRenderScale(page)) {
-        this.paintPageDirect(ctx, this.pageForCache(page), left, tops[i], dpr);
+        this.paintPageDirect(ctx, basePage, left, tops[i], dpr);
         // Keep the gesture-time bitmap fresh; capped and incrementally updated internally.
-        this.cache.sync(this.pageForCache(page), renderScale);
+        this.cache.sync(basePage, renderScale);
         continue;
       }
       const bitmap = live
-        ? this.cache.sync(this.pageForCache(page), renderScale)
-        : (this.cache.peek(page.id) ?? this.cache.sync(this.pageForCache(page), renderScale));
+        ? this.cache.sync(basePage, renderScale)
+        : (this.cache.peek(page.id) ?? this.cache.sync(basePage, renderScale));
       const sx = (left - vp.x) * vp.scale;
       const sy = (tops[i] - vp.y) * vp.scale;
       const sw = page.width * vp.scale;
@@ -565,12 +593,47 @@ export class Board {
       ctx.strokeRect(sx + 0.5, sy + 0.5, sw - 1, sh - 1);
     }
     this.cache.prune(keep);
+    this.inkCache.prune(keep);
     this.renderActiveStroke(dpr);
     this.renderSelection(dpr);
     this.renderLaserTrail(dpr);
+    this.publishTexts(board, tops);
     this.reportViewPage();
     this.pushSelectionAnchor();
     this.reportViewport();
+  }
+
+  private publishTexts(board: number, tops: number[]): void {
+    const vp = this.viewport;
+    const pages: { pageId: string; x: number; y: number }[] = [];
+    for (let i = 0; i < this.pages.length; i++) {
+      const page = this.pages[i];
+      if (page.texts.length === 0) continue;
+      pages.push({
+        pageId: page.id,
+        x: (pageLeftX(board, page) - vp.x) * vp.scale,
+        y: (tops[i] - vp.y) * vp.scale,
+      });
+    }
+    const gesture = this.gesture;
+    const snapshot: SelectionGestureSnapshot | null = gesture
+      ? gesture.kind === "move"
+        ? { kind: "move", dx: gesture.dx, dy: gesture.dy, anchor: { x: 0, y: 0 }, sx: 1, sy: 1 }
+        : {
+            kind: "resize",
+            dx: 0,
+            dy: 0,
+            anchor: gesture.anchor,
+            sx: gesture.sx,
+            sy: gesture.sy,
+          }
+      : null;
+    publishTextFrame({
+      scale: vp.scale,
+      pages,
+      gesture: snapshot,
+      selectedTextIds: this.selection?.texts.map((t) => t.id) ?? [],
+    });
   }
 
   private reportViewport(): void {
@@ -596,6 +659,31 @@ export class Board {
         ? { ...page, strokes: [], images: [] }
         : { ...page, strokes: page.strokes.filter((s) => !strokeIds.has(s.id)) };
     this.selectionBase = { source: page, derived };
+    return derived;
+  }
+
+  // Text lives in the DOM overlay between the base and active canvases, so a
+  // page with texts keeps its ink out of the base bitmap; the strokes composite
+  // separately above the overlay (renderPageInk) to match the export order.
+  private basePageFor(page: Page): Page {
+    const source = this.pageForCache(page);
+    if (source.texts.length === 0) return source;
+    let derived = this.derivedBase.get(source);
+    if (!derived) {
+      derived = { ...source, strokes: [] };
+      this.derivedBase.set(source, derived);
+    }
+    return derived;
+  }
+
+  private inkPageFor(page: Page): Page | null {
+    const source = this.pageForCache(page);
+    if (source.texts.length === 0 || source.strokes.length === 0) return null;
+    let derived = this.derivedInk.get(source);
+    if (!derived) {
+      derived = { ...source, images: [], pattern: "blank", paperColor: "transparent" };
+      this.derivedInk.set(source, derived);
+    }
     return derived;
   }
 
@@ -696,6 +784,7 @@ export class Board {
     const ctx = this.activeCtx;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, this.screen.width, this.screen.height);
+    this.renderPageInk(dpr);
     const stroke = this.stroke;
     if (!stroke) return;
     const pageIndex = this.pages.findIndex((p) => p.id === stroke.pageId);
@@ -715,6 +804,72 @@ export class Board {
       points: [...stroke.points, ...stroke.predicted],
     });
     drawStroke(ctx, preview, false);
+  }
+
+  private renderPageInk(dpr: number): void {
+    const vp = this.viewport;
+    const live = !this.pinching && !this.wheelZooming && !this.pageTurn;
+    const renderScale = dpr * vp.scale;
+    const { first, last } = visiblePageRange(vp, this.screen, this.pages);
+    const tops = pageTops(this.pages);
+    const board = boardWidth(this.pages);
+    let drawFirst = first;
+    let drawLast = last;
+    if (this.presenting) {
+      const partner = this.pageTurn?.fromPage ?? this.presentationPage;
+      drawFirst = Math.min(partner, this.presentationPage);
+      drawLast = Math.max(partner, this.presentationPage);
+    }
+    const ctx = this.activeCtx;
+    for (let i = drawFirst; i <= drawLast; i++) {
+      const page = this.pages[i];
+      if (!page) continue;
+      const inkPage = this.inkPageFor(page);
+      if (!inkPage) continue;
+      const left = pageLeftX(board, page);
+      const top = tops[i];
+      if (live && renderScale > maxCacheRenderScale(page)) {
+        this.inkCache.sync(inkPage, renderScale);
+        const s = renderScale;
+        ctx.save();
+        ctx.setTransform(s, 0, 0, s, -vp.x * s, -vp.y * s);
+        ctx.beginPath();
+        ctx.rect(left, top, page.width, page.height);
+        ctx.clip();
+        ctx.translate(left, top);
+        const viewLeft = vp.x - left;
+        const viewTop = vp.y - top;
+        const viewRight = viewLeft + this.screen.width / vp.scale;
+        const viewBottom = viewTop + this.screen.height / vp.scale;
+        for (const stroke of inkPage.strokes) {
+          const bounds = strokeBounds(stroke, effectiveStrokeSize(stroke) / 2);
+          if (
+            bounds.minX > viewRight ||
+            bounds.maxX < viewLeft ||
+            bounds.minY > viewBottom ||
+            bounds.maxY < viewTop
+          ) {
+            continue;
+          }
+          drawStroke(ctx, stroke);
+        }
+        ctx.restore();
+        continue;
+      }
+      const bitmap = live
+        ? this.inkCache.sync(inkPage, renderScale)
+        : (this.inkCache.peek(page.id) ?? this.inkCache.sync(inkPage, renderScale));
+      ctx.save();
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.drawImage(
+        bitmap,
+        (left - vp.x) * vp.scale,
+        (top - vp.y) * vp.scale,
+        page.width * vp.scale,
+        page.height * vp.scale,
+      );
+      ctx.restore();
+    }
   }
 
   private renderSelection(dpr: number): void {
@@ -753,19 +908,26 @@ export class Board {
     ctx.setTransform(s, 0, 0, s, -vp.x * s, -vp.y * s);
     ctx.translate(left, top);
     if (sel.images.length > 0) {
+      // Images stay beneath the text overlay even while selected, so they draw
+      // onto the base canvas (below the overlay); ink belongs above it.
+      const baseCtx = this.baseCtx;
+      baseCtx.save();
+      baseCtx.setTransform(s, 0, 0, s, -vp.x * s, -vp.y * s);
+      baseCtx.translate(left, top);
       const selectedImageIds = new Set(sel.images.map((i) => i.id));
       for (const image of page.images) {
         const bitmap = getImageBitmap(image.imageId);
         if (!bitmap) continue;
         if (selectedImageIds.has(image.id)) {
-          ctx.save();
-          this.applyGestureTransform(ctx);
-          ctx.drawImage(bitmap, image.x, image.y, image.width, image.height);
-          ctx.restore();
+          baseCtx.save();
+          this.applyGestureTransform(baseCtx);
+          baseCtx.drawImage(bitmap, image.x, image.y, image.width, image.height);
+          baseCtx.restore();
         } else {
-          ctx.drawImage(bitmap, image.x, image.y, image.width, image.height);
+          baseCtx.drawImage(bitmap, image.x, image.y, image.width, image.height);
         }
       }
+      baseCtx.restore();
       const live = !this.pinching && !this.wheelZooming && !this.pageTurn;
       if (live && s > maxCacheRenderScale(page)) {
         const selectedStrokeIds = new Set(sel.strokes.map((st) => st.id));
@@ -959,6 +1121,15 @@ export class Board {
       } else if (!this.presenting && this.panPointerId === null) {
         this.panPointerId = event.pointerId;
       }
+      return;
+    }
+
+    if (toolKind === "text") {
+      if (this.canDraw(event) && hit) {
+        this.callbacks.onTextTap(this.pages[hit.index].id, hit.x, hit.y);
+        return;
+      }
+      if (!this.presenting && this.panPointerId === null) this.panPointerId = event.pointerId;
       return;
     }
 
@@ -1364,20 +1535,22 @@ export class Board {
     if (gesture.kind === "move") {
       if (Math.abs(gesture.dx) < 0.01 && Math.abs(gesture.dy) < 0.01) return;
       this.callbacks.onTransformSelection(
-        { strokes: sel.strokes, images: sel.images },
+        { strokes: sel.strokes, images: sel.images, texts: sel.texts },
         {
           strokes: sel.strokes.map((s) => translateStroke(s, gesture.dx, gesture.dy)),
           images: sel.images.map((i) => translateImage(i, gesture.dx, gesture.dy)),
+          texts: sel.texts.map((t) => translateText(t, gesture.dx, gesture.dy)),
         },
       );
       return;
     }
     if (Math.abs(gesture.sx - 1) < 0.001 && Math.abs(gesture.sy - 1) < 0.001) return;
     this.callbacks.onTransformSelection(
-      { strokes: sel.strokes, images: sel.images },
+      { strokes: sel.strokes, images: sel.images, texts: sel.texts },
       {
         strokes: sel.strokes.map((s) => scaleStroke(s, gesture.anchor, gesture.sx, gesture.sy)),
         images: sel.images.map((i) => scaleImage(i, gesture.anchor, gesture.sx, gesture.sy)),
+        texts: sel.texts.map((t) => scaleTextReflow(t, gesture.anchor, gesture.sx, gesture.sy)),
       },
     );
   }
@@ -1390,18 +1563,20 @@ export class Board {
     const page = this.pages.find((p) => p.id === lasso.pageId);
     const strokes = page ? strokesInLasso(page.strokes, lasso.points) : [];
     const images = page ? imagesInLasso(page.images, lasso.points) : [];
-    const bounds = unionBounds(strokesBounds(strokes), imagesBounds(images));
+    const texts = page ? textsInLasso(page.texts, lasso.points, textItemHeight) : [];
+    const bounds = this.selectionBounds(strokes, images, texts);
     if (!page || !bounds) {
       this.clearSelection();
       return;
     }
-    this.selection = { pageId: page.id, strokes, images, bounds };
+    this.selection = { pageId: page.id, strokes, images, texts, bounds };
     this.selectionBase = null;
     this.strokeOverlayCache = null;
     this.callbacks.onSelectionChange({
       pageId: page.id,
       strokeIds: strokes.map((s) => s.id),
       imageIds: images.map((i) => i.id),
+      textIds: texts.map((t) => t.id),
     });
   }
 
@@ -1485,9 +1660,9 @@ function readPenSeen(): boolean {
   }
 }
 
-function createLayer(): HTMLCanvasElement {
+function createLayer(className = "board-layer"): HTMLCanvasElement {
   const canvas = document.createElement("canvas");
-  canvas.className = "board-layer";
+  canvas.className = className;
   return canvas;
 }
 

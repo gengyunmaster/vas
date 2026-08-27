@@ -3,6 +3,7 @@ import type { ImageItem } from "./image";
 import type { Page } from "./page";
 import { arrowHead, ellipseOutline, type Point } from "./shapeGeometry";
 import { effectiveStrokeSize, type Stroke } from "./stroke";
+import type { TextItem } from "./textItem";
 
 export function pointInPolygon(point: Point, polygon: Point[]): boolean {
   if (polygon.length < 3) return false;
@@ -123,16 +124,40 @@ export function imagesInLasso(images: ImageItem[], lasso: Point[]): ImageItem[] 
   return images.filter((image) => !image.locked && imageInLasso(image, lasso));
 }
 
+function rectInLasso(
+  rect: { x: number; y: number; width: number; height: number },
+  lasso: Point[],
+): boolean {
+  return imageInLasso(
+    { id: "", imageId: "", x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+    lasso,
+  );
+}
+
+export function textsInLasso(
+  texts: TextItem[],
+  lasso: Point[],
+  heightOf: (text: TextItem) => number,
+): TextItem[] {
+  if (lasso.length < 2) return [];
+  return texts.filter((text) =>
+    rectInLasso({ x: text.x, y: text.y, width: text.width, height: heightOf(text) }, lasso),
+  );
+}
+
 export function pickElements(
   page: Page,
   strokeIds: string[],
   imageIds: string[],
-): { strokes: Stroke[]; images: ImageItem[] } {
+  textIds: string[] = [],
+): { strokes: Stroke[]; images: ImageItem[]; texts: TextItem[] } {
   const strokeIdSet = new Set(strokeIds);
   const imageIdSet = new Set(imageIds);
+  const textIdSet = new Set(textIds);
   return {
     strokes: page.strokes.filter((stroke) => strokeIdSet.has(stroke.id)),
     images: page.images.filter((image) => imageIdSet.has(image.id)),
+    texts: page.texts.filter((text) => textIdSet.has(text.id)),
   };
 }
 

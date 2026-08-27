@@ -1,7 +1,8 @@
 import { lazy, Suspense, useEffect, useState } from "react";
-import { decodeBlob, primeImage } from "../engine/imageCache";
+import { decodeBlob, ensureImageLoaded, primeImage } from "../engine/imageCache";
 import type { GeoEmbedPayload } from "../geo/App";
 import { ErrorBoundary } from "../geo/ui/ErrorBoundary";
+import { rescaledImageRect } from "../model/image";
 import { newId } from "../model/stroke";
 import { getGeometry, saveGeometry } from "../persistence/geometries";
 import { saveImage } from "../persistence/images";
@@ -71,9 +72,25 @@ export function GeometryOverlay() {
         const decoded = await decodeBlob(file);
         await saveImage({ id: imageId, mimeType: "image/svg+xml", blob: file });
         primeImage(imageId, decoded);
-        useBoardStore
-          .getState()
-          .replaceGeometryImage(editor.pageId, editor.itemId, { imageId, geometryId });
+        const state = useBoardStore.getState();
+        const page = state.pages.find((p) => p.id === editor.pageId);
+        const item = page?.images.find((image) => image.id === editor.itemId);
+        if (page && item) {
+          const oldImage = await ensureImageLoaded(item.imageId);
+          const oldNatural = oldImage
+            ? { width: oldImage.naturalWidth, height: oldImage.naturalHeight }
+            : null;
+          const rect = rescaledImageRect(
+            item,
+            oldNatural,
+            { width: decoded.naturalWidth, height: decoded.naturalHeight },
+            page.width,
+            page.height,
+          );
+          useBoardStore
+            .getState()
+            .replaceGeometryImage(editor.pageId, editor.itemId, { imageId, geometryId, ...rect });
+        }
       } else {
         const geometryId = newId();
         await saveGeometry({ id: geometryId, document: payload.document });

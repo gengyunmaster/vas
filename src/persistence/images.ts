@@ -1,3 +1,4 @@
+import { textImageRefs } from "../model/textItem";
 import { useBoardStore } from "../store/useBoardStore";
 import { db, type ImageRecord } from "./db";
 
@@ -37,12 +38,21 @@ export async function gcUnreferencedImages(): Promise<void> {
   const keep = new Set<string>();
   for (const page of await database.getAll("pages")) {
     for (const image of page.images ?? []) keep.add(image.imageId);
+    for (const text of page.texts ?? []) {
+      for (const id of textImageRefs(text.markdown)) keep.add(id);
+    }
   }
   const state = useBoardStore.getState();
   for (const page of state.pages) {
     for (const image of page.images) keep.add(image.imageId);
+    for (const text of page.texts) {
+      for (const id of textImageRefs(text.markdown)) keep.add(id);
+    }
   }
   for (const image of state.clipboard.images) keep.add(image.imageId);
+  for (const text of state.clipboard.texts) {
+    for (const id of textImageRefs(text.markdown)) keep.add(id);
+  }
   for (const id of retained) keep.add(id);
   const tx = database.transaction("images", "readwrite");
   const keys = await tx.store.getAllKeys();

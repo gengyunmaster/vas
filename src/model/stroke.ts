@@ -12,6 +12,7 @@ export const TOOL_KINDS = [
   "eraser",
   "laser",
   "select",
+  "text",
   ...SHAPE_KINDS,
 ] as const;
 

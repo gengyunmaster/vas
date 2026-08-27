@@ -17,11 +17,21 @@ self-hosted instance keep separate data; use export / import to move notebooks a
   adjustable per page from 200 to 5000 px, mixed sizes within one notebook)
 - **Tools** — pen, highlighter, stroke eraser, laser pointer (for teaching), and shapes
   (line / arrow / rectangle / ellipse)
+- **Text** — click anywhere with the text tool to place a markdown text box (source
+  textarea + live preview): headings, lists, quotes, code, bold/italic/strikethrough,
+  links, dividers, inline/block LaTeX math (KaTeX on screen, MathJax glyphs in exports),
+  colored spans via `{#hex|text}`, and embedded notebook images via `![](image:<id>)`;
+  boxes layer between images and ink, join lasso / recolor / cut-copy-paste, and refuse
+  input at the page bottom (no cross-page overflow)
 - **Lasso selection** — circle content to select it, then move, scale / stretch (staying
   vector), recolor, delete, and cut / copy / paste — across pages and notebooks
 - **Images** — insert images (button or paste from the system clipboard) and annotate
   over them; images move / scale / copy along with the selection; oversized images are
-  auto-fit to the page and stored at original quality
+  auto-fit to the page and stored at original quality. The picker also accepts **PDF
+  files**: after the same password/decrypt flow you pick a single page, which is
+  inserted as a regular (selectable, movable, scalable) image — rendered on screen as
+  a 4x transparent-background preview (the white backdrop is keyed out), stored with
+  the full original PDF, and re-embedded as a true vector page on PDF export
 - **PDF import** — import a PDF from the home screen to create a notebook, or into the
   open notebook (pages inserted after the current one, inheriting its style); every page
   is rendered at 4x point resolution, scaled to fill the sheet, and locked in place
@@ -52,8 +62,11 @@ self-hosted instance keep separate data; use export / import to move notebooks a
   for notebooks with images, PDF pages, or geometry figures, both re-importable
 - **Vector PDF export** — strokes stay sharp at any zoom level, inserted SVG images stay
   vector too, raster images embedded from the original bytes (JPEG/PNG); imported PDF
-  pages keep their original bytes, which are re-embedded as a true vector layer beneath
-  your annotations on export (with raster fallback for encrypted files)
+  pages (both locked base pages and PDFs inserted as images) keep their original bytes,
+  which are re-embedded as a true vector layer on export (with raster fallback for
+  encrypted files); text is drawn
+  as real, selectable PDF text with an embedded subset of Noto Sans SC; layers stack in
+  the same order as on screen (paper < images < text < ink)
 - **Flexible export scopes** — every export offers three scopes: the current selection
   (clipped to its bounds, transparent background, no paper color / guides / PDF base
   image — white background for PDF, which has no transparency concept), the current
@@ -71,8 +84,10 @@ self-hosted instance keep separate data; use export / import to move notebooks a
 ## Tech stack
 
 React 19 · TypeScript · Vite · zustand · perfect-freehand · idb · jsPDF + svg2pdf.js
-(lazy-loaded) · pdfjs-dist (lazy-loaded) · pdf-lib (lazy-loaded) · @neslinesli93/qpdf-wasm
-(lazy-loaded) · fflate · JSXGraph + mathlive + @cortex-js/compute-engine + KaTeX +
+(lazy-loaded) · pdfjs-dist (lazy-loaded) · pdf-lib + @pdf-lib/fontkit (lazy-loaded) ·
+@neslinesli93/qpdf-wasm (lazy-loaded) · fflate · markdown-it (text tool, with custom
+math / color / image-sanitizing rules) · subsetted Noto Sans SC fonts (shared by screen
+layout and PDF text) · JSXGraph + mathlive + @cortex-js/compute-engine + KaTeX +
 MathJax (geometry editor, lazy-loaded) ·
 vite-plugin-pwa · Biome · Vitest — no UI component library, no backend.
 
@@ -81,7 +96,7 @@ vite-plugin-pwa · Biome · Vitest — no UI component library, no backend.
 ```
 src/
   components/    React UI (Home, Toolbar, SettingsPanel, PageSidebar, SelectionBar,
-                 GeometryOverlay, ...)
+                 GeometryOverlay, TextOverlay/TextEditor, ...)
   engine/        rendering engine: board, viewport, pageCache, imageCache,
                  renderPage/renderStroke/patterns/shapes, canvas
   geo/           geometry board: App, model (pure document model), board (JSXGraph
@@ -89,13 +104,19 @@ src/
                  latexSvg (MathJax), test
   model/         data model & pure functions: stroke, page, pageSize, color, image,
                  viewState, hitTest, patternLayout, shapeGeometry, selection, transform,
-                 pdfPage
+                 pdfPage, textItem
+  markdown/      markdown-it wrapper with custom rules (math, colored spans, image
+                 sanitizing), block parsing, safe HTML rendering, KaTeX lazy-loading
+  text/          text layout engine (shared by all exports), metrics, height cache,
+                 frame bus, PNG/SVG paint backends
   store/         zustand stores
   persistence/   IndexedDB (db, notebooks, images, pdfs, geometries, transfer, autosave,
                  prefs, session), insertImage, importPdf, decryptPdf, rasterize,
-                 exportPdf, exportImage, exportSvg, exportZip, svgPath, imageDataUri
+                 exportPdf, exportImage, exportSvg, exportZip, pdfTextLayer, svgPath,
+                 imageDataUri
   pwa/           service worker registration
-public/          PWA icons (generated by scripts/generate-icons.mjs)
+public/          PWA icons (generated by scripts/generate-icons.mjs) and fonts/
+                 (subsetted Noto Sans SC, scripts/subset-fonts.mjs)
 scripts/         one-off utility scripts
 deploy/          nginx config for the Docker runtime stage
 ```
