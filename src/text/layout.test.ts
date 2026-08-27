@@ -90,6 +90,33 @@ describe("layoutBlocks", () => {
     expect(math && math.kind === "math" ? math.width : 0).toBeCloseTo(10, 3);
   });
 
+  it("grows the line around tall inline math and keeps glyphs inside height", async () => {
+    // Fraction-like glyph: 12 units ascent, 12 descent at fontSize 10.
+    const glyph = {
+      body: "<path d='M0 0'/>",
+      viewBox: [0, -1200, 1000, 2400] as [number, number, number, number],
+    };
+    const opts = {
+      width: 500,
+      fontSize: 10,
+      color: "#000000",
+      measure,
+      resolveMath: async () => glyph,
+      resolveImageSize: noImages,
+    };
+    const result = await layoutBlocks(parseMarkdown("ab $x$ cd"), opts);
+    const math = result.runs.find((r) => r.kind === "math");
+    if (math?.kind !== "math") throw new Error("missing math run");
+    expect(math.y).toBeGreaterThanOrEqual(0);
+    expect(math.y + math.height).toBeLessThanOrEqual(result.height + 1e-9);
+    const plain = await layout("abxcd", 500, 10);
+    expect(result.height).toBeGreaterThan(plain.height);
+    // Baseline alignment: neighboring text shares the math line's baseline.
+    const text = result.runs.find((r) => r.kind === "text");
+    if (text?.kind !== "text") throw new Error("missing text run");
+    expect(text.y).toBeCloseTo(math.y + 12, 6);
+  });
+
   it("sizes images to the box width preserving aspect", async () => {
     const result = await layoutBlocks(parseMarkdown("![pic](image:img1)"), {
       width: 100,

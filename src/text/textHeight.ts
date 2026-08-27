@@ -14,7 +14,11 @@ export function noteTextItemHeight(
   item: Pick<TextItem, "markdown" | "width" | "fontSize">,
   height: number,
 ): void {
-  if (Number.isFinite(height) && height > 0) cache.set(keyOf(item), height);
+  if (!Number.isFinite(height) || height <= 0) return;
+  const key = keyOf(item);
+  // The DOM (KaTeX) and the export layout engine pad tall math differently;
+  // keep the larger measurement so bounds never clip content.
+  cache.set(key, Math.max(cache.get(key) ?? 0, height));
 }
 
 export function estimatedTextItemHeight(

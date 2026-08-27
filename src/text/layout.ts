@@ -192,52 +192,85 @@ function layoutAtoms(ctx: Context, atoms: Atom[], indent: number) {
   const contentWidth = width - indent;
   let x = 0;
 
-  const newLine = () => {
+  // Group into visual lines first: a line's height must grow around tall
+  // inline math (fractions overflow a plain 1.5em box, like KaTeX's strut),
+  // which is only known once line breaking is done.
+  type ImageAtom = Atom & { run: { kind: "image" } };
+  type Line = { kind: "flow"; atoms: Atom[] } | { kind: "image"; atom: ImageAtom };
+  const lines: Line[] = [{ kind: "flow", atoms: [] }];
+  const flowLine = () => {
+    const last = lines[lines.length - 1];
+    return last.kind === "flow" ? last : null;
+  };
+  const freshFlowLine = () => {
+    lines.push({ kind: "flow", atoms: [] });
     x = 0;
-    ctx.y += lineHeight;
   };
 
   for (const atom of atoms) {
     if (atom.run.kind === "image") {
-      if (x > 0) newLine();
-      ctx.runs.push({
-        kind: "image",
-        x: indent,
-        y: ctx.y,
-        width: atom.run.width,
-        height: atom.run.height,
-        imageId: atom.run.imageId,
-      });
-      ctx.y += atom.run.height + fontSize * 0.6;
+      const current = lines[lines.length - 1];
+      if (current.kind === "flow" && current.atoms.length > 0) freshFlowLine();
+      lines.push({ kind: "image", atom: atom as ImageAtom }, { kind: "flow", atoms: [] });
+      x = 0;
       continue;
     }
     const atomWidth =
       atom.run.kind === "text" ? measure(atom.run.text, atom.run.font) : atom.run.width;
     // Whitespace collapses at the start of a wrapped line.
     if (x === 0 && atom.run.kind === "text" && atom.run.text.trim() === "") continue;
-    if (x > 0 && x + atomWidth > contentWidth) newLine();
-    if (atom.run.kind === "text") {
-      ctx.runs.push({
-        kind: "text",
-        x: indent + x,
-        y: ctx.y + fontSize * 1.15,
-        text: atom.run.text,
-        font: atom.run.font,
-        color: atom.run.color,
-      });
-    } else {
-      ctx.runs.push({
-        kind: "math",
-        x: indent + x,
-        y: ctx.y + fontSize * 1.15 - atom.run.ascent,
-        width: atom.run.width,
-        height: atom.run.height,
-        glyph: atom.run.glyph,
-      });
-    }
+    if (x > 0 && x + atomWidth > contentWidth) freshFlowLine();
+    flowLine()?.atoms.push(atom);
     x += atomWidth;
   }
-  ctx.y += lineHeight;
+
+  for (const line of lines) {
+    if (line.kind === "image") {
+      ctx.runs.push({
+        kind: "image",
+        x: indent,
+        y: ctx.y,
+        width: line.atom.run.width,
+        height: line.atom.run.height,
+        imageId: line.atom.run.imageId,
+      });
+      ctx.y += line.atom.run.height + fontSize * 0.6;
+      continue;
+    }
+    let ascent = fontSize * 1.15;
+    let descent = lineHeight - ascent;
+    for (const atom of line.atoms) {
+      if (atom.run.kind !== "math") continue;
+      ascent = Math.max(ascent, atom.run.ascent);
+      descent = Math.max(descent, atom.run.height - atom.run.ascent);
+    }
+    const baseline = ctx.y + ascent;
+    let lineX = 0;
+    for (const atom of line.atoms) {
+      if (atom.run.kind === "text") {
+        ctx.runs.push({
+          kind: "text",
+          x: indent + lineX,
+          y: baseline,
+          text: atom.run.text,
+          font: atom.run.font,
+          color: atom.run.color,
+        });
+        lineX += measure(atom.run.text, atom.run.font);
+      } else if (atom.run.kind === "math") {
+        ctx.runs.push({
+          kind: "math",
+          x: indent + lineX,
+          y: baseline - atom.run.ascent,
+          width: atom.run.width,
+          height: atom.run.height,
+          glyph: atom.run.glyph,
+        });
+        lineX += atom.run.width;
+      }
+    }
+    ctx.y += ascent + descent;
+  }
 }
 
 async function layoutInlineFlow(
@@ -360,9 +393,15 @@ export async function layoutBlocks(blocks: Block[], opts: LayoutOptions): Promis
         break;
     }
   }
+  // The last line's text descent below the baseline is dead space and trims
+  // away, but a tall math/image run occupies real pixels down there — keep it.
+  const contentBottom = ctx.runs.reduce(
+    (bottom, run) => (run.kind === "text" ? bottom : Math.max(bottom, run.y + run.height)),
+    0,
+  );
   return {
     runs: ctx.runs,
     decorations: ctx.decorations,
-    height: Math.max(0, ctx.y - opts.fontSize * 0.35),
+    height: Math.max(0, ctx.y - opts.fontSize * 0.35, contentBottom),
   };
 }
