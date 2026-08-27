@@ -62,6 +62,8 @@ export function textItemToSvg(
   return parts;
 }
 
+// Math glyph scales are tiny fractions (fontSize/1000); two decimals would
+// round 0.024 to 0.02 and shrink every formula to ~83% of its laid-out size.
 function fmt(value: number): string {
-  return String(Math.round(value * 100) / 100);
+  return String(Math.round(value * 10000) / 10000);
 }
