@@ -39,8 +39,11 @@ export function textItemToSvg(
       const weight = run.font.bold ? ` font-weight="700"` : "";
       const style = run.font.italic ? ` font-style="italic"` : "";
       const family = run.font.code ? CODE_FONT_STACK : TEXT_FONT_STACK;
+      // xml:space="preserve": layout glues a leading space onto atoms after a
+      // break (and prices it into x), which the default whitespace handling
+      // would strip, shifting every glyph of the run one space to the left.
       parts.push(
-        `<text x="${fmt(run.x)}" y="${fmt(run.y)}" font-family="${escapeHtml(family)}" font-size="${fmt(run.font.size)}"${weight}${style} fill="${escapeHtml(run.color)}">${escapeHtml(run.text)}</text>`,
+        `<text x="${fmt(run.x)}" y="${fmt(run.y)}" font-family="${escapeHtml(family)}" font-size="${fmt(run.font.size)}"${weight}${style} fill="${escapeHtml(run.color)}" xml:space="preserve">${escapeHtml(run.text)}</text>`,
       );
     } else if (run.kind === "math") {
       const [vx, , vw] = run.glyph.viewBox;

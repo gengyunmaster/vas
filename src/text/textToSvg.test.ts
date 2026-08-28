@@ -34,6 +34,32 @@ async function exportSvg(source: string): Promise<{ svg: string; mathRuns: numbe
   };
 }
 
+describe("textItemToSvg whitespace", () => {
+  it("preserves leading spaces glued onto wrapped-line atoms", () => {
+    const parts = textItemToSvg(
+      { id: "t", x: 0, y: 0, width: 400, fontSize: 20, color: "#1a1a1a", markdown: "" },
+      {
+        runs: [
+          {
+            kind: "text",
+            x: 42,
+            y: 23,
+            text: " 数",
+            font: { size: 20, bold: false, italic: false, code: false },
+            color: "#1a1a1a",
+          },
+        ],
+        decorations: [],
+        height: 40,
+      },
+      new Map(),
+    );
+    const svg = parts.join("");
+    expect(svg).toContain('xml:space="preserve"');
+    expect(svg).toContain("> 数</text>");
+  });
+});
+
 describe("textItemToSvg with math", () => {
   it("keeps every formula as a glyph run and emits well-formed XML", async () => {
     const { svg, mathRuns } = await exportSvg(SOURCE);

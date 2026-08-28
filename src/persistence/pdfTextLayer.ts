@@ -14,7 +14,9 @@ import { createTextMeasurer } from "../text/measure";
 type PdfLib = typeof import("pdf-lib");
 
 const PT_PER_UNIT = 72 / 96;
-const ITALIC_SHEAR = -0.25;
+// Faux-italic shear. PDF's y axis points up, so the sign is opposite to the
+// canvas convention: a positive shear leans the top of the glyphs right.
+const ITALIC_SHEAR = 0.25;
 
 export interface PdfTextFonts {
   font(bold: boolean): Promise<PDFFont>;
