@@ -199,6 +199,7 @@ interface TextItem {
 - 编辑器文档模型与 vas 的 Page/Stroke 完全无关：一张图 = 一份 webgeo document（JSON 序列化存 `geometries` 表）+ 一份导出 SVG（存 `images` 表）。
 - 嵌入/导出管线（`ui/export.ts` 的 `composeBoardSvg`）：克隆画板 SVG → 按内容包围盒裁剪（`CROP_MARGIN`，与画板矩形求交）→ 可选底色（嵌入时 `background: null` 透明底）→ overlay 层把 KaTeX 屏幕标签换成 MathJax 矢量字形（`placeGlyph` 按实测标签 rect 缩放居中）→ `vectorizeSvgTexts` 把 JSXGraph 刻度 `<text>` 也转为矢量路径（svg2pdf 会丢弃 SVG `<text>`，不转则导出 PDF 丢刻度）。
 - LaTeX 标签双轨：屏幕上用 KaTeX（HTML overlay，快），嵌入/导出时用 MathJax 转 SVG 字形（矢量，字体风格一致）；`latexSvg.ts` 必须保持 `linebreaks: { inline: false }`（否则一个标签断成多个 svg）与 `fontCache: "none"`（字形内联，SVG 自包含）。
+- 函数图像标签布局：每条曲线的表达式标签吸附在"离视图边缘最远"的可见采样点附近；`board/labelLayout.ts`（纯函数，单测覆盖）做全局防重叠——已放置的标签矩形（先是坐标轴 x/y 字母，再按创建顺序的各曲线标签）成为后续标签的障碍，候选点沿曲线取、含四个方向偏移，全部相撞时退化为拥挤度最小者；KaTeX 异步加载完成后按真实字形尺寸重排一次。
 - 纸色适配：编辑器画板底色 = 当前页纸色（`applyPaperPalette` + 画板宿主元素背景同步），深色纸切换 dark 调色板保证线条可见；嵌入图形本身透明底，落到什么纸色上都成立。
 - 样式隔离：vas 全局 `.toolbar` 样式会泄漏进编辑器，`App.css` 的 `.geo .toolbar` 块负责复位（position/size）；编辑器渲染错误由 `ui/ErrorBoundary` 兜底，不拖垮笔记界面。
 
