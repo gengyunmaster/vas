@@ -27,7 +27,12 @@ interface LiteNode {
 
 interface MathjaxContext {
   html: { convert(latex: string, options: { display: boolean }): LiteNode };
-  adaptor: { outerHTML(node: LiteNode): string };
+  adaptor: {
+    // outerHTML serializes as HTML, leaving "<" raw inside attribute values
+    // (data-latex holds the TeX source, e.g. "a<b") — fine for innerHTML but
+    // malformed XML once the glyph is embedded into exported SVG.
+    serializeXML(node: LiteNode): string;
+  };
 }
 
 let context: Promise<MathjaxContext> | null = null;
@@ -74,7 +79,7 @@ export async function renderLatex(latex: string, display = false): Promise<Latex
   let glyph: LatexGlyph | null = null;
   try {
     const { html, adaptor } = await loadMathjax();
-    const container = adaptor.outerHTML(html.convert(source, { display }));
+    const container = adaptor.serializeXML(html.convert(source, { display }));
     const svgStart = container.indexOf("<svg");
     const svgCount = container.match(/<svg[\s>]/g)?.length ?? 0;
     if (svgStart >= 0 && svgCount === 1) {
