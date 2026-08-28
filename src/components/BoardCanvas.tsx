@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Board } from "../engine/board";
 import { clearImageCache } from "../engine/imageCache";
@@ -17,10 +17,31 @@ function cursorForTool(tool: ToolKind): string {
   return "crosshair";
 }
 
+// Per-line boxes via getClientRects: a wrapped link's union bounding rect would
+// also cover the non-link text between its segments.
+function linkUrlAt(clientX: number, clientY: number): string | null {
+  for (const anchor of document.querySelectorAll<HTMLAnchorElement>(".text-layer a[href]")) {
+    for (const rect of anchor.getClientRects()) {
+      if (
+        clientX >= rect.left &&
+        clientX <= rect.right &&
+        clientY >= rect.top &&
+        clientY <= rect.bottom
+      ) {
+        return anchor.href;
+      }
+    }
+  }
+  return null;
+}
+
+const LINK_TAP_SLOP = 6;
+
 export function BoardCanvas() {
   const [container, setContainer] = useState<HTMLDivElement | null>(null);
   const sidebarOpen = useBoardStore((state) => state.sidebarOpen);
   const presentation = useBoardStore((state) => state.presentation);
+  const linkPress = useRef<{ url: string; x: number; y: number } | null>(null);
 
   useEffect(() => {
     if (!container) return;
@@ -101,7 +122,28 @@ export function BoardCanvas() {
   // The text overlay must sit between the base and active canvases; portaling
   // it into the board container puts all three in one stacking context.
   return (
-    <div ref={setContainer} className={className}>
+    <div
+      ref={setContainer}
+      className={className}
+      onPointerDownCapture={(event) => {
+        linkPress.current = null;
+        if (useBoardStore.getState().tool !== "select") return;
+        if (!event.isPrimary) return;
+        const url = linkUrlAt(event.clientX, event.clientY);
+        if (!url) return;
+        // Swallow the press so the engine never starts an (empty) lasso and a
+        // live selection survives the click.
+        event.stopPropagation();
+        linkPress.current = { url, x: event.clientX, y: event.clientY };
+      }}
+      onClick={(event) => {
+        const press = linkPress.current;
+        linkPress.current = null;
+        if (!press) return;
+        if (Math.hypot(event.clientX - press.x, event.clientY - press.y) > LINK_TAP_SLOP) return;
+        window.open(press.url, "_blank", "noopener,noreferrer");
+      }}
+    >
       {container ? createPortal(<TextOverlay />, container) : null}
     </div>
   );
