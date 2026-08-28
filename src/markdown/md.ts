@@ -12,6 +12,7 @@ import MarkdownIt, {
   type StateInline,
   type Token,
 } from "markdown-it";
+import { COLOR_SPAN_OPEN, findClosingBrace } from "./mathColor";
 
 const DOLLAR = 0x24;
 const BACKSLASH = 0x5c;
@@ -121,27 +122,12 @@ function mathBlock(
   return true;
 }
 
-const COLOR_OPEN = /^\{#([0-9a-fA-F]{6})\|/;
-
 function colorInline(state: StateInline, silent: boolean): boolean {
   const start = state.pos;
-  const match = COLOR_OPEN.exec(state.src.slice(start, start + 10));
+  const match = COLOR_SPAN_OPEN.exec(state.src.slice(start, start + 10));
   if (!match) return false;
   const innerStart = start + match[0].length;
-  let pos = innerStart;
-  let end = -1;
-  while (pos < state.posMax) {
-    const code = state.src.charCodeAt(pos);
-    if (code === BACKSLASH) {
-      pos += 2;
-      continue;
-    }
-    if (code === 0x7d) {
-      end = pos;
-      break;
-    }
-    pos++;
-  }
+  const end = findClosingBrace(state.src, innerStart);
   if (end === -1 || end === innerStart) return false;
   if (!silent) {
     const open = state.push("color_open", "span", 1);

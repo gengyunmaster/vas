@@ -2,6 +2,7 @@
 // module is meant to be reached through dynamic import(). Output uses
 // fontCache: "none", which inlines every glyph as a <path> — the resulting
 // markup is self-contained vector data with no runtime font dependency.
+import { applyMathColorSpans } from "../markdown/mathColor";
 export interface LatexGlyph {
   body: string;
   viewBox: [number, number, number, number];
@@ -39,6 +40,7 @@ function loadMathjax(): Promise<MathjaxContext> {
       import("@mathjax/src/js/input/tex/unicode/UnicodeConfiguration.js"),
       import("@mathjax/src/js/input/tex/newcommand/NewcommandConfiguration.js"),
       import("@mathjax/src/js/input/tex/noundefined/NoUndefinedConfiguration.js"),
+      import("@mathjax/src/js/input/tex/color/ColorConfiguration.js"),
     ]);
     const [{ mathjax }, { TeX }, { SVG }, { liteAdaptor }, { RegisterHTMLHandler }] =
       await Promise.all([
@@ -52,7 +54,7 @@ function loadMathjax(): Promise<MathjaxContext> {
     RegisterHTMLHandler(adaptor);
     const html = mathjax.document("", {
       InputJax: new TeX({
-        packages: ["base", "ams", "newcommand", "noundefined", "textmacros", "unicode"],
+        packages: ["base", "ams", "newcommand", "noundefined", "textmacros", "unicode", "color"],
       }),
       OutputJax: new SVG({ fontCache: "none", linebreaks: { inline: false } }),
     });
@@ -65,13 +67,14 @@ const glyphCache = new Map<string, LatexGlyph | null>();
 
 // Returns null when the source cannot be parsed or the output is not a single SVG.
 export async function renderLatex(latex: string, display = false): Promise<LatexGlyph | null> {
-  const key = `${display ? "d" : "i"}:${latex}`;
+  const source = applyMathColorSpans(latex);
+  const key = `${display ? "d" : "i"}:${source}`;
   const cached = glyphCache.get(key);
   if (cached !== undefined) return cached;
   let glyph: LatexGlyph | null = null;
   try {
     const { html, adaptor } = await loadMathjax();
-    const container = adaptor.outerHTML(html.convert(latex, { display }));
+    const container = adaptor.outerHTML(html.convert(source, { display }));
     const svgStart = container.indexOf("<svg");
     const svgCount = container.match(/<svg[\s>]/g)?.length ?? 0;
     if (svgStart >= 0 && svgCount === 1) {

@@ -47,7 +47,7 @@ export function textItemToSvg(
       if (vw <= 0) continue;
       const scale = run.width / vw;
       parts.push(
-        `<g transform="translate(${fmt(run.x - vx * scale)} ${fmt(run.y - run.glyph.viewBox[1] * scale)}) scale(${fmt(scale)})" color="${escapeHtml(item.color)}">${run.glyph.body}</g>`,
+        `<g transform="translate(${fmt(run.x - vx * scale)} ${fmt(run.y - run.glyph.viewBox[1] * scale)}) scale(${fmt(scale)})" color="${escapeHtml(run.color)}">${run.glyph.body}</g>`,
       );
     } else {
       const dataUri = imageData.get(run.imageId);

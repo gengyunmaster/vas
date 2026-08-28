@@ -23,7 +23,8 @@ function renderInline(inline: Inline, resolveImage: ImageUrlResolver): string {
       return "<br>";
     case "math": {
       const html = renderMathHtml(inline.latex, false);
-      return html ?? `<code class="md-math-pending">${escapeHtml(inline.latex)}</code>`;
+      const body = html ?? `<code class="md-math-pending">${escapeHtml(inline.latex)}</code>`;
+      return inline.color ? `<span style="color: ${inline.color}">${body}</span>` : body;
     }
     case "image": {
       const url = resolveImage(inline.imageId);

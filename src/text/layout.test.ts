@@ -90,6 +90,23 @@ describe("layoutBlocks", () => {
     expect(math && math.kind === "math" ? math.width : 0).toBeCloseTo(10, 3);
   });
 
+  it("carries color spans onto math runs", async () => {
+    const glyph = {
+      body: "<path d='M0 0'/>",
+      viewBox: [0, -400, 1000, 600] as [number, number, number, number],
+    };
+    const result = await layoutBlocks(parseMarkdown("{#2f6fdd|$x^2$}"), {
+      width: 500,
+      fontSize: 10,
+      color: "#000000",
+      measure,
+      resolveMath: async () => glyph,
+      resolveImageSize: noImages,
+    });
+    const math = result.runs.find((r) => r.kind === "math");
+    expect(math && math.kind === "math" ? math.color : "").toBe("#2f6fdd");
+  });
+
   it("grows the line around tall inline math and keeps glyphs inside height", async () => {
     // Fraction-like glyph: 12 units ascent, 12 descent at fontSize 10.
     const glyph = {

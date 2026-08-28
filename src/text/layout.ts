@@ -19,7 +19,15 @@ export type ImageSizeResolver = (imageId: string) => { width: number; height: nu
 
 export type LaidRun =
   | { kind: "text"; x: number; y: number; text: string; font: FontSpec; color: string }
-  | { kind: "math"; x: number; y: number; width: number; height: number; glyph: LatexGlyph }
+  | {
+      kind: "math";
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      glyph: LatexGlyph;
+      color: string;
+    }
   | { kind: "image"; x: number; y: number; width: number; height: number; imageId: string };
 
 export type Decoration =
@@ -94,7 +102,14 @@ export function splitAtoms(text: string): string[] {
 
 type AtomRun =
   | { kind: "text"; text: string; font: FontSpec; color: string }
-  | { kind: "math"; glyph: LatexGlyph; width: number; height: number; ascent: number }
+  | {
+      kind: "math";
+      glyph: LatexGlyph;
+      width: number;
+      height: number;
+      ascent: number;
+      color: string;
+    }
   | { kind: "image"; imageId: string; width: number; height: number };
 
 interface Atom {
@@ -146,7 +161,7 @@ async function buildAtoms(
                 kind: "text",
                 text: piece,
                 font: { ...baseFont, code: true },
-                color: opts.color,
+                color: inline.color ?? opts.color,
               },
             });
           }
@@ -161,6 +176,7 @@ async function buildAtoms(
             width: vbW * scale,
             height: vbH * scale,
             ascent: -vbY * scale,
+            color: inline.color ?? opts.color,
           },
         });
         break;
@@ -265,6 +281,7 @@ function layoutAtoms(ctx: Context, atoms: Atom[], indent: number) {
           width: atom.run.width,
           height: atom.run.height,
           glyph: atom.run.glyph,
+          color: atom.run.color,
         });
         lineX += atom.run.width;
       }
@@ -382,6 +399,7 @@ export async function layoutBlocks(blocks: Block[], opts: LayoutOptions): Promis
           width: pxW,
           height: pxH,
           glyph,
+          color: opts.color,
         });
         ctx.y += pxH + opts.fontSize * 0.6;
         break;

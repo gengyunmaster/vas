@@ -41,7 +41,7 @@ export async function paintTextItems(
         ctx.fillStyle = run.color;
         ctx.fillText(run.text, run.x, run.y);
       } else if (run.kind === "math") {
-        const bitmap = await glyphBitmap(run.glyph, item.color);
+        const bitmap = await glyphBitmap(run.glyph, run.color);
         if (bitmap) ctx.drawImage(bitmap, run.x, run.y, run.width, run.height);
       } else {
         const bitmap = getImageBitmap(run.imageId);

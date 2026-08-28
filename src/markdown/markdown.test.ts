@@ -71,6 +71,16 @@ describe("parseMarkdown", () => {
     expect(inlines.every((i) => i.kind === "text")).toBe(true);
   });
 
+  it("keeps math with nested braces inside a color span", () => {
+    const blocks = parseMarkdown("{#2f6fdd|$\\frac{abc}{def}$}");
+    const inlines = (blocks[0] as { inlines: unknown[] }).inlines;
+    expect(inlines).toContainEqual({
+      kind: "math",
+      latex: "\\frac{abc}{def}",
+      color: "#2f6fdd",
+    });
+  });
+
   it("parses color spans and nests emphasis inside", () => {
     const blocks = parseMarkdown("normal {#ff0000|red **boldred**} end");
     const inlines = (blocks[0] as { inlines: { kind: string; text?: string; style: object }[] })

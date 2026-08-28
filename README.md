@@ -20,7 +20,8 @@ self-hosted instance keep separate data; use export / import to move notebooks a
 - **Text** — click anywhere with the text tool to place a markdown text box (source
   textarea + live preview): headings, lists, quotes, code, bold/italic/strikethrough,
   links, dividers, inline/block LaTeX math (KaTeX on screen, MathJax glyphs in exports),
-  colored spans via `{#hex|text}`, and embedded notebook images via `![](image:<id>)`;
+  colored spans via `{#hex|text}` (also inside math, where it maps to scoped `\textcolor`;
+  LaTeX `\color` / `\textcolor` work too, in exports via MathJax's color extension), and embedded notebook images via `![](image:<id>)`;
   boxes layer between images and ink, join lasso / recolor / cut-copy-paste, and refuse
   input at the page bottom (no cross-page overflow)
 - **Lasso selection** — circle content to select it, then move, scale / stretch (staying

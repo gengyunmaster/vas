@@ -15,7 +15,7 @@ export interface InlineStyle {
 
 export type Inline =
   | { kind: "text"; text: string; style: InlineStyle }
-  | { kind: "math"; latex: string }
+  | { kind: "math"; latex: string; color?: string }
   | { kind: "image"; imageId: string; alt: string }
   | { kind: "break" };
 
@@ -75,7 +75,7 @@ function collectInlines(children: Token[]): Inline[] {
         out.push({ kind: "break" });
         break;
       case "math_inline":
-        out.push({ kind: "math", latex: token.content });
+        out.push({ kind: "math", latex: token.content, color: top().color });
         break;
       case "image": {
         const imageId = token.meta?.imageId;
