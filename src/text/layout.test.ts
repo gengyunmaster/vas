@@ -155,4 +155,50 @@ describe("layoutBlocks", () => {
     expect(colors).toContain("#ff0000");
     expect(colors).toContain("#000000");
   });
+
+  it("carries links onto runs and underlines them below the baseline", async () => {
+    const result = await layout("see [docs](https://example.com)");
+    const linked = result.runs.filter((r) => r.kind === "text" && r.link);
+    expect(
+      linked
+        .map((r) => (r.kind === "text" ? r.text : ""))
+        .join("")
+        .trim(),
+    ).toBe("docs");
+    const underlines = result.decorations.filter((d) => d.kind === "underline");
+    expect(underlines).toHaveLength(linked.length);
+    const run = linked[0];
+    const deco = underlines[0];
+    if (run?.kind !== "text" || deco.kind !== "underline") throw new Error("missing run");
+    expect(deco.color).toBe(run.color);
+    expect(deco.y).toBeGreaterThan(run.y);
+    expect(deco.width).toBeGreaterThan(0);
+  });
+
+  it("underlines every wrapped segment of a long link", async () => {
+    const result = await layout("[链接测试文字链接测试文字](https://example.com)", 100, 10);
+    const linked = result.runs.filter((r) => r.kind === "text" && r.link);
+    const lines = new Set(linked.map((r) => (r.kind === "text" ? r.y : 0)));
+    expect(lines.size).toBe(2);
+    expect(result.decorations.filter((d) => d.kind === "underline")).toHaveLength(linked.length);
+  });
+
+  it("linkifies bare urls", async () => {
+    const result = await layout("visit https://example.com today");
+    expect(result.runs.some((r) => r.kind === "text" && r.link === "https://example.com")).toBe(
+      true,
+    );
+    expect(result.decorations.some((d) => d.kind === "underline")).toBe(true);
+  });
+
+  it("marks struck text with a line above the baseline", async () => {
+    const result = await layout("~~gone~~ kept");
+    const struck = result.runs.find((r) => r.kind === "text" && r.strike);
+    if (struck?.kind !== "text") throw new Error("missing struck run");
+    expect(struck.text).toBe("gone");
+    const line = result.decorations.find((d) => d.kind === "strikeLine");
+    if (line?.kind !== "strikeLine") throw new Error("missing strike decoration");
+    expect(line.y).toBeLessThan(struck.y);
+    expect(line.color).toBe(struck.color);
+  });
 });

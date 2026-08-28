@@ -863,7 +863,7 @@ body {
 }
 
 .text-item a {
-  color: #2f6fdd;
+  color: inherit;
   text-decoration: underline;
 }
 

@@ -30,9 +30,12 @@ export async function paintTextItems(
         ctx.beginPath();
         ctx.roundRect(deco.x, deco.y, deco.width, deco.height, 8);
         ctx.fill();
-      } else {
+      } else if (deco.kind === "rule") {
         ctx.fillStyle = RULE_COLOR;
         ctx.fillRect(deco.x, deco.y - 0.75, deco.width, 1.5);
+      } else {
+        ctx.fillStyle = deco.color;
+        ctx.fillRect(deco.x, deco.y - deco.thickness / 2, deco.width, deco.thickness);
       }
     }
     for (const run of layout.runs) {

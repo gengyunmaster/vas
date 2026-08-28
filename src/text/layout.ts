@@ -18,7 +18,16 @@ export type MathResolver = (latex: string, display: boolean) => Promise<LatexGly
 export type ImageSizeResolver = (imageId: string) => { width: number; height: number } | null;
 
 export type LaidRun =
-  | { kind: "text"; x: number; y: number; text: string; font: FontSpec; color: string }
+  | {
+      kind: "text";
+      x: number;
+      y: number;
+      text: string;
+      font: FontSpec;
+      color: string;
+      link?: string;
+      strike?: boolean;
+    }
   | {
       kind: "math";
       x: number;
@@ -33,7 +42,10 @@ export type LaidRun =
 export type Decoration =
   | { kind: "quoteBar"; x: number; y: number; height: number }
   | { kind: "codeBg"; x: number; y: number; width: number; height: number }
-  | { kind: "rule"; x: number; y: number; width: number };
+  | { kind: "rule"; x: number; y: number; width: number }
+  // y is the line's vertical center; color follows the run's ink.
+  | { kind: "underline"; x: number; y: number; width: number; color: string; thickness: number }
+  | { kind: "strikeLine"; x: number; y: number; width: number; color: string; thickness: number };
 
 export interface TextLayout {
   runs: LaidRun[];
@@ -101,7 +113,14 @@ export function splitAtoms(text: string): string[] {
 }
 
 type AtomRun =
-  | { kind: "text"; text: string; font: FontSpec; color: string }
+  | {
+      kind: "text";
+      text: string;
+      font: FontSpec;
+      color: string;
+      link?: string;
+      strike?: boolean;
+    }
   | {
       kind: "math";
       glyph: LatexGlyph;
@@ -148,6 +167,8 @@ async function buildAtoms(
               text: piece,
               font: fontFor(baseFont, inline.style),
               color: inline.style.color ?? opts.color,
+              link: inline.style.link,
+              strike: !!inline.style.strike,
             },
           });
         }
@@ -264,6 +285,7 @@ function layoutAtoms(ctx: Context, atoms: Atom[], indent: number) {
     let lineX = 0;
     for (const atom of line.atoms) {
       if (atom.run.kind === "text") {
+        const atomWidth = measure(atom.run.text, atom.run.font);
         ctx.runs.push({
           kind: "text",
           x: indent + lineX,
@@ -271,8 +293,32 @@ function layoutAtoms(ctx: Context, atoms: Atom[], indent: number) {
           text: atom.run.text,
           font: atom.run.font,
           color: atom.run.color,
+          link: atom.run.link,
+          strike: atom.run.strike,
         });
-        lineX += measure(atom.run.text, atom.run.font);
+        const size = atom.run.font.size;
+        const thickness = Math.max(1, size * 0.055);
+        if (atom.run.link) {
+          ctx.decorations.push({
+            kind: "underline",
+            x: indent + lineX,
+            y: baseline + size * 0.13,
+            width: atomWidth,
+            color: atom.run.color,
+            thickness,
+          });
+        }
+        if (atom.run.strike) {
+          ctx.decorations.push({
+            kind: "strikeLine",
+            x: indent + lineX,
+            y: baseline - size * 0.28,
+            width: atomWidth,
+            color: atom.run.color,
+            thickness,
+          });
+        }
+        lineX += atomWidth;
       } else if (atom.run.kind === "math") {
         ctx.runs.push({
           kind: "math",

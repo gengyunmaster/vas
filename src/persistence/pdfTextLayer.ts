@@ -123,6 +123,17 @@ export async function drawPdfTextItems(
       } else {
         pdfPage.drawText(text, { x, y, size, font, color: rgb });
       }
+      if (run.link) {
+        addLinkAnnotation(
+          pdflib,
+          pdfPage,
+          run.link,
+          x,
+          y,
+          font.widthOfTextAtSize(text, size),
+          size,
+        );
+      }
     }
   }
 }
@@ -148,6 +159,18 @@ function drawDecorations(
       });
       continue;
     }
+    if (deco.kind === "underline" || deco.kind === "strikeLine") {
+      const y = (view.heightUnits - (item.y + deco.y - view.offsetY)) * PT_PER_UNIT;
+      const ink = hexToRgb(deco.color);
+      pdfPage.drawRectangle({
+        x,
+        y: y - (deco.thickness / 2) * PT_PER_UNIT,
+        width: deco.width * PT_PER_UNIT,
+        height: deco.thickness * PT_PER_UNIT,
+        color: ink ? pdflib.rgb(ink.r, ink.g, ink.b) : pdflib.rgb(0, 0, 0),
+      });
+      continue;
+    }
     const y = (view.heightUnits - (item.y + deco.y + deco.height - view.offsetY)) * PT_PER_UNIT;
     if (deco.kind === "quoteBar") {
       pdfPage.drawRectangle({
@@ -169,6 +192,28 @@ function drawDecorations(
       });
     }
   }
+}
+
+// A real Link annotation per run segment: without one, clickability depends
+// on the reader's own URL auto-detection heuristic.
+function addLinkAnnotation(
+  pdflib: PdfLib,
+  pdfPage: PDFPage,
+  url: string,
+  x: number,
+  baseline: number,
+  width: number,
+  size: number,
+): void {
+  const annot = pdfPage.doc.context.obj({
+    Type: "Annot",
+    Subtype: "Link",
+    Rect: [x, baseline - size * 0.35, x + width, baseline + size],
+    Border: [0, 0, 0],
+    // URIs in actions must be ASCII; encodeURI percent-encodes the rest.
+    A: { Type: "Action", S: "URI", URI: pdflib.PDFString.of(encodeURI(url)) },
+  });
+  pdfPage.node.addAnnot(pdfPage.doc.context.register(annot));
 }
 
 function naturalSize(imageId: string): { width: number; height: number } | null {

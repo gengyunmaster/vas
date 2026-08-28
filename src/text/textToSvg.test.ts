@@ -60,6 +60,36 @@ describe("textItemToSvg whitespace", () => {
   });
 });
 
+describe("textItemToSvg links", () => {
+  it("wraps linked text in an anchor and draws the underline", async () => {
+    const source = "see [docs](https://example.com)";
+    const layout = await layoutBlocks(parseMarkdown(source), {
+      width: 400,
+      fontSize: 20,
+      color: "#1a1a1a",
+      measure: (text, font) => text.length * font.size * 0.5,
+      resolveMath: async () => null,
+      resolveImageSize: () => null,
+    });
+    const parts = textItemToSvg(
+      { id: "t", x: 0, y: 0, width: 400, fontSize: 20, color: "#1a1a1a", markdown: source },
+      layout,
+      new Map(),
+    );
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">${parts.join("")}</svg>`;
+    expect(svg).toContain('<a href="https://example.com"');
+    const doc = new DOMParser().parseFromString(svg, "image/svg+xml");
+    expect(doc.querySelector("parsererror")).toBeNull();
+    expect(doc.querySelector("a > text")?.textContent?.trim()).toBe("docs");
+    const underline = layout.decorations.find((d) => d.kind === "underline");
+    if (underline?.kind !== "underline") throw new Error("missing underline");
+    const rect = [...doc.querySelectorAll("rect")].find(
+      (el) => el.getAttribute("fill") === underline.color,
+    );
+    expect(rect).toBeTruthy();
+  });
+});
+
 describe("textItemToSvg with math", () => {
   it("keeps every formula as a glyph run and emits well-formed XML", async () => {
     const { svg, mathRuns } = await exportSvg(SOURCE);
