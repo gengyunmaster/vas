@@ -1,5 +1,6 @@
 // markdown-it singleton with three custom extensions:
-//   $...$ / $$...$$  math (rendered by KaTeX on screen, MathJax vectors on export)
+//   $...$ / \(...\)    inline math; $$...$$ / \[...\] block math (KaTeX on
+//                      screen, MathJax vectors on export)
 //   {#rrggbb|text}   colored text
 //   ![](image:<id>)  references to images stored in the notebook (external
 //                    image URLs are rejected by the sanitize rule below)
@@ -15,29 +16,56 @@ import MarkdownIt, {
 const DOLLAR = 0x24;
 const BACKSLASH = 0x5c;
 const SPACE = 0x20;
+const OPEN_PAREN = 0x28;
+const CLOSE_PAREN = 0x29;
 
 function mathInline(state: StateInline, silent: boolean): boolean {
   const start = state.pos;
-  if (state.src.charCodeAt(start) !== DOLLAR) return false;
-  if (state.src.charCodeAt(start + 1) === DOLLAR) return false;
-  if (state.src.charCodeAt(start + 1) === SPACE) return false;
-  let end = state.src.indexOf("$", start + 1);
-  while (end !== -1) {
-    const before = state.src.charCodeAt(end - 1);
-    if (before === BACKSLASH || before === SPACE) {
-      end = state.src.indexOf("$", end + 1);
-      continue;
+  const opener = state.src.charCodeAt(start);
+  let latexStart: number;
+  let end: number;
+  let closerLen: number;
+  if (opener === DOLLAR) {
+    if (state.src.charCodeAt(start + 1) === DOLLAR) return false;
+    if (state.src.charCodeAt(start + 1) === SPACE) return false;
+    end = state.src.indexOf("$", start + 1);
+    while (end !== -1) {
+      const before = state.src.charCodeAt(end - 1);
+      if (before === BACKSLASH || before === SPACE) {
+        end = state.src.indexOf("$", end + 1);
+        continue;
+      }
+      break;
     }
-    break;
+    latexStart = start + 1;
+    closerLen = 1;
+  } else if (opener === BACKSLASH && state.src.charCodeAt(start + 1) === OPEN_PAREN) {
+    end = -1;
+    let pos = start + 2;
+    while (pos + 1 < state.posMax) {
+      if (state.src.charCodeAt(pos) !== BACKSLASH) {
+        pos++;
+        continue;
+      }
+      if (state.src.charCodeAt(pos + 1) === CLOSE_PAREN) {
+        end = pos;
+        break;
+      }
+      pos += 2;
+    }
+    latexStart = start + 2;
+    closerLen = 2;
+  } else {
+    return false;
   }
-  if (end === -1 || end === start + 1) return false;
-  const latex = state.src.slice(start + 1, end);
+  if (end === -1 || end === latexStart) return false;
+  const latex = state.src.slice(latexStart, end);
   if (latex.includes("\n")) return false;
   if (!silent) {
     const token = state.push("math_inline", "", 0);
     token.content = latex;
   }
-  state.pos = end + 1;
+  state.pos = end + closerLen;
   return true;
 }
 
@@ -50,14 +78,19 @@ function mathBlock(
   const start = state.bMarks[startLine] + state.tShift[startLine];
   const max = state.eMarks[startLine];
   if (start + 1 >= max) return false;
-  if (state.src.charCodeAt(start) !== DOLLAR || state.src.charCodeAt(start + 1) !== DOLLAR) {
+  let closer: string;
+  if (state.src.startsWith("$$", start)) {
+    closer = "$$";
+  } else if (state.src.startsWith("\\[", start)) {
+    closer = "\\]";
+  } else {
     return false;
   }
   let pos = start + 2;
-  // Single-line form: $$ ... $$
-  let firstLineEnd = state.src.indexOf("$$", pos);
+  // Single-line form: opener and closer on the same line
+  let firstLineEnd = state.src.indexOf(closer, pos);
   while (firstLineEnd !== -1 && state.src.charCodeAt(firstLineEnd - 1) === BACKSLASH) {
-    firstLineEnd = state.src.indexOf("$$", firstLineEnd + 2);
+    firstLineEnd = state.src.indexOf(closer, firstLineEnd + closer.length);
   }
   if (firstLineEnd !== -1 && firstLineEnd < max) {
     if (silent) return true;
@@ -68,12 +101,12 @@ function mathBlock(
     state.line = startLine + 1;
     return true;
   }
-  // Multi-line form: closing $$ on a later line
+  // Multi-line form: closing delimiter on a later line
   let nextLine = startLine + 1;
   let found = false;
   for (; nextLine <= endLine; nextLine++) {
     pos = state.bMarks[nextLine] + state.tShift[nextLine];
-    if (pos < state.eMarks[nextLine] && state.src.startsWith("$$", pos)) {
+    if (pos < state.eMarks[nextLine] && state.src.startsWith(closer, pos)) {
       found = true;
       break;
     }
@@ -166,7 +199,9 @@ export function markdownIt(): MarkdownItInstance {
   if (instance) return instance;
   const md = new MarkdownIt({ html: false, linkify: true, breaks: true });
   md.disable("table");
-  md.inline.ruler.after("escape", "math_inline", mathInline);
+  // Before "escape": \( must win over the escape rule, which would otherwise
+  // swallow the backslash and render a literal "(".
+  md.inline.ruler.before("escape", "math_inline", mathInline);
   md.inline.ruler.after("escape", "color", colorInline);
   md.block.ruler.before("paragraph", "math_block", mathBlock, {
     alt: ["paragraph", "reference", "blockquote", "list"],
