@@ -59,6 +59,7 @@ export async function exportSelectionSvg(
   const svg = await pageToSvg({ ...page, strokes, images, texts }, imageData, {
     annotationOnly: true,
     clipTo: bounds,
+    darkPaper: false,
   });
   downloadBlob(new Blob([svg], { type: "image/svg+xml" }), `${title}-selection.svg`);
 }
@@ -91,6 +92,9 @@ export async function pageToSvg(
     // pdf-lib text layer can sit between them, matching the on-screen z-order.
     imagesOnly?: boolean;
     skipImages?: boolean;
+    // Selection exports sit on a transparent background; pass darkPaper: false
+    // so code highlighting uses the light palette.
+    darkPaper?: boolean;
   } = {},
 ): Promise<string> {
   const view = options.clipTo ?? { minX: 0, minY: 0, maxX: page.width, maxY: page.height };
@@ -119,8 +123,9 @@ export async function pageToSvg(
   const textMode = options.textMode ?? "all";
   if (!options.imagesOnly && textMode !== "none" && page.texts.length > 0) {
     const measure = await createTextMeasurer();
+    const darkPaper = options.darkPaper ?? isDarkColor(page.paperColor);
     for (const item of page.texts) {
-      const layout = await layoutTextItem(item, measure, naturalSize);
+      const layout = await layoutTextItem(item, measure, naturalSize, darkPaper);
       parts.push(...textItemToSvg(item, layout, imageData, textMode));
     }
   }

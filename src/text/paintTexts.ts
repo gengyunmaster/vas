@@ -14,11 +14,12 @@ const RULE_COLOR = "rgba(128, 128, 128, 0.4)";
 export async function paintTextItems(
   ctx: CanvasRenderingContext2D,
   texts: TextItem[],
+  darkPaper = false,
 ): Promise<void> {
   if (texts.length === 0) return;
   const measure = await createTextMeasurer();
   for (const item of texts) {
-    const layout = await layoutTextItem(item, measure, naturalSize);
+    const layout = await layoutTextItem(item, measure, naturalSize, darkPaper);
     ctx.save();
     ctx.translate(item.x, item.y);
     for (const deco of layout.decorations) {

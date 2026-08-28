@@ -86,6 +86,8 @@ export interface PdfTextView {
   offsetY: number;
   // View height in page units, needed for the y-down → y-up flip.
   heightUnits: number;
+  // Selects the light/dark code-highlight palette; selection crops are white.
+  darkPaper?: boolean;
 }
 
 export async function drawPdfTextItems(
@@ -101,7 +103,7 @@ export async function drawPdfTextItems(
   await Promise.all([...imageIds].map((id) => ensureImageLoaded(id)));
   const measure = await createTextMeasurer();
   for (const item of texts) {
-    const layout = await layoutTextItem(item, measure, naturalSize);
+    const layout = await layoutTextItem(item, measure, naturalSize, view.darkPaper ?? false);
     drawDecorations(pdflib, pdfPage, item, layout, view);
     for (const run of layout.runs) {
       if (run.kind !== "text") continue;

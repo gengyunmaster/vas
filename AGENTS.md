@@ -17,7 +17,7 @@ vas 是一款本地优先的手写笔记/白板 Web 应用，目标是提供接�
 已实现的主要功能：
 
 - 工具：钢笔（压感）、马克笔、橡皮（笔画级）、激光笔（渐隐轨迹，不落数据）、图形（直线/箭头/矩形/椭圆）、套索选择、文字（键盘输入）
-- 文字：Text 工具点页面任意位置放置文本框，源码 textarea 编辑 + 页面上实时预览；支持 markdown 子集（标题/列表/引用/代码/粗斜体/删除线/链接/分割线）与 LaTeX 公式（`$...$` 或 `\(...\)` 行内、`$$...$$` 或 `\[...\]` 行间，屏幕 KaTeX、导出 MathJax 矢量字形，复用几何画板管线）；`{#hex|text}` 语法混排文字颜色（公式内部同样可用——`mathColor.ts` 将其重写为作用域严格的 `\textcolor` 再交给 KaTeX/MathJax；LaTeX 原生 `\color`/`\textcolor` 也支持，导出端经 MathJax color 扩展保持与屏幕一致）；链接只允许 `https?`/`mailto` 协议（其余静默剥除），屏幕与导出统一为**跟随墨色 + 下划线**（排版引擎产出 underline/strikeLine 装饰线段，三个导出后端各自绘制），PDF 导出额外写入真正的 Link 注解（不依赖阅读器的 URL 自动识别），SVG 导出包 `<a href>` 可在浏览器点击，PNG 位图不可点击是格式本身的限制；笔记本内点按链接在 **Select 工具**下于新标签页打开（文字层整层 `pointer-events: none`，`BoardCanvas` 在容器捕获阶段用 `getClientRects` 逐段命中 `<a>` 并拦下 pointerdown——不触发空套索、保留现有选区；其余工具下书写优先，链接惰性）；文内图片只允许引用笔记本内已存图片（`![](image:<imageId>)`，外部 URL 被剥除）；宽度可调、高度随内容自动增长，触底拒收输入；图层位于图片之上、笔迹之下；参与套索（外接矩形）、拖动、改色、删除、剪切/复制/粘贴；选区缩放只改宽度重排（字号不变）；橡皮不擦
+- 文字：Text 工具点页面任意位置放置文本框，源码 textarea 编辑 + 页面上实时预览；支持 markdown 子集（标题/列表/引用/代码/粗斜体/删除线/链接/分割线）与 LaTeX 公式（`$...$` 或 `\(...\)` 行内、`$$...$$` 或 `\[...\]` 行间，屏幕 KaTeX、导出 MathJax 矢量字形，复用几何画板管线）；`{#hex|text}` 语法混排文字颜色（公式内部同样可用——`mathColor.ts` 将其重写为作用域严格的 `\textcolor` 再交给 KaTeX/MathJax；LaTeX 原生 `\color`/`\textcolor` 也支持，导出端经 MathJax color 扩展保持与屏幕一致）；代码块额外支持 `{#hex|text}` 手动着色（内容按字面处理、不嵌套）与自动语法高亮（围栏块带语言名如 ` ```js ` 时经 highlight.js 高亮，明/暗纸色两套调色板，hljs span 输出解析回着色段；无语言名或语言未知保持单色，行内 `` `code` `` 不参与）；链接只允许 `https?`/`mailto` 协议（其余静默剥除），屏幕与导出统一为**跟随墨色 + 下划线**（排版引擎产出 underline/strikeLine 装饰线段，三个导出后端各自绘制），PDF 导出额外写入真正的 Link 注解（不依赖阅读器的 URL 自动识别），SVG 导出包 `<a href>` 可在浏览器点击，PNG 位图不可点击是格式本身的限制；笔记本内点按链接在 **Select 工具**下于新标签页打开（文字层整层 `pointer-events: none`，`BoardCanvas` 在容器捕获阶段用 `getClientRects` 逐段命中 `<a>` 并拦下 pointerdown——不触发空套索、保留现有选区；其余工具下书写优先，链接惰性）；文内图片只允许引用笔记本内已存图片（`![](image:<imageId>)`，外部 URL 被剥除）；宽度可调、高度随内容自动增长，触底拒收输入；图层位于图片之上、笔迹之下；参与套索（外接矩形）、拖动、改色、删除、剪切/复制/粘贴；选区缩放只改宽度重排（字号不变）；橡皮不擦
 - 选择：套索圈选（自动闭合；笔画与圈相交或落入圈内即整条选中），选中后可拖动移动、八手柄缩放/拉伸（角手柄等比、边手柄单向，全程矢量）、改色、删除、剪切/复制/粘贴（粘贴到当前页左上角并自动选中，借此实现跨页/跨笔记本搬运）
 - 图片：插入图片（按钮或 Ctrl+V 读取系统剪贴板），渲染于笔迹之下可直接批注，橡皮不可擦；随选区移动/缩放/拉伸/删除/剪切/复制/粘贴；超大图片自动等比缩小到页内；存原图不重编码。插入选择器也接受 **PDF 文件**（`insertPdfImageFile`）：走导入同款密码/解密/入库流程，经单页版页码对话框选**一页**，该页按 4 倍清晰度栅格化为**透明背景**预览图（pdf.js 总是铺白底渲染，故渲染后做白底抠除 `applyBackgroundKeying`：近白像素转透明，隐式白底与显式白底一并去除，代价是纯白内容会与白纸一起消失；抠除后无透明像素时退回 JPEG 省空间）作为普通图片插入——可选中、移动、缩放、拉伸，与 PDF 底图的锁定行为相反；导出 PDF 时经 `embedPage` 以矢量嵌入原始页（不铺白衬底，源页未画背景则天然透明）
 - PDF 导入：主页导入 PDF 生成新笔记本（白纸空白模板），或在笔记本内经设置面板导入并**插入到当前页之后**（继承当前页纸色与模板）；文件选定（含密码输入）后弹出页码范围对话框，显示总页数，支持反填自动排序与单页，越界报错重填、可取消；每页栅格化（3 倍清晰度 JPEG）为**锁定**图片并**铺满整页**（允许放大，一个方向顶到页边、另一方向居中，至多一侧留白），支持密码保护文件；锁定图片不可被圈选/清除，批注层不受影响；**完整原始 PDF**（不截取范围）同时入库，导出 PDF 时以矢量图层形式嵌入（见 3.6）
@@ -47,6 +47,7 @@ vas 是一款本地优先的手写笔记/白板 Web 应用，目标是提供接�
 | 画板标签渲染 | katex | 几何编辑器画布与文字项公式的屏幕渲染（HTML overlay，仅供屏幕显示） |
 | 导出标签矢量化 | @mathjax/src | MathJax v4 动态 `import()` 懒加载；嵌入/导出时把 LaTeX 标签与文内公式转为 SVG 矢量字形 |
 | Markdown 引擎 | markdown-it | 文字项解析；自写三条规则：行内/行间公式、`{#hex|text}` 混排颜色、图片 sanitize（只放行 `image:<imageId>`）；不开 `html:true`（防 XSS） |
+| 代码块高亮 | highlight.js | 文字项代码块语法高亮；动态 `import()`（`highlight.js/lib/common`，约 40 种语言）按需加载，不进主包；hljs span 输出经明/暗调色板映射为具体 hex（导出管线需要），不引 hljs CSS |
 | PDF 文字字体 | @pdf-lib/fontkit | 动态 `import()` 按需加载；导出 PDF 时内嵌子集化 Noto Sans SC（regular/bold）绘制真实可选中矢量文字 |
 | 屏幕/导出统一字体 | Noto Sans SC 子集 TTF | `public/fonts/`（GB2312 字符集子集，`scripts/subset-fonts.mjs` 生成）；`src/fonts.ts` 注入 @font-face，屏幕排版与导出度量同源 |
 | PWA | vite-plugin-pwa | generateSW，autoUpdate |
@@ -148,7 +149,7 @@ interface TextItem {
 
 - 类型定义集中在 `src/model/`，全项目引用同一来源，不重复定义。
 - 工具集 `TOOL_KINDS`：pen / highlighter / eraser / laser / select / text / line / arrow / rect / ellipse；laser 不留墨迹，图形走独立渲染与命中分支（`engine/shapes.ts`、`model/hitTest.ts`、`model/shapeGeometry.ts`）。
-- 文字（`model/textItem.ts` + `src/markdown/` + `src/text/`）：markdown-it 自写规则产出平铺 Block[]（`markdown/blocks.ts`），屏幕经 `markdown/html.ts` 渲染为安全 HTML（全转义、KaTeX 公式、文内图片 object URL），导出共用纯函数排版引擎 `text/layout.ts`（canvas measureText 度量 + MathJax 字形 + CJK 逐字断行/Latin 按词；行高随行内公式动态增长——分式等超高内容会撑大行盒，类似 KaTeX strut，排版总高度保证包住全部字形；链接与删除线文字额外产出 underline/strikeLine 装饰线段，颜色跟随墨色，跨行链接逐段产出）；`text/textHeight.ts` 缓存排版高度供套索/包围盒等同步消费者使用（DOM 实测与排版引擎两个来源取较大者，确保导出包围盒不裁内容）；编辑器（`components/TextEditor.tsx`）乐观更新 + 次帧实测，触底（页底 - 8px）回退到最后接受值。再编辑入口：Text 工具点击既有文本，或套索选中单个文本框后点 SelectionBar 的 Edit（进入编辑时清空选区）。编辑生命周期：`addTextItem`/`updateTextItem` 静默无历史，`setEditingText(null)` 时 finalize——空内容静默删除、新项补一条 add-elements、改旧项补一条 replace-elements（`textEditOrigin` 快照对比）。
+- 文字（`model/textItem.ts` + `src/markdown/` + `src/text/`）：markdown-it 自写规则产出平铺 Block[]（`markdown/blocks.ts`），屏幕经 `markdown/html.ts` 渲染为安全 HTML（全转义、KaTeX 公式、文内图片 object URL），导出共用纯函数排版引擎 `text/layout.ts`（canvas measureText 度量 + MathJax 字形 + CJK 逐字断行/Latin 按词；行高随行内公式动态增长——分式等超高内容会撑大行盒，类似 KaTeX strut，排版总高度保证包住全部字形；链接与删除线文字额外产出 underline/strikeLine 装饰线段，颜色跟随墨色，跨行链接逐段产出；代码块按着色段逐行产 run——`{#hex|text}` 手动色优先，无色段在围栏带语言名时经 `markdown/highlight.ts`（highlight.js 懒加载，hljs span 输出解析回 CodeSegment，明/暗调色板随纸色亮度切换）细分，行内 x 用 measure 累进）；`text/textHeight.ts` 缓存排版高度供套索/包围盒等同步消费者使用（DOM 实测与排版引擎两个来源取较大者，确保导出包围盒不裁内容）；编辑器（`components/TextEditor.tsx`）乐观更新 + 次帧实测，触底（页底 - 8px）回退到最后接受值。再编辑入口：Text 工具点击既有文本，或套索选中单个文本框后点 SelectionBar 的 Edit（进入编辑时清空选区）。编辑生命周期：`addTextItem`/`updateTextItem` 静默无历史，`setEditingText(null)` 时 finalize——空内容静默删除、新项补一条 add-elements、改旧项补一条 replace-elements（`textEditOrigin` 快照对比）。
 - 套索命中（`model/selection.ts`）：圈自动闭合（首尾连边），笔画与圈相交、落入圈内、或圈整体落在粗笔迹墨迹内均算选中；图形按其轮廓几何判定（椭圆以 32 段折线近似）；图片按矩形与圈的相交/包含判定；文字按外接矩形（高度取 textHeight 缓存）判定。
 - 选区变换（`model/transform.ts`）：移动/缩放为纯函数仿射变换，松手提交时才把新坐标写回笔画（bake）；笔迹粗细按 √(sx·sy) 几何均值跟随缩放；文字选区缩放只改宽度重排（`scaleTextReflow`，字号不变），页面尺寸调整/粘贴 fit 走 `scaleTextUniform`（字号同步缩放）；移动与缩放均被约束在当前页边界内，不支持跨页拖拽与旋转。
 - 图片（`model/image.ts`）：插入/粘贴时若超出页面可用区域则等比缩小到页内，初始位置为页内左上角（`PLACEMENT_MARGIN`）；一律渲染于纸色/模板之上、笔迹之下，橡皮不命中图片；只含图片的页面不算空白页（`trimTrailingBlankPages`）。图片可带 `locked: true`（PDF 底图）：套索跳过（`imagesInLasso` 过滤）、Clear page 豁免、不参与选中变换；普通插入图片不锁定。图片还可带 `pdfSource`（**以图片形式插入的 PDF**，`importPdf.ts` 的 `insertPdfImageFile`）：插入图片选择器接受 PDF（按 `type`/`扩展名`嗅探），走 `rasterizePdf` 的 `promptMode: "single"` + `transparent: true` 分支——密码/解密/整份入库与导入完全一致，页码对话框为单页模式（`PageRangeDialog` 按 `pdfRangeRequest.mode` 渲染单输入框，返回 `{from:n,to:n}`）；栅格化先铺白底渲染再做白底抠除（`applyBackgroundKeying`，近白像素阈值 248 转透明——pdf.js 主画布强制 `alpha:false` 且无条件铺白底，透明只能靠后处理抠出；纯白内容与白纸不可区分会一并消失，抗锯齿边缘可能留浅色细边），之后扫 alpha 通道（`canvasHasTransparency`）决定存 PNG（有透明）还是 JPEG（无透明，省空间）；自然尺寸取 PDF 点数 × 4/3（非栅格像素），走普通图片的 shrink-only 放置；可编辑性与普通图片一致（可选中/移动/缩放/拉伸/复制粘贴，**不锁定**）。**透明边界**：彩色/深色背景（如深色幻灯片）不抠除、原样保留；导出 PDF 矢量嵌入时不铺白衬底，源页自身绘制的非白背景同样保留。
@@ -222,8 +223,10 @@ src/
                  image（图片条目与版面放置）、pdfPage（PDF 页面构建与插入位置）、viewState（视图状态）、
                  textItem（文字条目）
   markdown/      文字项 markdown 管线：md（markdown-it 封装与三条自写规则）、
-                 blocks（解析结果为平铺 Block[]）、html（屏幕渲染为安全 HTML）、katex（懒加载封装）、
-                 mathColor（公式内 {#hex|text} → \textcolor 重写与花括号配对扫描）
+                 blocks（解析结果为平铺 Block[]，代码块切分手动着色段并提取语言名）、
+                 html（屏幕渲染为安全 HTML）、katex（懒加载封装）、
+                 mathColor（公式内 {#hex|text} → \textcolor 重写与花括号配对扫描）、
+                 highlight（代码块 highlight.js 懒加载、hljs span 输出 → 着色段解析、明/暗调色板）
   text/          文字排版与导出：layout（纯函数排版引擎，canvas measureText 度量 +
                  MathJax 字形 + CJK 逐字断行/Latin 按词）、measure（度量缓存）、
                  textHeight（排版高度缓存，供套索/包围盒同步消费）、textFrameBus（逐帧位置发布通道）、

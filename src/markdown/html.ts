@@ -1,6 +1,7 @@
 // Blocks → HTML for the on-screen preview overlay. All text is escaped;
 // math goes through KaTeX, images resolve through the images table.
-import type { Block, Inline, InlineStyle } from "./blocks";
+import type { Block, CodeSegment, Inline, InlineStyle } from "./blocks";
+import { highlightCodeSegments } from "./highlight";
 import { renderMathHtml } from "./katex";
 
 export type ImageUrlResolver = (imageId: string) => string | null;
@@ -49,7 +50,21 @@ function renderInlines(inlines: Inline[], resolveImage: ImageUrlResolver): strin
   return inlines.map((inline) => renderInline(inline, resolveImage)).join("");
 }
 
-export function renderBlocksHtml(blocks: Block[], resolveImage: ImageUrlResolver): string {
+// Segment colors are validated #rrggbb (color spans) or fixed palette values.
+function renderCodeSegments(segments: CodeSegment[]): string {
+  return segments
+    .map((segment) => {
+      const text = escapeHtml(segment.text);
+      return segment.color ? `<span style="color: ${segment.color}">${text}</span>` : text;
+    })
+    .join("");
+}
+
+export function renderBlocksHtml(
+  blocks: Block[],
+  resolveImage: ImageUrlResolver,
+  darkPaper = false,
+): string {
   const parts: string[] = [];
   let listDepth = 0;
   let listOrdered = false;
@@ -92,7 +107,9 @@ export function renderBlocksHtml(blocks: Block[], resolveImage: ImageUrlResolver
         break;
       }
       case "codeBlock":
-        parts.push(`<pre class="md-code">${escapeHtml(block.text)}</pre>`);
+        parts.push(
+          `<pre class="md-code">${renderCodeSegments(highlightCodeSegments(block.segments, block.lang, darkPaper))}</pre>`,
+        );
         break;
       case "mathBlock": {
         const html = renderMathHtml(block.latex, true);

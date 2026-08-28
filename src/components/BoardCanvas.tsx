@@ -122,6 +122,7 @@ export function BoardCanvas() {
   // The text overlay must sit between the base and active canvases; portaling
   // it into the board container puts all three in one stacking context.
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions lint/a11y/useKeyWithClickEvents: pointer-only link shortcut on the canvas surface; links stay real keyboard-focusable anchors in the overlay
     <div
       ref={setContainer}
       className={className}

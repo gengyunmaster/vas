@@ -274,6 +274,7 @@ async function exportLayeredPdf(title: string, pages: Page[]): Promise<void> {
         offsetX: 0,
         offsetY: 0,
         heightUnits: page.height,
+        darkPaper: isDarkColor(page.paperColor),
       });
     }
     pdfPage.drawPage(annotationPages[index], { x: 0, y: 0, width, height });

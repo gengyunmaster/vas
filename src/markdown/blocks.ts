@@ -2,6 +2,7 @@
 // the export layout engine. Nesting (quotes, list depth) is flattened into
 // flags so both consumers stay simple.
 import type { Token } from "markdown-it";
+import { COLOR_SPAN_OPEN, findClosingBrace } from "./mathColor";
 import { markdownIt } from "./md";
 
 export interface InlineStyle {
@@ -19,11 +20,18 @@ export type Inline =
   | { kind: "image"; imageId: string; alt: string }
   | { kind: "break" };
 
+// A code block's text in colored pieces. Colorless segments may still be
+// syntax-highlighted later (highlight.ts); a set color is final ({#hex|...}).
+export interface CodeSegment {
+  text: string;
+  color?: string;
+}
+
 export type Block =
   | { kind: "paragraph"; quote: boolean; inlines: Inline[] }
   | { kind: "heading"; level: number; inlines: Inline[] }
   | { kind: "listItem"; ordered: boolean; index: number; depth: number; inlines: Inline[] }
-  | { kind: "codeBlock"; text: string }
+  | { kind: "codeBlock"; lang?: string; segments: CodeSegment[] }
   | { kind: "mathBlock"; latex: string }
   | { kind: "rule" };
 
@@ -100,6 +108,34 @@ interface ListFrame {
   index: number;
 }
 
+// Code block content skips inline rules, so {#rrggbb|...} spans are split
+// out here instead. Span content is literal text (no nested color spans);
+// unclosed or empty spans stay literal.
+function codeColorSegments(text: string): CodeSegment[] {
+  const segments: CodeSegment[] = [];
+  let plain = "";
+  let pos = 0;
+  while (pos < text.length) {
+    const match = COLOR_SPAN_OPEN.exec(text.slice(pos, pos + 10));
+    const contentStart = match ? pos + match[0].length : -1;
+    const end = match ? findClosingBrace(text, contentStart) : -1;
+    if (!match || end === -1 || end === contentStart) {
+      plain += text[pos];
+      pos++;
+      continue;
+    }
+    if (plain) {
+      segments.push({ text: plain });
+      plain = "";
+    }
+    segments.push({ text: text.slice(contentStart, end), color: `#${match[1].toLowerCase()}` });
+    pos = end + 1;
+  }
+  if (plain) segments.push({ text: plain });
+  if (segments.length === 0) segments.push({ text: "" });
+  return segments;
+}
+
 export function parseMarkdown(source: string): Block[] {
   const tokens = markdownIt().parse(source, {});
   const blocks: Block[] = [];
@@ -162,9 +198,15 @@ export function parseMarkdown(source: string): Block[] {
         quoteDepth = Math.max(0, quoteDepth - 1);
         break;
       case "fence":
-      case "code_block":
-        blocks.push({ kind: "codeBlock", text: token.content.replace(/\n$/, "") });
+      case "code_block": {
+        const lang = token.type === "fence" ? token.info.trim().split(/\s+/)[0] : "";
+        blocks.push({
+          kind: "codeBlock",
+          ...(lang ? { lang } : {}),
+          segments: codeColorSegments(token.content.replace(/\n$/, "")),
+        });
         break;
+      }
       case "math_block":
         blocks.push({ kind: "mathBlock", latex: token.content });
         break;

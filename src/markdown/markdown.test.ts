@@ -129,7 +129,41 @@ describe("parseMarkdown", () => {
   it("parses blockquotes, code fences and rules", () => {
     const blocks = parseMarkdown("> quoted\n\n```\ncode\n```\n\n---");
     expect(blocks[0]).toMatchObject({ kind: "paragraph", quote: true });
-    expect(blocks[1]).toEqual({ kind: "codeBlock", text: "code" });
+    expect(blocks[1]).toEqual({ kind: "codeBlock", segments: [{ text: "code" }] });
     expect(blocks[2]).toEqual({ kind: "rule" });
+  });
+
+  it("extracts the fence language from the first info word", () => {
+    const blocks = parseMarkdown("```js extra words\ncode\n```");
+    expect(blocks[0]).toEqual({ kind: "codeBlock", lang: "js", segments: [{ text: "code" }] });
+  });
+
+  it("parses indented code blocks without a language", () => {
+    const blocks = parseMarkdown("    indented code");
+    expect(blocks[0]).toEqual({ kind: "codeBlock", segments: [{ text: "indented code" }] });
+  });
+
+  it("splits {#hex|...} color spans inside code blocks", () => {
+    const blocks = parseMarkdown("```\nlet {#FF0000|x} = 1\n```");
+    expect(blocks[0]).toEqual({
+      kind: "codeBlock",
+      segments: [{ text: "let " }, { text: "x", color: "#ff0000" }, { text: " = 1" }],
+    });
+  });
+
+  it("honors nested braces inside code color spans", () => {
+    const blocks = parseMarkdown("```\n{#00ff00|function() { return 1; }}\n```");
+    expect(blocks[0]).toEqual({
+      kind: "codeBlock",
+      segments: [{ text: "function() { return 1; }", color: "#00ff00" }],
+    });
+  });
+
+  it("keeps unclosed or empty code color spans literal", () => {
+    const blocks = parseMarkdown("```\n{#ff0000|oops {#ff0000|}\n```");
+    expect(blocks[0]).toEqual({
+      kind: "codeBlock",
+      segments: [{ text: "{#ff0000|oops {#ff0000|}" }],
+    });
   });
 });

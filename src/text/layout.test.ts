@@ -65,6 +65,47 @@ describe("layoutBlocks", () => {
     expect(run && run.kind === "text" ? run.font.code : false).toBe(true);
   });
 
+  it("advances x across colored code segments on one line", async () => {
+    const result = await layout("```\n{#ff0000|ab} cd\n```");
+    const runs = result.runs.filter((r) => r.kind === "text");
+    if (runs[0]?.kind !== "text" || runs[1]?.kind !== "text") throw new Error("missing runs");
+    expect(runs).toHaveLength(2);
+    expect(runs[0]).toMatchObject({ text: "ab", x: 8, color: "#ff0000" });
+    expect(runs[1]).toMatchObject({ text: " cd", x: 28, color: "#000000" });
+    expect(runs[1].y).toBe(runs[0].y);
+  });
+
+  it("keeps a color across newlines inside one code span", async () => {
+    const result = await layout("```\n{#ff0000|a\nb}\n```");
+    const runs = result.runs.filter((r) => r.kind === "text");
+    if (runs[0]?.kind !== "text" || runs[1]?.kind !== "text") throw new Error("missing runs");
+    expect(runs.map((r) => (r.kind === "text" ? r.color : ""))).toEqual(["#ff0000", "#ff0000"]);
+    expect(runs[1].y).toBeGreaterThan(runs[0].y);
+  });
+
+  it("does not change code block height when colors are applied", async () => {
+    const colored = await layout("```\n{#ff0000|ab} cd\n```");
+    const plain = await layout("```\nab cd\n```");
+    expect(colored.height).toBe(plain.height);
+  });
+
+  it("highlights fenced code with a language using the paper palette", async () => {
+    const light = await layout("```js\nlet x\n```");
+    const keyword = light.runs.find((r) => r.kind === "text" && r.text === "let");
+    expect(keyword && keyword.kind === "text" ? keyword.color : "").toBe("#a626a4");
+    const dark = await layoutBlocks(parseMarkdown("```js\nlet x\n```"), {
+      width: 200,
+      fontSize: 10,
+      color: "#eeeeee",
+      measure,
+      resolveMath: noMath,
+      resolveImageSize: noImages,
+      darkPaper: true,
+    });
+    const darkKeyword = dark.runs.find((r) => r.kind === "text" && r.text === "let");
+    expect(darkKeyword && darkKeyword.kind === "text" ? darkKeyword.color : "").toBe("#c678dd");
+  });
+
   it("scales headings and lays out list markers", async () => {
     const result = await layout("# Title\n\n- item");
     const heading = result.runs.find((r) => r.kind === "text" && r.text === "Title");

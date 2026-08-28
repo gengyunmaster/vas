@@ -1,7 +1,9 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { parseMarkdown } from "../markdown/blocks";
+import { ensureHighlight, highlightReady } from "../markdown/highlight";
 import { renderBlocksHtml } from "../markdown/html";
 import { ensureKatex, katexReady } from "../markdown/katex";
+import { isDarkColor } from "../model/color";
 import { type TextItem, textImageRefs } from "../model/textItem";
 import { getImage } from "../persistence/images";
 import { useBoardStore } from "../store/useBoardStore";
@@ -14,6 +16,8 @@ interface TextItemViewProps {
   item: TextItem;
   editing: boolean;
   mathReady: boolean;
+  codeReady: boolean;
+  darkPaper: boolean;
   resolveImage: (imageId: string) => string | null;
   registerEl: (itemId: string, el: HTMLElement | null) => void;
 }
@@ -22,14 +26,18 @@ const TextItemView = memo(function TextItemView({
   item,
   editing,
   mathReady,
+  codeReady,
+  darkPaper,
   resolveImage,
   registerEl,
 }: TextItemViewProps) {
   const html = useMemo(() => {
-    // mathReady is a re-render signal: KaTeX finishing loading must rebuild math markup.
+    // mathReady/codeReady are re-render signals: KaTeX/highlight.js finishing
+    // loading must rebuild math and code markup.
     void mathReady;
-    return renderBlocksHtml(parseMarkdown(item.markdown), resolveImage);
-  }, [item.markdown, resolveImage, mathReady]);
+    void codeReady;
+    return renderBlocksHtml(parseMarkdown(item.markdown), resolveImage, darkPaper);
+  }, [item.markdown, resolveImage, darkPaper, mathReady, codeReady]);
   return (
     <div
       ref={(el) => registerEl(item.id, el)}
@@ -52,6 +60,7 @@ export function TextOverlay() {
   const pages = useBoardStore((state) => state.pages);
   const editingText = useBoardStore((state) => state.editingText);
   const [, setKatexTick] = useState(0);
+  const [, setHighlightTick] = useState(0);
   const pageEls = useRef(new Map<string, HTMLElement>());
   const itemEls = useRef(new Map<string, HTMLElement>());
   const itemsById = useRef(new Map<string, TextItem>());
@@ -78,6 +87,17 @@ export function TextOverlay() {
     let cancelled = false;
     void ensureKatex().then(() => {
       if (!cancelled) setKatexTick((tick) => tick + 1);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [items]);
+
+  useEffect(() => {
+    if (!items.some(({ item }) => item.markdown.includes("```")) || highlightReady()) return;
+    let cancelled = false;
+    void ensureHighlight().then(() => {
+      if (!cancelled) setHighlightTick((tick) => tick + 1);
     });
     return () => {
       cancelled = true;
@@ -207,6 +227,8 @@ export function TextOverlay() {
                 item={item}
                 editing={editingText?.itemId === item.id}
                 mathReady={katexReady()}
+                codeReady={highlightReady()}
+                darkPaper={isDarkColor(page.paperColor)}
                 resolveImage={resolveImage}
                 registerEl={registerItemEl}
               />

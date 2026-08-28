@@ -24,6 +24,9 @@ self-hosted instance keep separate data; use export / import to move notebooks a
   dividers, inline/block LaTeX math (KaTeX on screen, MathJax glyphs in exports),
   colored spans via `{#hex|text}` (also inside math, where it maps to scoped `\textcolor`;
   LaTeX `\color` / `\textcolor` work too, in exports via MathJax's color extension), and embedded notebook images via `![](image:<id>)`;
+  fenced code blocks accept the same `{#hex|text}` coloring and get syntax highlighting
+  when tagged with a language (```` ```js ````; highlight.js, lazy-loaded, with light/dark
+  palettes that follow the paper color);
   boxes layer between images and ink, join lasso / recolor / cut-copy-paste, and refuse
   input at the page bottom (no cross-page overflow)
 - **Lasso selection** — circle content to select it, then move, scale / stretch (staying
@@ -89,7 +92,8 @@ self-hosted instance keep separate data; use export / import to move notebooks a
 React 19 · TypeScript · Vite · zustand · perfect-freehand · idb · jsPDF + svg2pdf.js
 (lazy-loaded) · pdfjs-dist (lazy-loaded) · pdf-lib + @pdf-lib/fontkit (lazy-loaded) ·
 @neslinesli93/qpdf-wasm (lazy-loaded) · fflate · markdown-it (text tool, with custom
-math / color / image-sanitizing rules) · subsetted Noto Sans SC fonts (shared by screen
+math / color / image-sanitizing rules) · highlight.js (code-block highlighting,
+lazy-loaded) · subsetted Noto Sans SC fonts (shared by screen
 layout and PDF text) · JSXGraph + mathlive + @cortex-js/compute-engine + KaTeX +
 MathJax (geometry editor, lazy-loaded) ·
 vite-plugin-pwa · Biome · Vitest — no UI component library, no backend.
@@ -109,7 +113,8 @@ src/
                  viewState, hitTest, patternLayout, shapeGeometry, selection, transform,
                  pdfPage, textItem
   markdown/      markdown-it wrapper with custom rules (math, colored spans, image
-                 sanitizing), block parsing, safe HTML rendering, KaTeX lazy-loading
+                 sanitizing), block parsing, safe HTML rendering, KaTeX lazy-loading,
+                 highlight.js code-block highlighting (lazy-loaded, hex palettes)
   text/          text layout engine (shared by all exports), metrics, height cache,
                  frame bus, PNG/SVG paint backends
   store/         zustand stores

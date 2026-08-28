@@ -1,3 +1,4 @@
+import { isDarkColor } from "../model/color";
 import type { Bounds } from "../model/hitTest";
 import type { ImageItem } from "../model/image";
 import type { Page } from "../model/page";
@@ -43,7 +44,7 @@ export async function paintPageForExport(
     const bitmap = getImageBitmap(image.imageId);
     if (bitmap) ctx.drawImage(bitmap, image.x, image.y, image.width, image.height);
   }
-  await paintTextItems(ctx, page.texts);
+  await paintTextItems(ctx, page.texts, isDarkColor(page.paperColor));
   for (const stroke of page.strokes) drawStroke(ctx, stroke);
 }
 

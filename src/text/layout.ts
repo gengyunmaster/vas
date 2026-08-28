@@ -5,6 +5,7 @@
 
 import type { LatexGlyph } from "../geo/latexSvg";
 import type { Block, Inline, InlineStyle } from "../markdown/blocks";
+import { ensureHighlight, highlightCodeSegments, highlightReady } from "../markdown/highlight";
 
 export interface FontSpec {
   size: number;
@@ -60,6 +61,8 @@ export interface LayoutOptions {
   measure: MeasureFn;
   resolveMath: MathResolver;
   resolveImageSize: ImageSizeResolver;
+  // Picks the light/dark syntax palette for highlighted code blocks.
+  darkPaper?: boolean;
 }
 
 const LINE_HEIGHT = 1.5;
@@ -357,7 +360,28 @@ async function layoutInlineFlow(
   }
 }
 
+// Segments (manual colors + hljs highlighting) may span newlines; split them
+// into per-line chunks so each line's runs share a baseline and advance x.
+function codeLines(
+  block: Block & { kind: "codeBlock" },
+  dark: boolean,
+): { text: string; color?: string }[][] {
+  const lines: { text: string; color?: string }[][] = [[]];
+  for (const segment of highlightCodeSegments(block.segments, block.lang, dark)) {
+    const parts = segment.text.split("\n");
+    for (const [index, part] of parts.entries()) {
+      if (index > 0) lines.push([]);
+      if (part) lines[lines.length - 1].push({ text: part, color: segment.color });
+    }
+  }
+  return lines;
+}
+
 export async function layoutBlocks(blocks: Block[], opts: LayoutOptions): Promise<TextLayout> {
+  // Highlight must finish loading before layout so exports always get colors.
+  if (blocks.some((block) => block.kind === "codeBlock" && block.lang) && !highlightReady()) {
+    await ensureHighlight();
+  }
   const ctx: Context = { opts, runs: [], decorations: [], y: 0 };
   const baseFont: FontSpec = { size: opts.fontSize, bold: false, italic: false, code: false };
 
@@ -409,15 +433,19 @@ export async function layoutBlocks(blocks: Block[], opts: LayoutOptions): Promis
         const codeFont: FontSpec = { ...baseFont, code: true };
         const start = ctx.y;
         ctx.y += CODE_PADDING;
-        for (const line of block.text.split("\n")) {
-          ctx.runs.push({
-            kind: "text",
-            x: CODE_PADDING,
-            y: ctx.y + opts.fontSize * 1.15,
-            text: line,
-            font: codeFont,
-            color: opts.color,
-          });
+        for (const line of codeLines(block, opts.darkPaper ?? false)) {
+          let x = CODE_PADDING;
+          for (const chunk of line) {
+            ctx.runs.push({
+              kind: "text",
+              x,
+              y: ctx.y + opts.fontSize * 1.15,
+              text: chunk.text,
+              font: codeFont,
+              color: chunk.color ?? opts.color,
+            });
+            x += ctx.opts.measure(chunk.text, codeFont);
+          }
           ctx.y += opts.fontSize * LINE_HEIGHT;
         }
         ctx.y += CODE_PADDING - opts.fontSize * 0.35;

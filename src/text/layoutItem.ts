@@ -10,6 +10,7 @@ export async function layoutTextItem(
   item: TextItem,
   measure: MeasureFn,
   resolveImageSize: ImageSizeResolver,
+  darkPaper = false,
 ): Promise<TextLayout> {
   const layout = await layoutBlocks(parseMarkdown(item.markdown), {
     width: item.width,
@@ -18,6 +19,7 @@ export async function layoutTextItem(
     measure,
     resolveMath: (latex, display) => renderLatex(latex, display),
     resolveImageSize,
+    darkPaper,
   });
   noteTextItemHeight(item, layout.height);
   return layout;
