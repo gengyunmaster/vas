@@ -78,9 +78,9 @@ self-hosted instance keep separate data; use export / import to move notebooks a
 
 ## Screenshots
 
-| Calligraphy practice (tan paper preset)           | Annotating an imported PDF                |
-| ------------------------------------------------- | ----------------------------------------- |
-| ![Calligraphy practice](docs/calligraphy.png)     | ![PDF annotation](docs/pdf-annotation.png) |
+| Calligraphy practice (tan paper preset)           | Annotating an imported PDF                 | Markdown text with LaTeX math and an embedded geometry figure |
+| ------------------------------------------------- | ------------------------------------------ | ------------------------------------------------------------- |
+| ![Calligraphy practice](docs/calligraphy.png)     | ![PDF annotation](docs/pdf-annotation.png) | ![Math notes with geometry figure](docs/math-geometry.png)    |
 
 ## Tech stack
 
