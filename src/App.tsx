@@ -147,6 +147,17 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (!ready) return;
+    const splash = document.getElementById("splash");
+    if (!splash) return;
+    splash.classList.add("done");
+    const remove = () => splash.remove();
+    splash.addEventListener("transitionend", remove, { once: true });
+    // transitionend never fires in a hidden tab; remove regardless.
+    window.setTimeout(remove, 600);
+  }, [ready]);
+
+  useEffect(() => {
     if (!presentation) return;
     let cancelled = false;
     const root = document.documentElement;

@@ -10,7 +10,8 @@ import { textItemHeight } from "../text/textHeight";
 import { TextOverlay } from "./TextOverlay";
 
 function cursorForTool(tool: ToolKind): string {
-  if (tool === "eraser") return "cell";
+  // The eraser hides the native cursor; the engine draws a size ring instead.
+  if (tool === "eraser") return "none";
   if (tool === "laser") return "none";
   if (tool === "select") return "default";
   if (tool === "text") return "text";
@@ -92,6 +93,7 @@ export function BoardCanvas() {
       if (state.presentation !== prev.presentation) board.setPresentation(state.presentation);
       if (state.tool !== prev.tool) {
         container.style.cursor = cursorForTool(state.tool);
+        board.notifyToolChanged();
         if (state.tool !== "select" && state.selection) {
           useBoardStore.getState().setSelection(null);
         }

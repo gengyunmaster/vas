@@ -147,6 +147,7 @@ type SelectGesture =
     };
 
 const LASER_LIFETIME_MS = 1200;
+const ERASER_RING_RADIUS = 8;
 
 const PEN_SEEN_KEY = "vas.penSeen";
 const WHEEL_ZOOM_SETTLE_MS = 150;
@@ -179,6 +180,7 @@ export class Board {
   private penSeen = false;
 
   private pointers = new Map<number, TrackedPointer>();
+  private hover: Point | null = null;
   private stroke: ActiveStroke | null = null;
   private erasing: EraseSession | null = null;
   private laser: LaserTrail | null = null;
@@ -223,6 +225,7 @@ export class Board {
     this.activeCanvas.addEventListener("pointermove", this.handlePointerMove);
     this.activeCanvas.addEventListener("pointerup", this.handlePointerEnd);
     this.activeCanvas.addEventListener("pointercancel", this.handlePointerEnd);
+    this.activeCanvas.addEventListener("pointerleave", this.handlePointerLeave);
     this.activeCanvas.addEventListener("contextmenu", preventDefault);
     this.activeCanvas.addEventListener("wheel", this.handleWheel, { passive: false });
     document.addEventListener("gesturestart", preventDefault);
@@ -396,12 +399,17 @@ export class Board {
     this.activeCanvas.removeEventListener("pointermove", this.handlePointerMove);
     this.activeCanvas.removeEventListener("pointerup", this.handlePointerEnd);
     this.activeCanvas.removeEventListener("pointercancel", this.handlePointerEnd);
+    this.activeCanvas.removeEventListener("pointerleave", this.handlePointerLeave);
     this.activeCanvas.removeEventListener("contextmenu", preventDefault);
     this.activeCanvas.removeEventListener("wheel", this.handleWheel);
     document.removeEventListener("gesturestart", preventDefault);
     window.removeEventListener("keydown", this.handleKeyDown);
     this.baseCanvas.remove();
     this.activeCanvas.remove();
+  }
+
+  notifyToolChanged(): void {
+    this.scheduleComposite();
   }
 
   setPresentation(on: boolean): void {
@@ -597,6 +605,7 @@ export class Board {
     this.renderActiveStroke(dpr);
     this.renderSelection(dpr);
     this.renderLaserTrail(dpr);
+    this.renderEraserRing(dpr);
     this.publishTexts(board, tops);
     this.reportViewPage();
     this.pushSelectionAnchor();
@@ -722,6 +731,33 @@ export class Board {
       return;
     }
     this.scheduleComposite();
+  }
+
+  private handlePointerLeave = (event: PointerEvent): void => {
+    if (event.pointerType === "touch" || !this.hover) return;
+    this.hover = null;
+    this.scheduleComposite();
+  };
+
+  // Two-tone ring: visible on any paper color, chalkboard included.
+  private renderEraserRing(dpr: number): void {
+    const hover = this.hover;
+    if (!hover || this.callbacks.getTool().tool !== "eraser") return;
+    const radius = ERASER_RING_RADIUS * this.viewport.scale;
+    const ctx = this.activeCtx;
+    ctx.save();
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.beginPath();
+    ctx.arc(hover.x, hover.y, radius, 0, Math.PI * 2);
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.8)";
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(hover.x, hover.y, radius, 0, Math.PI * 2);
+    ctx.strokeStyle = "rgba(20, 20, 20, 0.55)";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.restore();
   }
 
   private paintPageDirect(
@@ -1143,9 +1179,13 @@ export class Board {
   };
 
   private handlePointerMove = (event: PointerEvent): void => {
+    const pos = this.eventPos(event);
+    if (event.pointerType !== "touch") {
+      this.hover = pos;
+      if (this.callbacks.getTool().tool === "eraser") this.scheduleComposite();
+    }
     const prev = this.pointers.get(event.pointerId);
     if (!prev) return;
-    const pos = this.eventPos(event);
     this.pointers.set(event.pointerId, { ...pos, type: event.pointerType });
 
     if (this.pinching && event.pointerType === "touch") {

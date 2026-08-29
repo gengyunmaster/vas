@@ -15,9 +15,63 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
     <title>vas</title>
+    <style>
+      /* First-paint splash; removed by App once the store is ready. */
+      #splash {
+        position: fixed;
+        inset: 0;
+        z-index: 100;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 16px;
+        background: #f4f4f2;
+        transition: opacity 0.25s ease;
+      }
+      #splash svg {
+        width: 64px;
+        height: 64px;
+        display: block;
+      }
+      #splash span {
+        font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+        font-size: 18px;
+        font-weight: 600;
+        color: #888888;
+        letter-spacing: 0.04em;
+      }
+      #splash.done {
+        opacity: 0;
+        pointer-events: none;
+      }
+      @media (prefers-color-scheme: dark) {
+        #splash {
+          background: #1c1c1f;
+        }
+        #splash span {
+          color: #6b6b72;
+        }
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>
+    <div id="splash" aria-hidden="true">
+      <svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+        <rect width="512" height="512" rx="112" fill="#1a1a1a" />
+        <path
+          d="M143 154 L236 369 L379 133"
+          fill="none"
+          stroke="#ffffff"
+          stroke-width="44"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+        <circle cx="384" cy="364" r="28" fill="#ffffff" />
+      </svg>
+      <span>vas</span>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
