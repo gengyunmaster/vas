@@ -48,6 +48,10 @@ self-hosted instance keep separate data; use export / import to move notebooks a
 - **Per-page paper** — paper colors (presets incl. blackboard green and calligraphy tan,
   plus custom hex) and background templates (blank / lined / grid / dots / rice grid),
   with contrast-aware guide lines
+- **Polished UI** — light / dark / follow-system theme (paper colors are document content
+  and stay untouched), animated panels, dialogs and selection bars with reduced-motion
+  support, in-app toasts and styled confirm/prompt dialogs replacing native popups,
+  an eraser size ring cursor, and a themed launch splash
 - **Page management** — insert / delete / clear pages, automatic page continuation,
   thumbnail sidebar with aspect-accurate previews and long-press drag to reorder
 - **Presentation mode** — full-screen slideshow: one page fitted to the screen on a
