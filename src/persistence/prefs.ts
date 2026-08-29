@@ -2,6 +2,7 @@ import { normalizeHex } from "../model/color";
 import { PAGE_PATTERNS, type PagePattern } from "../model/page";
 import { TOOL_KINDS, type ToolKind } from "../model/stroke";
 import { useBoardStore } from "../store/useBoardStore";
+import { THEME_PREFERENCES, type ThemePreference } from "../theme";
 
 const PREFS_KEY = "vas.toolPrefs";
 
@@ -12,6 +13,7 @@ interface ToolPrefs {
   paperColor?: string;
   pattern?: PagePattern;
   sidebarOpen?: boolean;
+  theme?: ThemePreference;
 }
 
 export function loadToolPrefs(): ToolPrefs {
@@ -48,6 +50,9 @@ export function parseToolPrefs(raw: unknown): ToolPrefs {
     out.pattern = prefs.pattern as PagePattern;
   }
   if (typeof prefs.sidebarOpen === "boolean") out.sidebarOpen = prefs.sidebarOpen;
+  if (THEME_PREFERENCES.includes(prefs.theme as ThemePreference)) {
+    out.theme = prefs.theme as ThemePreference;
+  }
   return out;
 }
 
@@ -60,17 +65,19 @@ export function startPrefsSync(): () => void {
       state.size === prev.size &&
       state.paperColor === prev.paperColor &&
       state.pattern === prev.pattern &&
-      state.sidebarOpen === prev.sidebarOpen
+      state.sidebarOpen === prev.sidebarOpen &&
+      state.theme === prev.theme
     ) {
       return;
     }
     window.clearTimeout(timer);
     timer = window.setTimeout(() => {
-      const { tool, color, size, paperColor, pattern, sidebarOpen } = useBoardStore.getState();
+      const { tool, color, size, paperColor, pattern, sidebarOpen, theme } =
+        useBoardStore.getState();
       try {
         localStorage.setItem(
           PREFS_KEY,
-          JSON.stringify({ tool, color, size, paperColor, pattern, sidebarOpen }),
+          JSON.stringify({ tool, color, size, paperColor, pattern, sidebarOpen, theme }),
         );
       } catch {
         // storage may be unavailable

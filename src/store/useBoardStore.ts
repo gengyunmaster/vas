@@ -28,6 +28,7 @@ import {
 } from "../model/transform";
 import type { ViewState } from "../model/viewState";
 import { textItemHeight } from "../text/textHeight";
+import type { ThemePreference } from "../theme";
 
 export const COLORS = ["#1a1a1a", "#d64541", "#2f6fdd", "#2e9e5b", "#f2b134", "#ffffff"] as const;
 export const PAPER_COLORS = [
@@ -115,6 +116,8 @@ interface BoardState {
   size: number;
   paperColor: string;
   pattern: PagePattern;
+  theme: ThemePreference;
+  setTheme: (theme: ThemePreference) => void;
   selection: SelectionTarget | null;
   selectionAnchor: { x: number; y: number } | null;
   clipboard: ClipboardContent;
@@ -390,6 +393,7 @@ export const useBoardStore = create<BoardState>()((set) => ({
   size: SIZES[1],
   paperColor: PAPER_COLORS[0],
   pattern: "blank",
+  theme: "system",
   selection: null,
   selectionAnchor: null,
   clipboard: { strokes: [], images: [], texts: [] },
@@ -685,6 +689,7 @@ export const useBoardStore = create<BoardState>()((set) => ({
   toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
   requestScrollToPage: (index) => set({ pendingScrollToPage: index }),
   setColor: (color) => set({ color }),
+  setTheme: (theme) => set({ theme }),
   setSize: (size) => set({ size }),
   setPaperColor: (paperColor) =>
     set((state) => ({

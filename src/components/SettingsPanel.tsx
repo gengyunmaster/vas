@@ -20,6 +20,7 @@ import {
 } from "../persistence/importPdf";
 import { insertImageFile } from "../persistence/insertImage";
 import { COLORS, PAPER_COLORS, SIZES, useBoardStore } from "../store/useBoardStore";
+import { THEME_PREFERENCES, type ThemePreference } from "../theme";
 import { ColorField } from "./ColorField";
 import {
   AddPageIcon,
@@ -48,6 +49,12 @@ const SHAPE_LABELS: Record<ShapeKind, string> = {
   arrow: "Arrow",
   rect: "Rect",
   ellipse: "Ellipse",
+};
+
+const THEME_LABELS: Record<ThemePreference, string> = {
+  system: "Auto",
+  light: "Light",
+  dark: "Dark",
 };
 
 export function SettingsPanel() {
@@ -83,6 +90,7 @@ export function SettingsPanel() {
       state.clipboard.texts.length > 0,
   );
   const sidebarOpen = useBoardStore((state) => state.sidebarOpen);
+  const theme = useBoardStore((state) => state.theme);
   const presentation = useBoardStore((state) => state.presentation);
   const pdfImporting = useBoardStore((state) =>
     state.notebookId ? (state.pdfImports[state.notebookId] ?? null) : null,
@@ -467,6 +475,22 @@ export function SettingsPanel() {
           )}
         </div>
       )}
+      <section className="settings-section">
+        <div className="settings-label">Theme</div>
+        <div className="settings-row">
+          {THEME_PREFERENCES.map((t) => (
+            <button
+              key={t}
+              type="button"
+              aria-pressed={theme === t}
+              className={theme === t ? "text-option active" : "text-option"}
+              onClick={() => useBoardStore.getState().setTheme(t)}
+            >
+              {THEME_LABELS[t]}
+            </button>
+          ))}
+        </div>
+      </section>
       <section className="settings-section">
         <div className="settings-label">Export</div>
         <div className="settings-row">

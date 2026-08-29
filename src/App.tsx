@@ -13,6 +13,7 @@ import { createNotebook, listNotebooks } from "./persistence/notebooks";
 import { loadToolPrefs, startPrefsSync } from "./persistence/prefs";
 import { flushViewStateSave, openNotebook, readLastNotebookId } from "./persistence/session";
 import { useBoardStore } from "./store/useBoardStore";
+import { startThemeSync } from "./theme";
 
 // StrictMode mounts effects twice in dev; the module-level guard keeps app init idempotent.
 let initStarted = false;
@@ -26,6 +27,7 @@ export default function App() {
     if (initStarted) return;
     initStarted = true;
     startPrefsSync();
+    startThemeSync();
     void (async () => {
       try {
         useBoardStore.setState(loadToolPrefs());
