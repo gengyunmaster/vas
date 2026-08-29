@@ -170,7 +170,7 @@ export default function App() {
           <BoardCanvas />
           <PageSidebar />
           <Toolbar />
-          {!presentation && <SelectionBar />}
+          <SelectionBar />
           {!presentation && <PageIndicator />}
           <TextEditor />
           <GeometryOverlay />
