@@ -13,6 +13,8 @@ import { buildPdfPages, type PdfPageImage } from "../model/pdfPage";
 import { newId, type PenKind, type Stroke, type ToolKind } from "../model/stroke";
 import { createTextItem, DEFAULT_TEXT_FONT_SIZE, type TextItem } from "../model/textItem";
 import {
+  centerDelta,
+  elementsBounds,
   imagesBounds,
   scaleImage,
   scaleStroke,
@@ -147,6 +149,7 @@ interface BoardState {
     before: { strokes: Stroke[]; images: ImageItem[]; texts: TextItem[] },
     after: { strokes: Stroke[]; images: ImageItem[]; texts: TextItem[] },
   ) => void;
+  centerSelection: (axis: "horizontal" | "vertical") => void;
   recolorSelection: (color: string) => void;
   deleteSelection: () => void;
   copySelection: () => void;
@@ -785,6 +788,53 @@ export const useBoardStore = create<BoardState>()((set) => ({
             imagesAfter: after.images,
             textsBefore: before.texts,
             textsAfter: after.texts,
+          },
+        ],
+        future: [],
+      };
+    }),
+  centerSelection: (axis) =>
+    set((state) => {
+      const selected = selectedElements(state);
+      if (!selected) return state;
+      const page = state.pages.find((p) => p.id === selected.pageId);
+      if (!page) return state;
+      const strokesBefore = selected.strokes.map((e) => e.stroke);
+      const imagesBefore = selected.images.map((e) => e.image);
+      const textsBefore = selected.texts.map((e) => e.text);
+      const bounds = elementsBounds(
+        strokesBefore,
+        imagesBefore,
+        textsBefore.map((t) => ({ item: t, height: textItemHeight(t) })),
+      );
+      if (!bounds) return state;
+      const { dx, dy } = centerDelta(bounds, page.width, page.height, axis);
+      if (dx === 0 && dy === 0) return state;
+      const strokesAfter = strokesBefore.map((s) => translateStroke(s, dx, dy));
+      const imagesAfter = imagesBefore.map((i) => translateImage(i, dx, dy));
+      const textsAfter = textsBefore.map((t) => translateText(t, dx, dy));
+      return {
+        pages: state.pages.map((p) =>
+          p.id === selected.pageId
+            ? {
+                ...p,
+                strokes: replaceById(p.strokes, strokesBefore, strokesAfter),
+                images: replaceById(p.images, imagesBefore, imagesAfter),
+                texts: replaceById(p.texts, textsBefore, textsAfter),
+              }
+            : p,
+        ),
+        past: [
+          ...state.past,
+          {
+            kind: "replace-elements",
+            pageId: selected.pageId,
+            strokesBefore,
+            strokesAfter,
+            imagesBefore,
+            imagesAfter,
+            textsBefore,
+            textsAfter,
           },
         ],
         future: [],

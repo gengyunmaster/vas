@@ -353,6 +353,34 @@ describe("selection and clipboard", () => {
     expect(useBoardStore.getState().past).toHaveLength(before);
   });
 
+  it("centerSelection horizontally centers the selection bounds as one undoable edit", () => {
+    setupSelection(["s1"]);
+    useBoardStore.getState().centerSelection("horizontal");
+    const stroke = useBoardStore.getState().pages[0].strokes[0];
+    expect(stroke.points[0].x).toBeCloseTo(391);
+    expect(stroke.points[0].y).toBe(0);
+    expect(useBoardStore.getState().past).toHaveLength(3);
+    useBoardStore.getState().undo();
+    expect(useBoardStore.getState().pages[0].strokes[0].points[0].x).toBe(0);
+  });
+
+  it("centerSelection vertically centers the selection bounds", () => {
+    setupSelection(["s1"]);
+    useBoardStore.getState().centerSelection("vertical");
+    const stroke = useBoardStore.getState().pages[0].strokes[0];
+    expect(stroke.points[0].y).toBeCloseTo(557.5);
+    expect(stroke.points[0].x).toBe(0);
+  });
+
+  it("centerSelection without a selection is a no-op", () => {
+    const pageId = useBoardStore.getState().pages[0].id;
+    useBoardStore.getState().addStroke(pageId, sampleStroke("s1"));
+    const before = useBoardStore.getState().past.length;
+    useBoardStore.getState().centerSelection("horizontal");
+    expect(useBoardStore.getState().past).toHaveLength(before);
+    expect(useBoardStore.getState().pages[0].strokes[0].points[0].x).toBe(0);
+  });
+
   it("recolorSelection recolors only the selected strokes", () => {
     setupSelection(["s1"]);
     useBoardStore.getState().recolorSelection("#d64541");

@@ -33,6 +33,7 @@ export function SelectionBar() {
 
   const { recolorSelection, cutSelection, copySelection, deleteSelection, editGeometry } =
     useBoardStore.getState();
+  const { centerSelection } = useBoardStore.getState();
 
   const editText = () => {
     if (!editableTextItemId) return;
@@ -84,6 +85,22 @@ export function SelectionBar() {
           Edit
         </button>
       )}
+      <button
+        type="button"
+        className="text-btn"
+        title="Center horizontally on page"
+        onClick={() => centerSelection("horizontal")}
+      >
+        Center H
+      </button>
+      <button
+        type="button"
+        className="text-btn"
+        title="Center vertically on page"
+        onClick={() => centerSelection("vertical")}
+      >
+        Center V
+      </button>
       <button type="button" className="text-btn" onClick={cutSelection}>
         Cut
       </button>

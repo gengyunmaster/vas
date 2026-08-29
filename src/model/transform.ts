@@ -155,6 +155,22 @@ export function clampMoveDelta(
   };
 }
 
+// Centering clamps only the centered axis: oversized content flushes to an
+// edge instead of overflowing, and the other axis stays untouched.
+export function centerDelta(
+  bounds: Bounds,
+  pageWidth: number,
+  pageHeight: number,
+  axis: "horizontal" | "vertical",
+): { dx: number; dy: number } {
+  if (axis === "horizontal") {
+    const dx = (pageWidth - (bounds.maxX - bounds.minX)) / 2 - bounds.minX;
+    return { dx: clamp(dx, -bounds.minX, pageWidth - bounds.maxX), dy: 0 };
+  }
+  const dy = (pageHeight - (bounds.maxY - bounds.minY)) / 2 - bounds.minY;
+  return { dx: 0, dy: clamp(dy, -bounds.minY, pageHeight - bounds.maxY) };
+}
+
 export function clampScaleToPage(
   bounds: Bounds,
   anchor: Point,

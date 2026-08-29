@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Stroke } from "./stroke";
 import {
+  centerDelta,
   clampMoveDelta,
   clampScaleToPage,
   elementsBounds,
@@ -139,6 +140,29 @@ describe("clampMoveDelta", () => {
 
   it("respects a smaller page", () => {
     expect(clampMoveDelta(bounds, 99999, 99999, 300, 300)).toEqual({ dx: 190, dy: 190 });
+  });
+});
+
+describe("centerDelta", () => {
+  const bounds = { minX: 10, minY: 10, maxX: 110, maxY: 110 };
+
+  it("centers horizontally without moving vertically", () => {
+    expect(centerDelta(bounds, 794, 1123, "horizontal")).toEqual({ dx: 337, dy: 0 });
+  });
+
+  it("centers vertically without moving horizontally", () => {
+    expect(centerDelta(bounds, 794, 1123, "vertical")).toEqual({ dx: 0, dy: 501.5 });
+  });
+
+  it("is zero when already centered", () => {
+    const centered = { minX: 347, minY: 511.5, maxX: 447, maxY: 611.5 };
+    expect(centerDelta(centered, 794, 1123, "horizontal").dx).toBe(0);
+    expect(centerDelta(centered, 794, 1123, "vertical").dy).toBe(0);
+  });
+
+  it("flushes oversized content to the page edge instead of overflowing", () => {
+    const wide = { minX: -50, minY: 0, maxX: 900, maxY: 100 };
+    expect(centerDelta(wide, 794, 1123, "horizontal")).toEqual({ dx: 50, dy: 0 });
   });
 });
 
