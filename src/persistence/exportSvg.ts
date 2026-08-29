@@ -141,7 +141,10 @@ export async function pageToSvg(
 
 function naturalSize(imageId: string): { width: number; height: number } | null {
   const bitmap = getImageBitmap(imageId);
-  return bitmap ? { width: bitmap.naturalWidth, height: bitmap.naturalHeight } : null;
+  if (!bitmap) return null;
+  return bitmap instanceof HTMLImageElement
+    ? { width: bitmap.naturalWidth, height: bitmap.naturalHeight }
+    : { width: bitmap.width, height: bitmap.height };
 }
 
 function strokeToSvg(stroke: Stroke): string {

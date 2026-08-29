@@ -39,7 +39,7 @@ import type { ViewState } from "../model/viewState";
 import { publishTextFrame, type SelectionGestureSnapshot } from "../text/textFrameBus";
 import { textItemHeight } from "../text/textHeight";
 import { get2dContext } from "./canvas";
-import { getImageBitmap, onImageLoaded } from "./imageCache";
+import { getImageBitmap, isAnimatedGif, nextGifFrameDelay, onImageLoaded } from "./imageCache";
 import { maxCacheRenderScale, PageCache } from "./pageCache";
 import { drawPagePattern } from "./patterns";
 import { drawStroke } from "./renderStroke";
@@ -148,6 +148,9 @@ type SelectGesture =
 
 const LASER_LIFETIME_MS = 1200;
 const ERASER_RING_RADIUS = 8;
+const GIF_TICK_MS = 120; // fallback when no frame timing is known
+const GIF_TICK_MIN_MS = 50;
+const GIF_TICK_MAX_MS = 1000;
 
 const PEN_SEEN_KEY = "vas.penSeen";
 const WHEEL_ZOOM_SETTLE_MS = 150;
@@ -207,6 +210,7 @@ export class Board {
   private swipeStartY = 0;
   private swipeUsed = false;
   private rafId = 0;
+  private gifTimer: number | undefined;
   private lastReportedPage = -1;
   private lastReportedView: { x: number; y: number; scale: number } | null = null;
   private readonly stopImageListener: () => void;
@@ -391,6 +395,7 @@ export class Board {
 
   destroy(): void {
     cancelAnimationFrame(this.rafId);
+    window.clearTimeout(this.gifTimer);
     window.clearTimeout(this.wheelTimer);
     window.clearTimeout(this.wheelAccumTimer);
     this.observer.disconnect();
@@ -610,6 +615,57 @@ export class Board {
     this.reportViewPage();
     this.pushSelectionAnchor();
     this.reportViewport();
+    this.syncGifTicker();
+  }
+
+  // Animations pick frames by wall clock inside getImageBitmap; the ticker
+  // only forces repaints, timed to the nearest frame boundary.
+  private syncGifTicker(): void {
+    if (this.gifTimer !== undefined) return;
+    const delay = this.visibleGifDelay();
+    if (delay === null) return;
+    this.gifTimer = window.setTimeout(() => {
+      this.gifTimer = undefined;
+      this.tickGifFrames();
+      // The tick may skip invalidation (gesture in progress); re-arm directly
+      // so the loop survives, and let it die once no animated GIF is visible.
+      this.syncGifTicker();
+    }, delay);
+  }
+
+  private visibleGifDelay(): number | null {
+    const { first, last } = visiblePageRange(this.viewport, this.screen, this.pages);
+    let min = Number.POSITIVE_INFINITY;
+    for (let i = first; i <= last; i++) {
+      for (const image of this.pages[i]?.images ?? []) {
+        if (!isAnimatedGif(image.imageId)) continue;
+        const delay = nextGifFrameDelay(image.imageId);
+        min = Math.min(min, delay > 0 ? delay : GIF_TICK_MS);
+      }
+    }
+    if (min === Number.POSITIVE_INFINITY) return null;
+    return Math.min(GIF_TICK_MAX_MS, Math.max(GIF_TICK_MIN_MS, min));
+  }
+
+  private tickGifFrames(): void {
+    // Writing latency outranks animation; gestures repaint continuously anyway.
+    if (this.pinching || this.wheelZooming || this.pageTurn) return;
+    if (this.stroke || this.erasing || this.lasso || this.gesture) return;
+    const renderScale = (window.devicePixelRatio || 1) * this.viewport.scale;
+    const { first, last } = visiblePageRange(this.viewport, this.screen, this.pages);
+    let dirty = false;
+    for (let i = first; i <= last; i++) {
+      const page = this.pages[i];
+      if (!page?.images.some((image) => isAnimatedGif(image.imageId))) continue;
+      dirty = true;
+      // Direct-draw past the cache pixel cap and the image-selection layer both
+      // repaint images every composite; only the cached bitmap goes stale.
+      const paintsLive =
+        renderScale > maxCacheRenderScale(page) ||
+        (this.selection?.pageId === page.id && this.selection.images.length > 0);
+      if (!paintsLive) this.cache.drop(page.id);
+    }
+    if (dirty) this.scheduleComposite();
   }
 
   private publishTexts(board: number, tops: number[]): void {

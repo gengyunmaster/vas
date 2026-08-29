@@ -12,7 +12,7 @@ export async function insertImageFile(file: File, geometryId?: string): Promise<
     mimeType: file.type || "application/octet-stream",
     blob: file,
   });
-  primeImage(imageId, decoded);
+  primeImage(imageId, decoded, file);
   useBoardStore
     .getState()
     .insertImage(imageId, decoded.naturalWidth, decoded.naturalHeight, { geometryId });
