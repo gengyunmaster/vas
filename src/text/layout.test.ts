@@ -45,6 +45,29 @@ describe("layoutBlocks", () => {
     expect(ys.size).toBe(2);
   });
 
+  it("preserves spaces across inline style boundaries", async () => {
+    const result = await layout("Plain **bold**, *italic* and ~~gone~~");
+    const text = result.runs.map((r) => (r.kind === "text" ? r.text : "")).join("");
+    expect(text).toBe("Plain bold, italic and gone");
+  });
+
+  it("keeps the spaces around inline math", async () => {
+    const glyph = {
+      body: "<path d='M0 0'/>",
+      viewBox: [0, -400, 1000, 600] as [number, number, number, number],
+    };
+    const result = await layoutBlocks(parseMarkdown("see $x$ end"), {
+      width: 500,
+      fontSize: 10,
+      color: "#000000",
+      measure,
+      resolveMath: async () => glyph,
+      resolveImageSize: noImages,
+    });
+    const text = result.runs.map((r) => (r.kind === "text" ? r.text : "#")).join("");
+    expect(text).toBe("see # end");
+  });
+
   it("grows height with content and honors explicit breaks", async () => {
     const single = await layout("one");
     const multi = await layout("one\ntwo\nthree");

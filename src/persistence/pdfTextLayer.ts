@@ -52,8 +52,13 @@ export function createPdfTextFonts(doc: PDFDocument, fontkitModule: typeof fontk
           const bytes = await loadFontBytes();
           // pdf-lib's re-subsetting (`subset: true`) breaks glyph mapping for
           // these fonts (most glyphs render blank); embed them whole instead —
-          // they are already GB2312 subsets.
-          return doc.embedFont(bold ? bytes.bold : bytes.regular);
+          // they are already GB2312 subsets. Shaping must stay off: fontkit's
+          // locl turns digits into alternate glyphs and liga merges fi/fl,
+          // and pdf-lib only maps cmap-reachable glyphs back to Unicode, so
+          // substituted glyphs extract as nothing and land at the wrong width.
+          return doc.embedFont(bold ? bytes.bold : bytes.regular, {
+            features: { liga: false, locl: false },
+          });
         })();
         cache.set(bold, pending);
       }

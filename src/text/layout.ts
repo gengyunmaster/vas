@@ -160,10 +160,27 @@ async function buildAtoms(
   opts: LayoutOptions,
 ): Promise<Atom[]> {
   const atoms: Atom[] = [];
+  // splitAtoms glues a space onto the atom that follows it, but drops one that
+  // trails an inline's text; carry it across inline (style) boundaries so
+  // "a **b**" does not collapse into "ab".
+  let pendingSpace = false;
+  const pushSpace = () => {
+    if (!pendingSpace) return;
+    atoms.push({
+      run: { kind: "text", text: " ", font: baseFont, color: opts.color },
+    });
+    pendingSpace = false;
+  };
   for (const inline of inlines) {
     switch (inline.kind) {
-      case "text":
-        for (const piece of splitAtoms(inline.text)) {
+      case "text": {
+        const pieces = splitAtoms(inline.text);
+        if (pendingSpace && pieces.length > 0) {
+          if (!pieces[0].startsWith(" ")) pieces[0] = ` ${pieces[0]}`;
+          pendingSpace = false;
+        }
+        pendingSpace = pendingSpace || /[ \t]$/.test(inline.text);
+        for (const piece of pieces) {
           atoms.push({
             run: {
               kind: "text",
@@ -176,7 +193,9 @@ async function buildAtoms(
           });
         }
         break;
+      }
       case "math": {
+        pushSpace();
         const glyph = await opts.resolveMath(inline.latex, false);
         if (!glyph) {
           for (const piece of splitAtoms(inline.latex)) {
@@ -208,6 +227,7 @@ async function buildAtoms(
       case "image": {
         const natural = opts.resolveImageSize(inline.imageId);
         if (!natural || natural.width <= 0 || natural.height <= 0) break;
+        pushSpace();
         const width = Math.min(natural.width, opts.width);
         atoms.push({
           run: {
