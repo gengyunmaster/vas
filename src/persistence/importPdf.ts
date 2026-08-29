@@ -3,6 +3,7 @@ import { placeImageCentered } from "../model/image";
 import { PDF_PAGE_SCALE, pdfPageSize } from "../model/pageSize";
 import { buildPdfPages, pdfInsertIndex } from "../model/pdfPage";
 import { newId } from "../model/stroke";
+import { askPrompt } from "../store/dialogs";
 import { askPageRange } from "../store/pdfRangePrompt";
 import { useBoardStore } from "../store/useBoardStore";
 import { decryptPdf } from "./decryptPdf";
@@ -77,16 +78,23 @@ export async function rasterizePdf(
   task.onPassword = (updatePassword: (password: string) => void, reason: number) => {
     const message =
       reason === pdfjs.PasswordResponses.INCORRECT_PASSWORD
-        ? "Incorrect password. Please try again:"
-        : "This PDF is password protected. Enter its password:";
-    const password = window.prompt(message);
-    if (password === null) {
-      cancelled = true;
-      void task.destroy();
-      return;
-    }
-    capturedPassword = password;
-    updatePassword(password);
+        ? "Incorrect password. Please try again."
+        : "This PDF is password protected. Enter its password to continue.";
+    // pdf.js simply waits until updatePassword is called, so the prompt may be async.
+    void askPrompt({
+      title: "Password required",
+      text: message,
+      confirmLabel: "Unlock",
+      password: true,
+    }).then((password) => {
+      if (password === null) {
+        cancelled = true;
+        void task.destroy();
+        return;
+      }
+      capturedPassword = password;
+      updatePassword(password);
+    });
   };
   let doc: import("pdfjs-dist").PDFDocumentProxy;
   try {

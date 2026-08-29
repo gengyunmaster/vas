@@ -1,4 +1,5 @@
 import type { Page } from "../model/page";
+import { toast } from "../store/toasts";
 import { useBoardStore } from "../store/useBoardStore";
 import { replacePages, savePage } from "./notebooks";
 
@@ -22,7 +23,7 @@ function reportSaveError(error: unknown): void {
   console.error("Failed to save page", error);
   if (saveErrorReported) return;
   saveErrorReported = true;
-  window.alert("Saving failed. Your latest changes may not be stored.");
+  toast("Saving failed. Your latest changes may not be stored.");
 }
 
 function changedPages(prev: Page[], next: Page[]): { index: number; page: Page }[] {

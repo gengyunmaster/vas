@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { BoardCanvas } from "./components/BoardCanvas";
+import { ConfirmDialog, PromptDialog } from "./components/Dialogs";
 import { GeometryOverlay } from "./components/GeometryOverlay";
 import { Home } from "./components/Home";
 import { PageIndicator } from "./components/PageIndicator";
@@ -7,11 +8,14 @@ import { PageRangeDialog } from "./components/PageRangeDialog";
 import { PageSidebar } from "./components/PageSidebar";
 import { SelectionBar } from "./components/SelectionBar";
 import { TextEditor } from "./components/TextEditor";
+import { Toasts } from "./components/Toasts";
 import { Toolbar } from "./components/Toolbar";
 import { insertImageFile } from "./persistence/insertImage";
 import { createNotebook, listNotebooks } from "./persistence/notebooks";
 import { loadToolPrefs, startPrefsSync } from "./persistence/prefs";
 import { flushViewStateSave, openNotebook, readLastNotebookId } from "./persistence/session";
+import { useDialogStore } from "./store/dialogs";
+import { toast } from "./store/toasts";
 import { useBoardStore } from "./store/useBoardStore";
 import { startThemeSync } from "./theme";
 
@@ -41,7 +45,7 @@ export default function App() {
         }
       } catch (error) {
         console.error("Failed to initialize vas storage", error);
-        window.alert("Local storage is unavailable. Your notes will not be saved in this session.");
+        toast("Local storage is unavailable. Your notes will not be saved in this session.");
       } finally {
         setReady(true);
       }
@@ -52,6 +56,8 @@ export default function App() {
     const onKeyDown = (event: KeyboardEvent) => {
       if (useBoardStore.getState().geometryEditor) return;
       if (useBoardStore.getState().pdfRangeRequest) return;
+      const dialogs = useDialogStore.getState();
+      if (dialogs.confirm || dialogs.prompt) return;
       const target = event.target;
       const typing =
         target instanceof HTMLElement &&
@@ -117,7 +123,7 @@ export default function App() {
         event.preventDefault();
         void insertImageFile(file).catch((error: unknown) => {
           console.error("Failed to paste image", error);
-          window.alert("Failed to paste image.");
+          toast("Failed to paste image.");
         });
         return;
       }
@@ -182,12 +188,15 @@ export default function App() {
           onOpen={(id) => {
             void openNotebook(id).catch((error: unknown) => {
               console.error("Failed to open notebook", error);
-              window.alert("Failed to open this notebook.");
+              toast("Failed to open this notebook.");
             });
           }}
         />
       )}
       <PageRangeDialog />
+      <ConfirmDialog />
+      <PromptDialog />
+      <Toasts />
     </>
   );
 }

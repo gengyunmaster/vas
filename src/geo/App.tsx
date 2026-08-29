@@ -2,6 +2,8 @@ import type { PointerEvent as ReactPointerEvent } from "react";
 import { useEffect, useRef, useState } from "react";
 import "./App.css";
 import { isDarkColor } from "../model/color";
+import { askConfirm } from "../store/dialogs";
+import { toast } from "../store/toasts";
 import { BoardController } from "./board";
 import { applyBoardTheme, applyPaperPalette } from "./board/palette";
 import { debugLog, isDebugEnabled } from "./debug";
@@ -261,9 +263,7 @@ export default function App({ paperColor, initialDocument, onEmbed, onCancel }: 
       reset(parseDocument(text));
       setSelectedId(null);
     } catch (error) {
-      window.alert(
-        `Could not open file: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      toast(`Could not open file: ${error instanceof Error ? error.message : String(error)}`);
     }
   };
 
@@ -285,9 +285,9 @@ export default function App({ paperColor, initialDocument, onEmbed, onCancel }: 
     try {
       const blob = await rasterizeBoard(host, 2, { overlays: controller.latexOverlays() });
       if (blob) downloadBlob(timestampedFilename("png"), blob);
-      else window.alert("PNG export failed in this browser");
+      else toast("PNG export failed in this browser");
     } catch {
-      window.alert("PNG export failed in this browser");
+      toast("PNG export failed in this browser");
     }
   };
 
@@ -551,8 +551,9 @@ export default function App({ paperColor, initialDocument, onEmbed, onCancel }: 
     setStatus(`Custom tool "${def.name}" created (${def.givens.length} givens)`);
   };
 
-  const handleDeleteCustom = (name: string) => {
-    if (window.confirm(`Delete custom tool "${name}"?`)) {
+  const handleDeleteCustom = async (name: string) => {
+    const ok = await askConfirm({ title: `Delete custom tool "${name}"?`, danger: true });
+    if (ok) {
       setCustomTools((current) => current.filter((tool) => tool.name !== name));
       if (activeTool === `custom:${name}`) setActiveTool("select");
     }
@@ -575,9 +576,7 @@ export default function App({ paperColor, initialDocument, onEmbed, onCancel }: 
       ]);
       setStatus(`Imported ${valid.length} custom tools`);
     } catch (error) {
-      window.alert(
-        `Could not import tools: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      toast(`Could not import tools: ${error instanceof Error ? error.message : String(error)}`);
     }
   };
 

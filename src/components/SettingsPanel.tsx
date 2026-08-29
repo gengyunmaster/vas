@@ -19,6 +19,8 @@ import {
   reRasterizePdfBase,
 } from "../persistence/importPdf";
 import { insertImageFile } from "../persistence/insertImage";
+import { askConfirm } from "../store/dialogs";
+import { toast } from "../store/toasts";
 import { COLORS, PAPER_COLORS, SIZES, useBoardStore } from "../store/useBoardStore";
 import { THEME_PREFERENCES, type ThemePreference } from "../theme";
 import { ColorField } from "./ColorField";
@@ -116,14 +118,21 @@ export function SettingsPanel({ closing = false }: { closing?: boolean }) {
     pasteClipboard,
   } = useBoardStore.getState();
 
-  const confirmClear = () => {
-    if (currentPageId && window.confirm("Clear this page?")) clearPage(currentPageId);
+  const confirmClear = async () => {
+    if (!currentPageId) return;
+    const ok = await askConfirm({ title: "Clear this page?", confirmLabel: "Clear", danger: true });
+    if (ok) clearPage(currentPageId);
   };
 
-  const confirmDelete = () => {
-    if (currentPageId && window.confirm("Delete this page and everything on it?")) {
-      deletePage(currentPageId);
-    }
+  const confirmDelete = async () => {
+    if (!currentPageId) return;
+    const ok = await askConfirm({
+      title: "Delete this page?",
+      text: "Everything on it will be removed.",
+      confirmLabel: "Delete",
+      danger: true,
+    });
+    if (ok) deletePage(currentPageId);
   };
 
   const doExport = async (format: "pdf" | "svg" | "png") => {
@@ -159,7 +168,7 @@ export function SettingsPanel({ closing = false }: { closing?: boolean }) {
       }
     } catch (error) {
       console.error(`${format.toUpperCase()} export failed`, error);
-      window.alert(`${format.toUpperCase()} export failed.`);
+      toast(`${format.toUpperCase()} export failed.`);
     } finally {
       useBoardStore.getState().setExporting(false);
     }
@@ -174,7 +183,7 @@ export function SettingsPanel({ closing = false }: { closing?: boolean }) {
     } catch (error) {
       if (error instanceof Error && error.message.startsWith("Import cancelled")) return;
       console.error("Failed to insert image", error);
-      window.alert(error instanceof Error ? error.message : "Failed to insert image.");
+      toast(error instanceof Error ? error.message : "Failed to insert image.");
     }
   };
 
@@ -188,8 +197,9 @@ export function SettingsPanel({ closing = false }: { closing?: boolean }) {
         setPdfImport(notebookId, { done, total }),
       );
     } catch (error) {
+      if (error instanceof Error && error.message.startsWith("Import cancelled")) return;
       console.error("PDF import failed", error);
-      window.alert(error instanceof Error ? error.message : "PDF import failed");
+      toast(error instanceof Error ? error.message : "PDF import failed");
     } finally {
       setPdfImport(notebookId, null);
     }

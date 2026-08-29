@@ -9,6 +9,8 @@ import {
   renameNotebook,
 } from "../persistence/notebooks";
 import { downloadNotebook, importNotebookFile } from "../persistence/transfer";
+import { askConfirm, askPrompt } from "../store/dialogs";
+import { toast } from "../store/toasts";
 import { formatRelativeTime } from "./formatTime";
 import { ExportIcon, RenameIcon, TrashIcon } from "./icons";
 
@@ -30,7 +32,7 @@ export function Home({ onOpen }: HomeProps) {
       setSelected((prev) => prev.filter((id) => list.some((n) => n.id === id)));
     } catch (error) {
       console.error("Failed to load notebooks", error);
-      window.alert("Failed to load notebooks. Local storage may be unavailable.");
+      toast("Failed to load notebooks. Local storage may be unavailable.");
     }
   }, []);
 
@@ -44,30 +46,40 @@ export function Home({ onOpen }: HomeProps) {
       onOpen(meta.id);
     } catch (error) {
       console.error("Failed to create notebook", error);
-      window.alert("Failed to create a notebook.");
+      toast("Failed to create a notebook.");
     }
   };
 
   const rename = async (notebook: NotebookRecord) => {
-    const title = window.prompt("Notebook name", notebook.title)?.trim();
+    const title = await askPrompt({
+      title: "Notebook name",
+      initial: notebook.title,
+      confirmLabel: "Rename",
+    });
     if (!title || title === notebook.title) return;
     try {
       await renameNotebook(notebook.id, title);
       await refresh();
     } catch (error) {
       console.error("Failed to rename notebook", error);
-      window.alert("Failed to rename the notebook.");
+      toast("Failed to rename the notebook.");
     }
   };
 
   const remove = async (notebook: NotebookRecord) => {
-    if (!window.confirm(`Delete "${notebook.title}"? This cannot be undone.`)) return;
+    const ok = await askConfirm({
+      title: `Delete "${notebook.title}"?`,
+      text: "This cannot be undone.",
+      confirmLabel: "Delete",
+      danger: true,
+    });
+    if (!ok) return;
     try {
       await deleteNotebook(notebook.id);
       await refresh();
     } catch (error) {
       console.error("Failed to delete notebook", error);
-      window.alert("Failed to delete the notebook.");
+      toast("Failed to delete the notebook.");
     }
   };
 
@@ -77,7 +89,7 @@ export function Home({ onOpen }: HomeProps) {
       await importNotebookFile(file);
       await refresh();
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : "Import failed");
+      toast(error instanceof Error ? error.message : "Import failed");
     }
   };
 
@@ -89,7 +101,8 @@ export function Home({ onOpen }: HomeProps) {
       await refresh();
       onOpen(id);
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : "PDF import failed");
+      if (error instanceof Error && error.message.startsWith("Import cancelled")) return;
+      toast(error instanceof Error ? error.message : "PDF import failed");
     } finally {
       setPdfProgress(null);
     }
@@ -103,7 +116,11 @@ export function Home({ onOpen }: HomeProps) {
     if (selected.length === 0) return;
     const first = notebooks?.find((n) => n.id === selected[0]);
     const fallback = selected.length === 1 && first ? `${first.title} copy` : "Merged notebook";
-    const title = window.prompt("Name for the merged notebook", fallback)?.trim();
+    const title = await askPrompt({
+      title: "Name for the merged notebook",
+      initial: fallback,
+      confirmLabel: "Merge",
+    });
     if (!title) return;
     try {
       const id = await mergeNotebooks(selected, title);
@@ -112,7 +129,7 @@ export function Home({ onOpen }: HomeProps) {
       onOpen(id);
     } catch (error) {
       console.error("Merge failed", error);
-      window.alert("Merge failed.");
+      toast("Merge failed.");
     }
   };
 
@@ -205,7 +222,7 @@ export function Home({ onOpen }: HomeProps) {
                   onClick={() => {
                     void downloadNotebook(notebook.id).catch((error: unknown) => {
                       console.error("Export failed", error);
-                      window.alert("Export failed.");
+                      toast("Export failed.");
                     });
                   }}
                 >

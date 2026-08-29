@@ -7,6 +7,7 @@ import { newId } from "../model/stroke";
 import { getGeometry, saveGeometry } from "../persistence/geometries";
 import { saveImage } from "../persistence/images";
 import { insertImageFile } from "../persistence/insertImage";
+import { toast } from "../store/toasts";
 import { useBoardStore } from "../store/useBoardStore";
 
 const GeoEditor = lazy(() => import("../geo/App"));
@@ -55,7 +56,7 @@ export function GeometryOverlay() {
   const missing = editor?.mode === "edit" && loadError;
   useEffect(() => {
     if (!missing) return;
-    window.alert("The figure's geometry data is missing; it cannot be edited.");
+    toast("The figure's geometry data is missing; it cannot be edited.");
     useBoardStore.getState().closeGeometry();
   }, [missing]);
 
@@ -99,7 +100,7 @@ export function GeometryOverlay() {
       close();
     } catch (error) {
       console.error("Failed to embed geometry figure", error);
-      window.alert("Failed to embed the figure.");
+      toast("Failed to embed the figure.");
     }
   };
 

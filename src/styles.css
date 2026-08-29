@@ -1309,3 +1309,80 @@ body {
     background: var(--accent-hover);
   }
 }
+
+.toasts {
+  position: fixed;
+  top: max(12px, env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  z-index: 40;
+  pointer-events: none;
+}
+
+.toast {
+  max-width: calc(100vw - 48px);
+  padding: 8px 16px;
+  background: var(--panel-strong);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  box-shadow: var(--shadow-pop);
+  font-size: 13px;
+  color: var(--text);
+}
+
+.dialog-input {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 14px;
+  font-size: 14px;
+  padding: 8px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  color: var(--text);
+  background: var(--field);
+}
+
+.dialog-input:focus {
+  outline: 2px solid var(--accent);
+  border-color: transparent;
+}
+
+.dialog-actions button.danger {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #ffffff;
+}
+
+.dialog-actions button.danger:hover {
+  filter: brightness(0.92);
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.96);
+  }
+}
+
+@keyframes toast-out {
+  to {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.97);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .toast {
+    animation: toast-in var(--dur-2) var(--ease-spring);
+  }
+
+  .toast.leaving {
+    animation: toast-out var(--dur-1) ease-in forwards;
+  }
+}

@@ -7,6 +7,7 @@ import {
   type TextItem,
 } from "../model/textItem";
 import { getImage, saveImage } from "../persistence/images";
+import { toast } from "../store/toasts";
 import { COLORS, useBoardStore } from "../store/useBoardStore";
 import { measureTextElement } from "../text/textElements";
 import { currentTextFrame } from "../text/textFrameBus";
@@ -155,7 +156,7 @@ export function TextEditor() {
       .then(() => insertImageRef(imageId, file.name.replace(/\.[^.]*$/, "") || "image"))
       .catch((error: unknown) => {
         console.error("Failed to attach image", error);
-        window.alert("Failed to attach image.");
+        toast("Failed to attach image.");
       });
   };
 
