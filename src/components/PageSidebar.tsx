@@ -3,6 +3,7 @@ import { onImageLoaded } from "../engine/imageCache";
 import { paintPage } from "../engine/renderPage";
 import type { Page } from "../model/page";
 import { useBoardStore } from "../store/useBoardStore";
+import { usePresence } from "./usePresence";
 
 const THUMB_WIDTH = 336;
 const LONG_PRESS_MS = 500;
@@ -36,6 +37,7 @@ export function PageSidebar() {
   const interactionRef = useRef<Interaction | null>(null);
   const timerRef = useRef<number | undefined>(undefined);
   const suppressClickRef = useRef(false);
+  const presence = usePresence(open);
 
   useEffect(() => {
     const cancelTimer = () => {
@@ -134,7 +136,7 @@ export function PageSidebar() {
     }, LONG_PRESS_MS);
   };
 
-  if (!open) return null;
+  if (!presence.mounted) return null;
 
   const othersCount = pages.length - 1;
   const indicatorBeforeIndex =
@@ -149,7 +151,7 @@ export function PageSidebar() {
       : null;
 
   return (
-    <aside ref={asideRef} className="sidebar">
+    <aside ref={asideRef} className={presence.closing ? "sidebar closing" : "sidebar"}>
       <div className="sidebar-header">
         <span>Pages</span>
         <button

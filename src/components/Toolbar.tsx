@@ -3,9 +3,11 @@ import { closeNotebook } from "../persistence/session";
 import { useBoardStore } from "../store/useBoardStore";
 import { BackIcon, EraserIcon, HighlighterIcon, PenIcon, SettingsIcon } from "./icons";
 import { SettingsPanel } from "./SettingsPanel";
+import { usePresence } from "./usePresence";
 
 export function Toolbar() {
   const [panelOpen, setPanelOpen] = useState(false);
+  const panel = usePresence(panelOpen);
   const tool = useBoardStore((state) => state.tool);
   const lastPenKind = useBoardStore((state) => state.lastPenKind);
   const presentation = useBoardStore((state) => state.presentation);
@@ -52,7 +54,7 @@ export function Toolbar() {
           <BackIcon />
         </button>
       </div>
-      {panelOpen && <SettingsPanel />}
+      {panel.mounted && <SettingsPanel closing={panel.closing} />}
     </>
   );
 }

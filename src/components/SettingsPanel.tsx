@@ -57,7 +57,7 @@ const THEME_LABELS: Record<ThemePreference, string> = {
   dark: "Dark",
 };
 
-export function SettingsPanel() {
+export function SettingsPanel({ closing = false }: { closing?: boolean }) {
   const tool = useBoardStore((state) => state.tool);
   const inkColor = useBoardStore((state) => state.color);
   const size = useBoardStore((state) => state.size);
@@ -196,7 +196,7 @@ export function SettingsPanel() {
   };
 
   return (
-    <div className="settings-panel">
+    <div className={closing ? "settings-panel closing" : "settings-panel"}>
       <section className="settings-section">
         <div className="settings-label">Tool</div>
         <div className="settings-row">

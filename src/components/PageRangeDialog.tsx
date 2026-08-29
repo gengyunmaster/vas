@@ -1,16 +1,18 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { normalizePageRange } from "../model/pdfPage";
 import { settlePageRange } from "../store/pdfRangePrompt";
 import { useBoardStore } from "../store/useBoardStore";
+import { usePresence } from "./usePresence";
 
 export function PageRangeDialog() {
   const request = useBoardStore((state) => state.pdfRangeRequest);
   const [first, setFirst] = useState("1");
   const [last, setLast] = useState("1");
   const [error, setError] = useState<string | null>(null);
+  const presence = usePresence(request !== null, 140);
+  const lastRequest = useRef(request);
+  if (request) lastRequest.current = request;
 
-  const numPages = request?.numPages ?? 0;
-  const single = request?.mode === "single";
   useEffect(() => {
     if (!request) return;
     setFirst("1");
@@ -27,7 +29,11 @@ export function PageRangeDialog() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [request]);
 
-  if (!request) return null;
+  if (!presence.mounted || !lastRequest.current) return null;
+  const shown = request ?? lastRequest.current;
+
+  const numPages = shown.numPages;
+  const single = shown.mode === "single";
 
   const confirm = () => {
     const range = single
@@ -58,7 +64,7 @@ export function PageRangeDialog() {
   );
 
   return (
-    <div className="dialog-overlay">
+    <div className={presence.closing ? "dialog-overlay closing" : "dialog-overlay"}>
       <div className="dialog" role="dialog" aria-modal="true" aria-label="Import PDF">
         <div className="dialog-title">{single ? "Insert PDF page" : "Import PDF"}</div>
         <p className="dialog-text">

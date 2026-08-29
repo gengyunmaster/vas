@@ -1108,3 +1108,204 @@ body {
     min-height: 88px;
   }
 }
+
+.toolbar button,
+.selection-bar button,
+.settings-panel button,
+.home-actions button,
+.notebook-actions button,
+.sidebar-header button,
+.dialog-actions button,
+.text-editor .text-btn,
+.text-editor .swatch,
+.color-picker {
+  transition:
+    background-color var(--dur-1),
+    color var(--dur-1),
+    border-color var(--dur-1),
+    opacity var(--dur-1),
+    box-shadow var(--dur-2),
+    transform var(--dur-1) var(--ease);
+}
+
+.notebook-card {
+  transition:
+    transform var(--dur-2) var(--ease),
+    box-shadow var(--dur-2) var(--ease),
+    border-color var(--dur-1);
+}
+
+.thumbnail {
+  transition: border-color var(--dur-1);
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes fade-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes drop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+}
+
+@keyframes panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.98);
+  }
+}
+
+@keyframes panel-out {
+  to {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.98);
+  }
+}
+
+@keyframes bar-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, calc(-100% + 8px)) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -100%);
+  }
+}
+
+@keyframes bar-out {
+  to {
+    opacity: 0;
+    transform: translate(-50%, calc(-100% + 6px)) scale(0.97);
+  }
+}
+
+@keyframes sidebar-in {
+  from {
+    transform: translateX(-100%);
+  }
+}
+
+@keyframes sidebar-out {
+  to {
+    transform: translateX(-100%);
+  }
+}
+
+@keyframes dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.96);
+  }
+}
+
+@keyframes dialog-out {
+  to {
+    opacity: 0;
+    transform: translateY(6px) scale(0.97);
+  }
+}
+
+@keyframes card-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .toolbar button:active,
+  .selection-bar button:active,
+  .settings-panel button:active,
+  .notebook-actions button:active,
+  .sidebar-header button:active,
+  .home-actions button:active,
+  .dialog-actions button:active,
+  .text-editor .text-btn:active,
+  .text-editor .swatch:active {
+    transform: scale(0.88);
+  }
+
+  .toolbar {
+    animation: drop-in var(--dur-2) var(--ease);
+  }
+
+  .page-indicator {
+    animation: fade-in var(--dur-2) var(--ease);
+  }
+
+  .settings-panel {
+    animation: panel-in var(--dur-2) var(--ease);
+  }
+
+  .settings-panel.closing {
+    animation: panel-out var(--dur-1) ease-in forwards;
+    pointer-events: none;
+  }
+
+  .selection-bar {
+    animation: bar-in var(--dur-2) var(--ease-spring);
+  }
+
+  .selection-bar.closing {
+    animation: bar-out var(--dur-1) ease-in forwards;
+    pointer-events: none;
+  }
+
+  .sidebar {
+    animation: sidebar-in var(--dur-2) var(--ease);
+  }
+
+  .sidebar.closing {
+    animation: sidebar-out var(--dur-2) ease-in forwards;
+    pointer-events: none;
+  }
+
+  .dialog-overlay {
+    animation: fade-in var(--dur-1) ease-out;
+  }
+
+  .dialog-overlay.closing {
+    animation: fade-out var(--dur-1) ease-in forwards;
+  }
+
+  .dialog {
+    animation: dialog-in var(--dur-2) var(--ease-spring);
+  }
+
+  .dialog-overlay.closing .dialog {
+    animation: dialog-out var(--dur-1) ease-in forwards;
+  }
+
+  .text-editor {
+    animation: panel-in var(--dur-2) var(--ease);
+  }
+
+  .geometry-overlay {
+    animation: fade-in var(--dur-2) ease-out;
+  }
+
+  .notebook-card {
+    animation: card-in 0.35s var(--ease) backwards;
+    animation-delay: calc(var(--i, 0) * 35ms);
+  }
+
+  .notebook-card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-pop);
+  }
+
+  .home-actions button.primary:hover {
+    background: var(--accent-hover);
+  }
+}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { type CSSProperties, useCallback, useEffect, useRef, useState } from "react";
 import type { NotebookRecord } from "../persistence/db";
 import { importPdfFile } from "../persistence/importPdf";
 import {
@@ -173,12 +173,13 @@ export function Home({ onOpen }: HomeProps) {
       )}
       {notebooks !== null && notebooks.length > 0 && (
         <div className="notebook-grid">
-          {notebooks.map((notebook) => (
+          {notebooks.map((notebook, index) => (
             <div
               key={notebook.id}
               className={
                 selected.includes(notebook.id) ? "notebook-card selected" : "notebook-card"
               }
+              style={{ "--i": Math.min(index, 12) } as CSSProperties}
             >
               <input
                 type="checkbox"
