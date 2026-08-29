@@ -32,9 +32,11 @@ export function ConfirmDialog() {
         <div className="dialog-title">{shown.title}</div>
         {shown.text && <p className="dialog-text">{shown.text}</p>}
         <div className="dialog-actions">
-          <button type="button" onClick={() => settleConfirm(false)}>
-            Cancel
-          </button>
+          {!shown.hideCancel && (
+            <button type="button" onClick={() => settleConfirm(false)}>
+              Cancel
+            </button>
+          )}
           <button
             ref={confirmRef}
             type="button"

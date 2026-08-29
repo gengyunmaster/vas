@@ -83,7 +83,9 @@ self-hosted instance keep separate data; use export / import to move notebooks a
   page, or the whole notebook (trailing blank pages trimmed); pick PDF, vector SVG, or
   2x PNG, and multi-page SVG/PNG exports download as a zip
 - **PWA** — installable and fully offline; all assets (including the on-demand PDF
-  engine) are precached
+  engine) are precached. A one-time, platform-aware install hint on the home screen
+  triggers the native install prompt where supported (Chrome/Edge) or shows
+  Add-to-Home-Screen steps on iOS, and never nags again once dismissed
 
 ## Screenshots
 

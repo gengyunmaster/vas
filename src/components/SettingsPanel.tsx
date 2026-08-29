@@ -19,6 +19,7 @@ import {
   reRasterizePdfBase,
 } from "../persistence/importPdf";
 import { insertImageFile } from "../persistence/insertImage";
+import { requestInstall, useInstallStore } from "../pwa/installPrompt";
 import { askConfirm } from "../store/dialogs";
 import { toast } from "../store/toasts";
 import { COLORS, PAPER_COLORS, SIZES, useBoardStore } from "../store/useBoardStore";
@@ -99,6 +100,9 @@ export function SettingsPanel({ closing = false }: { closing?: boolean }) {
   );
   const hasSelection = useBoardStore((state) => state.selection !== null);
   const exporting = useBoardStore((state) => state.exporting);
+  const deferredPrompt = useInstallStore((state) => state.deferredPrompt);
+  const installInstalled = useInstallStore((state) => state.installed);
+  const installIos = useInstallStore((state) => state.ios);
   const [exportRange, setExportRange] = useState<"selection" | "page" | "notebook">("page");
   const imageInputRef = useRef<HTMLInputElement>(null);
   const pdfInputRef = useRef<HTMLInputElement>(null);
@@ -172,6 +176,19 @@ export function SettingsPanel({ closing = false }: { closing?: boolean }) {
     } finally {
       useBoardStore.getState().setExporting(false);
     }
+  };
+
+  const installApp = async () => {
+    if (deferredPrompt) {
+      await requestInstall();
+      return;
+    }
+    await askConfirm({
+      title: "Install vas",
+      text: "Tap the browser's Share button, then choose 'Add to Home Screen'.",
+      confirmLabel: "Got it",
+      hideCancel: true,
+    });
   };
 
   const pickImage = async (file: File | undefined) => {
@@ -501,6 +518,16 @@ export function SettingsPanel({ closing = false }: { closing?: boolean }) {
           ))}
         </div>
       </section>
+      {!installInstalled && (deferredPrompt || installIos) && (
+        <section className="settings-section">
+          <div className="settings-label">App</div>
+          <div className="settings-row">
+            <button type="button" className="text-option" onClick={() => void installApp()}>
+              Install app
+            </button>
+          </div>
+        </section>
+      )}
       <section className="settings-section">
         <div className="settings-label">Export</div>
         <div className="settings-row">

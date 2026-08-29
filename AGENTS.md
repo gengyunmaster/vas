@@ -191,6 +191,7 @@ interface TextItem {
 - `vite-plugin-pwa`（generateSW，autoUpdate）在构建时生成 Service Worker，预缓存**全部**构建产物，包括按需加载的 pdf-lib chunk 与图标——首次访问后完全离线可用。
 - `workbox.globPatterns` 必须始终覆盖 js/mjs/css/html/svg/png/webmanifest/wasm/ttf；新增静态资源类型时同步检查（pdf.js worker 以 .mjs 产出、qpdf 以 .wasm 产出、文字字体以 .ttf 产出，漏配会导致离线时 PDF 导入/解密/文字导出失效）。
 - Service Worker 要求**安全上下文**（HTTPS 或 localhost）。HTTP + IP 地址访问时 PWA 不生效，正式部署需由反向代理终止 TLS。
+- 安装引导（`pwa/installPrompt.ts`）：`main.tsx` 尽早调用 `watchInstallPrompt` 捕获 `beforeinstallprompt`（晚了会丢事件）并监听 `appinstalled`；`detectIos` 识别 iOS/iPadOS（含 iPadOS 谎报 MacIntel 的情况）。主页 `InstallHint` 引导条分平台：Chromium 系显示 Install 按钮直接触发系统安装对话框（捕获的事件只能 prompt 一次，用后丢弃）；iOS 无此 API，只显示 Share → Add to Home Screen 文字指引。"Not now" 关闭状态持久化于 localStorage，**永不再显示**；已以 standalone 运行时不显示。设置面板在可安装（或 iOS 未安装）时显示 App 区 Install app 常驻入口，iOS 点击弹出步骤说明对话框。
 - 图标由 `scripts/generate-icons.mjs` 生成（`node scripts/generate-icons.mjs`），输出到 `public/icons/`；改设计后需重新运行。
 
 ### 3.9 几何画板（src/geo/）
@@ -212,7 +213,8 @@ src/
   components/    React UI 组件（Home 主页、Toolbar、SettingsPanel、PageSidebar、SelectionBar、
                  ColorField、GeometryOverlay 几何编辑器宿主、PageRangeDialog 页码范围对话框、
                  TextOverlay 文字层 overlay、TextEditor 文字源码编辑器、Toasts 提示条、
-                 Dialogs 样式化确认/输入对话框、usePresence 进出场动画 hook、icons 等）
+                 Dialogs 样式化确认/输入对话框、InstallHint PWA 安装引导条、
+                 usePresence 进出场动画 hook、icons 等）
   engine/        渲染引擎：board（输入状态机与编排，含套索/选区手势）、viewport（视口变换）、
                  pageCache（页面位图缓存）、renderPage/renderStroke/patterns/shapes（渲染）、
                  imageCache（图片位图异步解码缓存）、canvas（2D 上下文工具）
@@ -246,7 +248,8 @@ src/
                  exportPdf（矢量 PDF）、exportImage（PNG）、exportSvg（矢量 SVG）、exportZip（多页打包）、
                  pdfTextLayer（PDF 文字层：pdf-lib drawText + 子集字体）、
                  svgPath（轮廓转路径共用）与 imageDataUri（图片字节转 data URI 共用）
-  pwa/           service worker 注册
+  pwa/           service worker 注册与安装引导（installPrompt：beforeinstallprompt 捕获、
+                 iOS 检测、standalone 检测、引导条关闭持久化）
 public/          PWA 图标（scripts/generate-icons.mjs 生成）与 fonts/（Noto Sans SC 子集 TTF，
                  scripts/subset-fonts.mjs 生成，屏幕排版与导出度量同源）
 scripts/         一次性工具脚本

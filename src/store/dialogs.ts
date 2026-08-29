@@ -5,6 +5,7 @@ export interface ConfirmOptions {
   text?: string;
   confirmLabel?: string;
   danger?: boolean;
+  hideCancel?: boolean;
 }
 
 export interface PromptOptions {

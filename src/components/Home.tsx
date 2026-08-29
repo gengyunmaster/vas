@@ -12,6 +12,7 @@ import { downloadNotebook, importNotebookFile } from "../persistence/transfer";
 import { askConfirm, askPrompt } from "../store/dialogs";
 import { toast } from "../store/toasts";
 import { formatRelativeTime } from "./formatTime";
+import { InstallHint } from "./InstallHint";
 import { ExportIcon, RenameIcon, TrashIcon } from "./icons";
 
 interface HomeProps {
@@ -185,6 +186,7 @@ export function Home({ onOpen }: HomeProps) {
           </button>
         </div>
       </header>
+      <InstallHint />
       {notebooks !== null && notebooks.length === 0 && (
         <p className="home-empty">No notebooks yet. Create one to start writing.</p>
       )}
