@@ -56,6 +56,11 @@ const TextItemView = memo(function TextItemView({
   );
 });
 
+// Sniffs only: false positives just load KaTeX once, false negatives leave
+// math unrendered forever.
+const hasMath = (markdown: string) =>
+  markdown.includes("$") || markdown.includes("\\(") || markdown.includes("\\[");
+
 export function TextOverlay() {
   const pages = useBoardStore((state) => state.pages);
   const editingText = useBoardStore((state) => state.editingText);
@@ -83,7 +88,7 @@ export function TextOverlay() {
   }, [items]);
 
   useEffect(() => {
-    if (!items.some(({ item }) => item.markdown.includes("$")) || katexReady()) return;
+    if (!items.some(({ item }) => hasMath(item.markdown)) || katexReady()) return;
     let cancelled = false;
     void ensureKatex().then(() => {
       if (!cancelled) setKatexTick((tick) => tick + 1);
