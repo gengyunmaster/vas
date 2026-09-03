@@ -4,7 +4,7 @@
 import { decodeBlob, getImageBitmap } from "../engine/imageCache";
 import type { LatexGlyph } from "../geo/latexSvg";
 import type { TextItem } from "../model/textItem";
-import { layoutTextItem } from "./layoutItem";
+import { layoutTextItem, naturalImageSize } from "./layoutItem";
 import { canvasFont, createTextMeasurer } from "./measure";
 
 const QUOTE_BAR_COLOR = "rgba(128, 128, 128, 0.45)";
@@ -19,7 +19,7 @@ export async function paintTextItems(
   if (texts.length === 0) return;
   const measure = await createTextMeasurer();
   for (const item of texts) {
-    const layout = await layoutTextItem(item, measure, naturalSize, darkPaper);
+    const layout = await layoutTextItem(item, measure, naturalImageSize, darkPaper);
     ctx.save();
     ctx.translate(item.x, item.y);
     for (const deco of layout.decorations) {
@@ -54,14 +54,6 @@ export async function paintTextItems(
     }
     ctx.restore();
   }
-}
-
-function naturalSize(imageId: string): { width: number; height: number } | null {
-  const bitmap = getImageBitmap(imageId);
-  if (!bitmap) return null;
-  return bitmap instanceof HTMLImageElement
-    ? { width: bitmap.naturalWidth, height: bitmap.naturalHeight }
-    : { width: bitmap.width, height: bitmap.height };
 }
 
 const glyphBitmaps = new Map<string, Promise<HTMLImageElement | null>>();

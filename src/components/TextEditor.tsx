@@ -4,6 +4,7 @@ import {
   MAX_TEXT_MARKDOWN_LENGTH,
   MIN_TEXT_WIDTH,
   TEXT_FONT_SIZES,
+  TEXT_PAGE_MARGIN,
   type TextItem,
 } from "../model/textItem";
 import { getImage, saveImage } from "../persistence/images";
@@ -13,7 +14,6 @@ import { measureTextElement } from "../text/textElements";
 import { currentTextFrame } from "../text/textFrameBus";
 import { ColorField } from "./ColorField";
 
-const PAGE_BOTTOM_MARGIN = 8;
 const WIDTH_STEP = 40;
 
 export function TextEditor() {
@@ -54,7 +54,7 @@ export function TextEditor() {
     const scale = currentTextFrame().scale;
     const height = measureTextElement(candidate.id, scale);
     if (height === null || !page) return null;
-    return candidate.y + height <= page.height - PAGE_BOTTOM_MARGIN;
+    return candidate.y + height <= page.height - TEXT_PAGE_MARGIN;
   };
 
   const patchSeq = useRef(0);
@@ -160,7 +160,7 @@ export function TextEditor() {
       });
   };
 
-  const maxWidth = Math.max(MIN_TEXT_WIDTH, page.width - item.x - PAGE_BOTTOM_MARGIN);
+  const maxWidth = Math.max(MIN_TEXT_WIDTH, page.width - item.x - TEXT_PAGE_MARGIN);
 
   return (
     <div className="text-editor" role="dialog" aria-label="Text editor">

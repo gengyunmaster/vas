@@ -540,6 +540,40 @@ describe("selection and clipboard", () => {
     expect(useBoardStore.getState().pages).toHaveLength(2);
   });
 
+  it("pasteClipboard accepts explicit content and leaves the in-memory clipboard untouched", () => {
+    useBoardStore.getState().pasteClipboard({
+      strokes: [sampleStroke("s9")],
+      images: [],
+      texts: [],
+      audios: [],
+    });
+    const state = useBoardStore.getState();
+    expect(state.pages[0].strokes).toHaveLength(1);
+    expect(state.pages[0].strokes[0].id).not.toBe("s9");
+    expect(state.pages[0].strokes[0].points[0].x).toBe(42.5);
+    expect(state.clipboard.strokes).toHaveLength(0);
+    expect(state.selection?.strokeIds).toEqual([state.pages[0].strokes[0].id]);
+  });
+
+  it("insertTextItem adds the text with history and selects it", () => {
+    useBoardStore.getState().insertTextItem({
+      id: "t1",
+      x: 40,
+      y: 40,
+      width: 360,
+      fontSize: 24,
+      color: "#1a1a1a",
+      markdown: "hello",
+    });
+    const state = useBoardStore.getState();
+    expect(state.pages[0].texts.map((t) => t.id)).toEqual(["t1"]);
+    expect(state.selection?.textIds).toEqual(["t1"]);
+    expect(state.tool).toBe("select");
+    expect(state.pages).toHaveLength(2);
+    useBoardStore.getState().undo();
+    expect(useBoardStore.getState().pages[0].texts).toHaveLength(0);
+  });
+
   it("insertImage places the image, selects it, and undo removes it", () => {
     useBoardStore.getState().insertImage("blob-1", 200, 100);
     const state = useBoardStore.getState();

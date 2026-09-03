@@ -1,4 +1,4 @@
-import { ensureImageLoaded, getImageBitmap } from "../engine/imageCache";
+import { ensureImageLoaded } from "../engine/imageCache";
 import { getOutlinePoints, HIGHLIGHTER_ALPHA } from "../engine/renderStroke";
 import type { AudioItem } from "../model/audioItem";
 import { isDarkColor } from "../model/color";
@@ -11,7 +11,7 @@ import { arrowHead } from "../model/shapeGeometry";
 import type { Stroke } from "../model/stroke";
 import { type TextItem, textImageRefs } from "../model/textItem";
 import { elementsBounds } from "../model/transform";
-import { layoutTextItem } from "../text/layoutItem";
+import { layoutTextItem, naturalImageSize } from "../text/layoutItem";
 import { createTextMeasurer } from "../text/measure";
 import { textItemHeight } from "../text/textHeight";
 import { textItemToSvg } from "../text/textToSvg";
@@ -134,7 +134,7 @@ export async function pageToSvg(
     const measure = await createTextMeasurer();
     const darkPaper = options.darkPaper ?? isDarkColor(page.paperColor);
     for (const item of page.texts) {
-      const layout = await layoutTextItem(item, measure, naturalSize, darkPaper);
+      const layout = await layoutTextItem(item, measure, naturalImageSize, darkPaper);
       parts.push(...textItemToSvg(item, layout, imageData, textMode));
     }
   }
@@ -146,14 +146,6 @@ export async function pageToSvg(
   }
   parts.push("</svg>");
   return parts.join("\n");
-}
-
-function naturalSize(imageId: string): { width: number; height: number } | null {
-  const bitmap = getImageBitmap(imageId);
-  if (!bitmap) return null;
-  return bitmap instanceof HTMLImageElement
-    ? { width: bitmap.naturalWidth, height: bitmap.naturalHeight }
-    : { width: bitmap.width, height: bitmap.height };
 }
 
 function strokeToSvg(stroke: Stroke): string {

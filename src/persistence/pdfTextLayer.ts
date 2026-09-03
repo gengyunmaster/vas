@@ -4,11 +4,11 @@
 // layer instead (see pageToSvg textMode "pathsOnly").
 import type fontkit from "@pdf-lib/fontkit";
 import type { PDFDocument, PDFFont, PDFPage } from "pdf-lib";
-import { ensureImageLoaded, getImageBitmap } from "../engine/imageCache";
+import { ensureImageLoaded } from "../engine/imageCache";
 import { hexToRgb } from "../model/color";
 import { type TextItem, textImageRefs } from "../model/textItem";
 import type { TextLayout } from "../text/layout";
-import { layoutTextItem } from "../text/layoutItem";
+import { layoutTextItem, naturalImageSize } from "../text/layoutItem";
 import { createTextMeasurer } from "../text/measure";
 
 type PdfLib = typeof import("pdf-lib");
@@ -108,7 +108,7 @@ export async function drawPdfTextItems(
   await Promise.all([...imageIds].map((id) => ensureImageLoaded(id)));
   const measure = await createTextMeasurer();
   for (const item of texts) {
-    const layout = await layoutTextItem(item, measure, naturalSize, view.darkPaper ?? false);
+    const layout = await layoutTextItem(item, measure, naturalImageSize, view.darkPaper ?? false);
     drawDecorations(pdflib, pdfPage, item, layout, view);
     for (const run of layout.runs) {
       if (run.kind !== "text") continue;
@@ -221,12 +221,4 @@ function addLinkAnnotation(
     A: { Type: "Action", S: "URI", URI: pdflib.PDFString.of(encodeURI(url)) },
   });
   pdfPage.node.addAnnot(pdfPage.doc.context.register(annot));
-}
-
-function naturalSize(imageId: string): { width: number; height: number } | null {
-  const bitmap = getImageBitmap(imageId);
-  if (!bitmap) return null;
-  return bitmap instanceof HTMLImageElement
-    ? { width: bitmap.naturalWidth, height: bitmap.naturalHeight }
-    : { width: bitmap.width, height: bitmap.height };
 }

@@ -17,9 +17,9 @@ vas 是一款本地优先的手写笔记/白板 Web 应用，目标是提供接�
 已实现的主要功能：
 
 - 工具：钢笔（压感）、马克笔、橡皮（笔画级）、激光笔（渐隐轨迹，不落数据）、图形（直线/箭头/矩形/椭圆）、套索选择、文字（键盘输入）
-- 文字：Text 工具点页面任意位置放置文本框，源码 textarea 编辑 + 页面上实时预览；支持 markdown 子集（标题/列表/引用/代码/粗斜体/删除线/链接/分割线）与 LaTeX 公式（`$...$` 或 `\(...\)` 行内、`$$...$$` 或 `\[...\]` 行间，屏幕 KaTeX、导出 MathJax 矢量字形，复用几何画板管线）；`{#hex|text}` 语法混排文字颜色（公式内部同样可用——`mathColor.ts` 将其重写为作用域严格的 `\textcolor` 再交给 KaTeX/MathJax；LaTeX 原生 `\color`/`\textcolor` 也支持，导出端经 MathJax color 扩展保持与屏幕一致）；代码块额外支持 `{#hex|text}` 手动着色（内容按字面处理、不嵌套）与自动语法高亮（围栏块带语言名如 ` ```js ` 时经 highlight.js 高亮，明/暗纸色两套调色板，hljs span 输出解析回着色段；无语言名或语言未知保持单色，行内 `` `code` `` 不参与）；链接只允许 `https?`/`mailto` 协议（其余静默剥除），屏幕与导出统一为**跟随墨色 + 下划线**（排版引擎产出 underline/strikeLine 装饰线段，三个导出后端各自绘制），PDF 导出额外写入真正的 Link 注解（不依赖阅读器的 URL 自动识别），SVG 导出包 `<a href>` 可在浏览器点击，PNG 位图不可点击是格式本身的限制；笔记本内点按链接在 **Select 工具**下于新标签页打开（文字层整层 `pointer-events: none`，`BoardCanvas` 在容器捕获阶段用 `getClientRects` 逐段命中 `<a>` 并拦下 pointerdown——不触发空套索、保留现有选区；其余工具下书写优先，链接惰性）；文内图片只允许引用笔记本内已存图片（`![](image:<imageId>)`，外部 URL 被剥除）；宽度可调、高度随内容自动增长，触底拒收输入；图层位于图片之上、笔迹之下；参与套索（外接矩形）、拖动、改色、删除、剪切/复制/粘贴；选区缩放只改宽度重排（字号不变）；橡皮不擦
-- 选择：套索圈选（自动闭合；笔画与圈相交或落入圈内即整条选中），选中后可拖动移动、水平/垂直居中（选区包围盒对齐当前页中心，内容不越出页边界）、八手柄缩放/拉伸（角手柄等比、边手柄单向，全程矢量）、改色、删除、剪切/复制/粘贴（粘贴到当前页左上角并自动选中，借此实现跨页/跨笔记本搬运）
-- 图片：插入图片（按钮或 Ctrl+V 读取系统剪贴板），渲染于笔迹之下可直接批注，橡皮不可擦；随选区移动/缩放/拉伸/删除/剪切/复制/粘贴；超大图片自动等比缩小到页内；存原图不重编码。GIF 动图在页面上按帧延时动画播放（自解码帧，超限动图回退静态首帧），PNG/PDF 导出取第一帧，SVG 导出内嵌原字节保持动画。插入选择器也接受 **PDF 文件**（`insertPdfImageFile`）：走导入同款密码/解密/入库流程，经单页版页码对话框选**一页**（对话框含 White background 复选框，默认不勾选=透明底，勾选则强制铺白底），该页按 4 倍清晰度栅格化为预览图（透明模式渲染时以 alpha-0 衬底填充替代 pdf.js 默认铺的白底：PDF 未自画背景的页面天然透明，页面内容——包括内嵌图片里的白色像素与显式绘制的背景色——完整保留，与导出 PDF 的矢量嵌入效果严格一致；无透明像素时退回 JPEG 省空间）作为普通图片插入——可选中、移动、缩放、拉伸，与 PDF 底图的锁定行为相反；导出 PDF 时经 `embedPage` 以矢量嵌入原始页（按对话框的白底选择决定是否先铺白衬底，不铺则源页未画背景处天然透明）
+- 文字：Text 工具点页面任意位置放置文本框，源码 textarea 编辑 + 页面上实时预览；支持 markdown 子集（标题/列表/引用/代码/粗斜体/删除线/链接/分割线）与 LaTeX 公式（`$...$` 或 `\(...\)` 行内、`$$...$$` 或 `\[...\]` 行间，屏幕 KaTeX、导出 MathJax 矢量字形，复用几何画板管线）；`{#hex|text}` 语法混排文字颜色（公式内部同样可用——`mathColor.ts` 将其重写为作用域严格的 `\textcolor` 再交给 KaTeX/MathJax；LaTeX 原生 `\color`/`\textcolor` 也支持，导出端经 MathJax color 扩展保持与屏幕一致）；代码块额外支持 `{#hex|text}` 手动着色（内容按字面处理、不嵌套）与自动语法高亮（围栏块带语言名如 ` ```js ` 时经 highlight.js 高亮，明/暗纸色两套调色板，hljs span 输出解析回着色段；无语言名或语言未知保持单色，行内 `` `code` `` 不参与）；链接只允许 `https?`/`mailto` 协议（其余静默剥除），屏幕与导出统一为**跟随墨色 + 下划线**（排版引擎产出 underline/strikeLine 装饰线段，三个导出后端各自绘制），PDF 导出额外写入真正的 Link 注解（不依赖阅读器的 URL 自动识别），SVG 导出包 `<a href>` 可在浏览器点击，PNG 位图不可点击是格式本身的限制；笔记本内点按链接在 **Select 工具**下于新标签页打开（文字层整层 `pointer-events: none`，`BoardCanvas` 在容器捕获阶段用 `getClientRects` 逐段命中 `<a>` 并拦下 pointerdown——不触发空套索、保留现有选区；其余工具下书写优先，链接惰性）；文内图片只允许引用笔记本内已存图片（`![](image:<imageId>)`，外部 URL 被剥除）；宽度可调、高度随内容自动增长，触底拒收输入；图层位于图片之上、笔迹之下；参与套索（外接矩形）、拖动、改色、删除、剪切/复制/粘贴；选区缩放只改宽度重排（字号不变）；橡皮不擦。**粘贴系统剪贴板中的纯文本**会自动在当前页左上角创建文本框（当前默认字号与墨色，markdown 照常解析），先经排版引擎量出高度、触底（页底 - `TEXT_PAGE_MARGIN`）则拒绝粘贴并 toast 提示调大文本框或调小字号，超长（> `MAX_TEXT_MARKDOWN_LENGTH`）同样拒绝
+- 选择：套索圈选（自动闭合；笔画与圈相交或落入圈内即整条选中），选中后可拖动移动、水平/垂直居中（选区包围盒对齐当前页中心，内容不越出页边界）、八手柄缩放/拉伸（角手柄等比、边手柄单向，全程矢量）、改色、删除、剪切/复制/粘贴（粘贴到当前页左上角并自动选中，借此实现跨页/跨笔记本搬运）；复制/剪切同时把选区序列化为带 marker 的 JSON 写入系统剪贴板（`model/clipboard.ts` 的 `serializeClipboard`，best-effort、失败时内存剪贴板兜底），粘贴端据此区分 vas 数据与外部内容，blob 引用同源共享故支持跨标签页粘贴
+- 图片：插入图片（Insert media 按钮或 Ctrl+V 粘贴，粘贴优先级链见 3.7），渲染于笔迹之下可直接批注，橡皮不可擦；随选区移动/缩放/拉伸/删除/剪切/复制/粘贴；超大图片自动等比缩小到页内；存原图不重编码。GIF 动图在页面上按帧延时动画播放（自解码帧，超限动图回退静态首帧），PNG/PDF 导出取第一帧，SVG 导出内嵌原字节保持动画。插入选择器也接受 **PDF 文件**（`insertPdfImageFile`）：走导入同款密码/解密/入库流程，经单页版页码对话框选**一页**（对话框含 White background 复选框，默认不勾选=透明底，勾选则强制铺白底），该页按 4 倍清晰度栅格化为预览图（透明模式渲染时以 alpha-0 衬底填充替代 pdf.js 默认铺的白底：PDF 未自画背景的页面天然透明，页面内容——包括内嵌图片里的白色像素与显式绘制的背景色——完整保留，与导出 PDF 的矢量嵌入效果严格一致；无透明像素时退回 JPEG 省空间）作为普通图片插入——可选中、移动、缩放、拉伸，与 PDF 底图的锁定行为相反；导出 PDF 时经 `embedPage` 以矢量嵌入原始页（按对话框的白底选择决定是否先铺白衬底，不铺则源页未画背景处天然透明）
 - 音视频：插入选择器同时接受视频与音频（`insertMedia.ts` 按 `file.type` 分流，与图片/PDF 同一入口）。视频 = 海报帧图片条目（海报截图存 images 表，走图片的一切既有机制：套索/移动/缩放/拉伸/复制/粘贴/导出）+ 原始字节存全局 media 表（图片条目携带 `videoId`）；音频 = `Page.audios` 的 AudioItem（默认 240×44 胶囊徽标，配色随纸色明暗自适应），参与套索/移动/缩放/拉伸/删除/剪切/复制/粘贴。屏幕播放走 DOM overlay（`MediaOverlay.tsx`，永不进 canvas）：视频为内联播放器（自绘播放/暂停/进度/音量/全屏控件），音频为播放+进度胶囊；媒体元素永不因滚动/翻页/演示模式卸载，播放不中断。交互分层见 3.1；导出三格式一律使用海报帧与矢量徽标（`mediaBadge.ts`），导出物不含可播放媒体。
 - PDF 导入：主页导入 PDF 生成新笔记本（白纸空白模板），或在笔记本内经设置面板导入并**插入到当前页之后**（继承当前页纸色与模板）；文件选定（含密码输入）后弹出页码范围对话框，显示总页数，支持反填自动排序与单页，越界报错重填、可取消；每页栅格化（3 倍清晰度 JPEG）为**锁定**图片并**铺满整页**（允许放大，一个方向顶到页边、另一方向居中，至多一侧留白），支持密码保护文件；锁定图片不可被圈选/清除，批注层不受影响；**完整原始 PDF**（不截取范围）同时入库，导出 PDF 时以矢量图层形式嵌入（见 3.6）
 - 页面：自动续页、指定位置插页、删页、清页、缩略图导航侧栏（缩略图保持页面长宽比纵向滚动，长按拖拽排序）
@@ -192,7 +192,7 @@ interface TextItem {
 - zustand 单一 store（`store/useBoardStore.ts`），状态逻辑上分两类：UI 状态（当前工具、颜色、粗细、演示模式、侧栏等，驱动 React）与文档状态（当前笔记本、页面列表、撤销历史）。
 - 撤销/重做：编辑历史栈（add-stroke / remove-stroke / clear-page / add-elements / remove-elements / replace-elements），删页时清空历史；elements 类操作同时携带笔画、图片、文字与音频（clear-page 也含 images/texts/audios），replace-elements 以"前/后"快照统一承载移动、缩放与改色，一次手势提交只产生一条历史。
 - 页面级操作（addPage / deletePage / movePage / insertPdfPages / setPageSize）不进撤销历史：addPage 与 insertPdfPages 本就不产生历史，deletePage 与 setPageSize 清空历史（setPageSize 同时取消选区）；movePage 重排页面时当前浏览页按页 id 跟随。
-- 选区（selection，`{ pageId, strokeIds, imageIds, textIds, audioIds }`）与剪贴板（clipboard，结构为 `{ strokes, images, texts, audios }`）为内存态，不进 IndexedDB；剪贴板可跨页、跨笔记本粘贴，粘贴时重建笔画、图片、文字与音频条目的 id（图片 blob 与 media 记录引用共享，不复制字节）。
+- 选区（selection，`{ pageId, strokeIds, imageIds, textIds, audioIds }`）与剪贴板（clipboard，结构为 `ClipboardContent` = `{ strokes, images, texts, audios }`，定义于 `model/clipboard.ts`）为内存态，不进 IndexedDB；剪贴板可跨页、跨笔记本粘贴，粘贴时重建笔画、图片、文字与音频条目的 id（图片 blob 与 media 记录引用共享，不复制字节）。复制/剪切经 `persistence/clipboard.ts` 把选区 JSON（带 marker）镜像进系统剪贴板。**Ctrl+V 粘贴优先级链**（`App.tsx` 的 onPaste）：① 系统剪贴板文本解析为 vas payload（`parseClipboardPayload`：非 vas 文本返回 null 继续下放，带 marker 但校验失败则 toast 报错）→ `pasteClipboard(payload)`；② 剪贴板含文件 → 经 `persistence/insertFile.ts` 走 Insert media 同款分流（图片/视频/音频/PDF；文件优先于文本，因为操作系统复制文件时可能附带文件名文本；无可插入类型则 toast 拒绝）；③ 非空纯文本 → `persistence/pasteText.ts` 创建文本框（排版高度触底拒收）；④ 以上皆无且内存剪贴板非空 → `pasteClipboard()` 兜底。粘贴处理器在焦点位于输入控件、导出中、几何编辑器或页码对话框打开时不介入。
 - 文字编辑态：`editingText`（`{ pageId, itemId } | null`）+ `textEditOrigin`（打开时的快照，关闭时对比产生历史）；Done、Esc、切换工具都经 `setEditingText(null)` 单出口 finalize；删页/关闭笔记本时清理。
 - 任务态：`pdfImports`（按 notebookId 的在途 PDF 导入进度）、`exporting`（导出进行中）与 `pdfRangeRequest`（待决的 PDF 页码询问，`{ numPages, mode: "range" | "single" }`，`store/pdfRangePrompt.ts` 桥接给导入/插入管线 await，single 模式返回 `{from:n,to:n}`，对话框打开期间 App 键盘快捷键挂起）存于 store，跨组件卸载存活；导出期间引擎 pointerdown、键盘编辑快捷键、系统粘贴与设置面板的文档变更按钮统一闸门禁用（导出本身基于点击时的不可变快照，闸门是为杜绝并发变更的隐患）。确认/输入对话框（`store/dialogs.ts` 的 ask/settle 桥接，`components/Dialogs.tsx` 渲染，复用 `.dialog` 样式）与 toast 通知（`store/toasts.ts`，`components/Toasts.tsx`，约 3.4s 自动消失）为独立小 store，可从任意模块（含非 React 代码）调用，全应用不再使用原生 alert/confirm/prompt；对话框打开期间 App 键盘快捷键同样挂起。
 - 几何编辑器开关态：`geometryEditor`（`{ mode: "insert" } | { mode: "edit"; pageId; itemId } | null`）；编辑模式的 Embed 走 `replaceGeometryImage`（replace-elements 历史，图片条目 id 保持不变，选区不失效），替换后的页面矩形由 `model/image.ts` 的 `rescaledImageRect` 计算——保持旧图的显示缩放（sx/sy 相对旧 SVG 自然尺寸）与锚点位置，新内容包围盒变化时按比例缩放，超出页边界时等比收敛并钳位，旧自然尺寸不可得时回退为新插入尺寸；旧 blob 与旧几何文档由下次 GC 回收。
@@ -239,7 +239,8 @@ src/
                  pageSize（页面尺寸调整）、color（颜色）、hitTest（橡皮命中检测）、patternLayout（背景模板布局）、
                  shapeGeometry（图形几何）、selection（套索命中）、transform（选区仿射变换）、
                  image（图片条目与版面放置）、pdfPage（PDF 页面构建与插入位置）、viewState（视图状态）、
-                 textItem（文字条目）、audioItem（音频条目）、mediaBadge（音频徽标几何/配色，三导出后端同源）
+                 textItem（文字条目）、audioItem（音频条目）、mediaBadge（音频徽标几何/配色，三导出后端同源）、
+                 clipboard（选区负载 ClipboardContent 与系统剪贴板 JSON 的序列化/校验）
   markdown/      文字项 markdown 管线：md（markdown-it 封装与三条自写规则）、
                  blocks（解析结果为平铺 Block[]，代码块切分手动着色段并提取语言名）、
                  html（屏幕渲染为安全 HTML）、katex（懒加载封装）、
@@ -248,7 +249,7 @@ src/
   text/          文字排版与导出：layout（纯函数排版引擎，canvas measureText 度量 +
                  MathJax 字形 + CJK 逐字断行/Latin 按词）、measure（度量缓存）、
                  textHeight（排版高度缓存，供套索/包围盒同步消费）、textFrameBus（逐帧位置发布通道）、
-                 textElements（overlay 测量注册表）、layoutItem（条目排版入口）、
+                 textElements（overlay 测量注册表）、layoutItem（条目排版入口 + naturalImageSize 共享图片尺寸解析）、
                  paintTexts（PNG 逐 run 栅格绘制）、textToSvg（SVG `<text>` 输出）
   store/         zustand stores（useBoardStore 主 store、pdfRangePrompt 页码范围询问桥接、
                  toasts 应用内提示条、dialogs 确认/输入对话框 promise 桥接）
@@ -258,6 +259,8 @@ src/
                  images（图片 blob 存取与 GC）、pdfs（原始 PDF blob 存取与 GC）、
                  geometries（几何文档存取与 GC）、media（音视频 blob 存取与 GC）、
                  insertImage（插入管线）、insertMedia（音视频插入管线：海报截取/音频探测）、
+                 insertFile（图片/音视频/PDF 统一分流，文件选择器与粘贴共用）、
+                 clipboard（选区 JSON 写入系统剪贴板）、pasteText（纯文本粘贴建文本框，排版高度触底拒收）、
                  rasterize（栅格化）、importPdf（PDF 导入管线）、
                  decryptPdf（qpdf wasm 去除 PDF 密码保护）、
                  autosave（页面自动保存）、prefs（工具偏好）、session（打开/关闭笔记本）、

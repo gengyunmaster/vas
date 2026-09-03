@@ -10,8 +10,10 @@ import { SelectionBar } from "./components/SelectionBar";
 import { TextEditor } from "./components/TextEditor";
 import { Toasts } from "./components/Toasts";
 import { Toolbar } from "./components/Toolbar";
-import { insertImageFile } from "./persistence/insertImage";
+import { parseClipboardPayload } from "./model/clipboard";
+import { insertFile, isInsertableFile } from "./persistence/insertFile";
 import { createNotebook, listNotebooks } from "./persistence/notebooks";
+import { pastePlainText } from "./persistence/pasteText";
 import { loadToolPrefs, startPrefsSync } from "./persistence/prefs";
 import { flushViewStateSave, openNotebook, readLastNotebookId } from "./persistence/session";
 import { useDialogStore } from "./store/dialogs";
@@ -117,13 +119,49 @@ export default function App() {
         return;
       }
       const state = useBoardStore.getState();
-      if (!state.notebookId || state.exporting || state.geometryEditor) return;
-      const file = [...(event.clipboardData?.files ?? [])].find((f) => f.type.startsWith("image/"));
-      if (file) {
+      if (!state.notebookId || state.exporting || state.geometryEditor || state.pdfRangeRequest) {
+        return;
+      }
+      const data = event.clipboardData;
+      if (!data) return;
+      const text = data.getData("text/plain");
+      // vas data first: copy/cut mirrors the selection to the system clipboard.
+      if (text) {
+        let payload: ReturnType<typeof parseClipboardPayload>;
+        try {
+          payload = parseClipboardPayload(text);
+        } catch {
+          event.preventDefault();
+          toast("Clipboard data is not valid.");
+          return;
+        }
+        if (payload) {
+          event.preventDefault();
+          state.pasteClipboard(payload);
+          return;
+        }
+      }
+      // Files beat plain text: OS file copies may also expose a name as text.
+      const files = [...data.files];
+      if (files.length > 0) {
         event.preventDefault();
-        void insertImageFile(file).catch((error: unknown) => {
-          console.error("Failed to paste image", error);
-          toast("Failed to paste image.");
+        const file = files.find(isInsertableFile);
+        if (!file) {
+          toast("Unsupported file type.");
+          return;
+        }
+        void insertFile(file).catch((error: unknown) => {
+          if (error instanceof Error && error.message.startsWith("Import cancelled")) return;
+          console.error("Failed to paste file", error);
+          toast(error instanceof Error ? error.message : "Failed to paste file.");
+        });
+        return;
+      }
+      if (text.trim()) {
+        event.preventDefault();
+        void pastePlainText(text).catch((error: unknown) => {
+          console.error("Failed to paste text", error);
+          toast("Failed to paste text.");
         });
         return;
       }

@@ -17,6 +17,9 @@ export const DEFAULT_TEXT_FONT_SIZE = 24;
 export const DEFAULT_TEXT_WIDTH = 360;
 export const MIN_TEXT_WIDTH = 80;
 export const MAX_TEXT_MARKDOWN_LENGTH = 20000;
+// Bottom edge a text box may approach; also reused as the right-edge margin
+// when clamping box width.
+export const TEXT_PAGE_MARGIN = 8;
 
 export function createTextItem(
   x: number,

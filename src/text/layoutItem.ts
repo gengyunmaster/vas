@@ -1,5 +1,6 @@
 // Lays out one text item with the shared engine and refreshes the height
 // cache, so sync consumers (lasso, bounds) converge on the export truth.
+import { getImageBitmap } from "../engine/imageCache";
 import { renderLatex } from "../geo/latexSvg";
 import { parseMarkdown } from "../markdown/blocks";
 import type { TextItem } from "../model/textItem";
@@ -23,4 +24,12 @@ export async function layoutTextItem(
   });
   noteTextItemHeight(item, layout.height);
   return layout;
+}
+
+export function naturalImageSize(imageId: string): { width: number; height: number } | null {
+  const bitmap = getImageBitmap(imageId);
+  if (!bitmap) return null;
+  return bitmap instanceof HTMLImageElement
+    ? { width: bitmap.naturalWidth, height: bitmap.naturalHeight }
+    : { width: bitmap.width, height: bitmap.height };
 }

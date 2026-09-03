@@ -13,13 +13,8 @@ import { SHAPE_KINDS, type ShapeKind } from "../model/stroke";
 import { exportNotebookPng, exportPagePng, exportSelectionPng } from "../persistence/exportImage";
 import { exportNotebookPdf, exportSelectionPdf } from "../persistence/exportPdf";
 import { exportNotebookSvg, exportPageSvg, exportSelectionSvg } from "../persistence/exportSvg";
-import {
-  importPdfIntoNotebook,
-  insertPdfImageFile,
-  reRasterizePdfBase,
-} from "../persistence/importPdf";
-import { insertImageFile } from "../persistence/insertImage";
-import { insertMediaFile } from "../persistence/insertMedia";
+import { importPdfIntoNotebook, reRasterizePdfBase } from "../persistence/importPdf";
+import { insertFile } from "../persistence/insertFile";
 import { requestInstall, useInstallStore } from "../pwa/installPrompt";
 import { askConfirm } from "../store/dialogs";
 import { toast } from "../store/toasts";
@@ -198,12 +193,8 @@ export function SettingsPanel({ closing = false }: { closing?: boolean }) {
 
   const pickImage = async (file: File | undefined) => {
     if (!file) return;
-    const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
-    const isMedia = file.type.startsWith("video/") || file.type.startsWith("audio/");
     try {
-      if (isPdf) await insertPdfImageFile(file);
-      else if (isMedia) await insertMediaFile(file);
-      else await insertImageFile(file);
+      await insertFile(file);
     } catch (error) {
       if (error instanceof Error && error.message.startsWith("Import cancelled")) return;
       console.error("Failed to insert file", error);
@@ -424,7 +415,7 @@ export function SettingsPanel({ closing = false }: { closing?: boolean }) {
             type="button"
             title="Paste"
             disabled={!canPaste || exporting}
-            onClick={pasteClipboard}
+            onClick={() => pasteClipboard()}
           >
             <PasteIcon />
           </button>

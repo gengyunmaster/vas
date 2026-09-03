@@ -28,17 +28,21 @@ self-hosted instance keep separate data; use export / import to move notebooks a
   when tagged with a language (```` ```js ````; highlight.js, lazy-loaded, with light/dark
   palettes that follow the paper color);
   boxes layer between images and ink, join lasso / recolor / cut-copy-paste, and refuse
-  input at the page bottom (no cross-page overflow)
+  input at the page bottom (no cross-page overflow); pasting plain text from the system
+  clipboard creates a text box (rejected with a hint when it doesn't fit the page)
 - **Lasso selection** — circle content to select it, then move, scale / stretch (staying
-  vector), recolor, delete, and cut / copy / paste — across pages and notebooks
+  vector), recolor, delete, and cut / copy / paste — across pages and notebooks; cut / copy
+  also mirrors the selection to the system clipboard, so pasting back works across tabs
 - **Images** — insert images (button or paste from the system clipboard) and annotate
   over them; images move / scale / copy along with the selection; oversized images are
   auto-fit to the page and stored at original quality. The picker also accepts **PDF
   files**: after the same password/decrypt flow you pick a single page, which is
   inserted as a regular (selectable, movable, scalable) image — rendered on screen as
-  a 4x transparent-background preview (the white backdrop is keyed out), stored with
+  a 4x preview (transparent background by default, with an optional white backdrop in
+  the page dialog), stored with
   the full original PDF, and re-embedded as a true vector page on PDF export
-- **Video & audio** — insert video or audio from the same picker; videos appear as a
+- **Video & audio** — insert video or audio from the same picker or straight from the
+  clipboard; videos appear as a
   poster frame with an inline player (play / seek / volume / fullscreen) and audio as a
   paper-adaptive badge, both in a DOM overlay that keeps playing while you scroll or
   turn pages; they participate in lasso selection (move / scale / copy / paste), and

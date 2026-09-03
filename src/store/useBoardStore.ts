@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { type AudioItem, createAudioItem } from "../model/audioItem";
+import type { ClipboardContent } from "../model/clipboard";
 import { createImageItem, type ImageItem } from "../model/image";
 import {
   createPage,
@@ -31,6 +32,7 @@ import {
   unionBounds,
 } from "../model/transform";
 import type { ViewState } from "../model/viewState";
+import { writeSystemClipboard } from "../persistence/clipboard";
 import { textItemHeight } from "../text/textHeight";
 import type { ThemePreference } from "../theme";
 
@@ -91,13 +93,6 @@ export interface SelectionTarget {
   imageIds: string[];
   textIds: string[];
   audioIds: string[];
-}
-
-export interface ClipboardContent {
-  strokes: Stroke[];
-  images: ImageItem[];
-  texts: TextItem[];
-  audios: AudioItem[];
 }
 
 interface ElementEntries {
@@ -169,8 +164,9 @@ interface BoardState {
   deleteSelection: () => void;
   copySelection: () => void;
   cutSelection: () => void;
-  pasteClipboard: () => void;
+  pasteClipboard: (content?: ClipboardContent) => void;
   addTextItem: (pageId: string, x: number, y: number) => string;
+  insertTextItem: (item: TextItem) => void;
   updateTextItem: (
     pageId: string,
     itemId: string,
@@ -709,6 +705,38 @@ export const useBoardStore = create<BoardState>()((set) => ({
     });
     return item.id;
   },
+  insertTextItem: (item) =>
+    set((state) => {
+      const page = state.pages[state.viewPageIndex] ?? state.pages[0];
+      if (!page) return state;
+      const pages = withContinuationPage(
+        state.pages.map((p) => (p.id === page.id ? { ...p, texts: [...p.texts, item] } : p)),
+        page.id,
+      );
+      return {
+        pages,
+        past: [
+          ...state.past,
+          {
+            kind: "add-elements",
+            pageId: page.id,
+            strokes: [],
+            images: [],
+            texts: [item],
+            audios: [],
+          },
+        ],
+        future: [],
+        selection: {
+          pageId: page.id,
+          strokeIds: [],
+          imageIds: [],
+          textIds: [item.id],
+          audioIds: [],
+        },
+        tool: "select",
+      };
+    }),
   updateTextItem: (pageId, itemId, patch) =>
     set((state) => ({
       pages: state.pages.map((p) =>
@@ -990,57 +1018,58 @@ export const useBoardStore = create<BoardState>()((set) => ({
         selectionAnchor: null,
       };
     }),
-  copySelection: () =>
-    set((state) => {
-      const selected = selectedElements(state);
-      if (!selected) return state;
-      return {
-        clipboard: {
-          strokes: structuredClone(selected.strokes.map((e) => e.stroke)),
-          images: structuredClone(selected.images.map((e) => e.image)),
-          texts: structuredClone(selected.texts.map((e) => e.text)),
-          audios: structuredClone(selected.audios.map((e) => e.audio)),
+  copySelection: () => {
+    const selected = selectedElements(useBoardStore.getState());
+    if (!selected) return;
+    const clipboard: ClipboardContent = {
+      strokes: structuredClone(selected.strokes.map((e) => e.stroke)),
+      images: structuredClone(selected.images.map((e) => e.image)),
+      texts: structuredClone(selected.texts.map((e) => e.text)),
+      audios: structuredClone(selected.audios.map((e) => e.audio)),
+    };
+    set({ clipboard });
+    writeSystemClipboard(clipboard);
+  },
+  cutSelection: () => {
+    const state = useBoardStore.getState();
+    const selected = selectedElements(state);
+    if (!selected) return;
+    const clipboard: ClipboardContent = {
+      strokes: structuredClone(selected.strokes.map((e) => e.stroke)),
+      images: structuredClone(selected.images.map((e) => e.image)),
+      texts: structuredClone(selected.texts.map((e) => e.text)),
+      audios: structuredClone(selected.audios.map((e) => e.audio)),
+    };
+    set({
+      clipboard,
+      pages: withoutElements(
+        state.pages,
+        selected.pageId,
+        new Set(selected.strokes.map((e) => e.stroke.id)),
+        new Set(selected.images.map((e) => e.image.id)),
+        new Set(selected.texts.map((e) => e.text.id)),
+        new Set(selected.audios.map((e) => e.audio.id)),
+      ),
+      past: [
+        ...state.past,
+        {
+          kind: "remove-elements",
+          pageId: selected.pageId,
+          strokes: selected.strokes,
+          images: selected.images,
+          texts: selected.texts,
+          audios: selected.audios,
         },
-      };
-    }),
-  cutSelection: () =>
+      ],
+      future: [],
+      selection: null,
+      selectionAnchor: null,
+    });
+    writeSystemClipboard(clipboard);
+  },
+  pasteClipboard: (content) =>
     set((state) => {
-      const selected = selectedElements(state);
-      if (!selected) return state;
-      return {
-        clipboard: {
-          strokes: structuredClone(selected.strokes.map((e) => e.stroke)),
-          images: structuredClone(selected.images.map((e) => e.image)),
-          texts: structuredClone(selected.texts.map((e) => e.text)),
-          audios: structuredClone(selected.audios.map((e) => e.audio)),
-        },
-        pages: withoutElements(
-          state.pages,
-          selected.pageId,
-          new Set(selected.strokes.map((e) => e.stroke.id)),
-          new Set(selected.images.map((e) => e.image.id)),
-          new Set(selected.texts.map((e) => e.text.id)),
-          new Set(selected.audios.map((e) => e.audio.id)),
-        ),
-        past: [
-          ...state.past,
-          {
-            kind: "remove-elements",
-            pageId: selected.pageId,
-            strokes: selected.strokes,
-            images: selected.images,
-            texts: selected.texts,
-            audios: selected.audios,
-          },
-        ],
-        future: [],
-        selection: null,
-        selectionAnchor: null,
-      };
-    }),
-  pasteClipboard: () =>
-    set((state) => {
-      const clip = state.clipboard;
+      const clip = content ?? state.clipboard;
       if (
         clip.strokes.length === 0 &&
         clip.images.length === 0 &&
