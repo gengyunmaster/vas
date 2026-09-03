@@ -5,6 +5,8 @@ font-src
 *.local
 *.log
 *.tar.gz
+test-results
+playwright-report
 .DS_Store
 .vscode
 .idea

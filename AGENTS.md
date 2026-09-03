@@ -293,8 +293,9 @@ docs/            README 截图等文档素材
 
 - 纯逻辑必须有单元测试：`model/` 的几何与命中检测、`persistence/` 的序列化与校验等。
 - 渲染引擎中可纯函数化的部分（如视口变换、模板布局）抽成独立可测模块。
+- E2E 测试（`e2e/`，Playwright，chromium）：覆盖书写/擦除/撤销/加页/文字/导出三格式等主路径；跑在 `vite preview` 的构建产物上（`npm run test:e2e` 自带构建）；笔迹断言用 canvas 暗像素计数（`e2e/helpers.ts`），导出断言校验文件魔数。E2E 不进 Docker 构建（alpine 无浏览器依赖），只在 GitHub Actions 运行。
 - Definition of Done：
-  1. lint 与单元测试全绿，生产构建通过。
+  1. lint、单元测试、E2E 全绿，生产构建通过。
   2. 涉及书写/渲染的改动，需在桌面与移动设备上实际验证手感与性能（目标：跟手无可见延迟、不掉帧）。
   3. 新行为至少在一种输入组合（鼠标 / 触摸 / 手写笔）下实测通过。
 - 无法亲自验证的项目（如真机手感），如实向项目负责人说明，不得声称已验证。
@@ -305,6 +306,7 @@ docs/            README 截图等文档素材
 - `npm run build` — 生产构建（先 `tsc --noEmit` 类型检查）
 - `npm run preview` — 预览构建产物
 - `npm test` — 运行单元测试
+- `npm run test:e2e` — 构建并运行 Playwright E2E（本地需先 `npx playwright install chromium`）
 - `npm run lint` — Biome 检查
 - `npm run format` — Biome 自动格式化
 
