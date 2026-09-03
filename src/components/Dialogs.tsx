@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { settleConfirm, settlePrompt, useDialogStore } from "../store/dialogs";
+import { useFocusTrap } from "./useFocusTrap";
 import { usePresence } from "./usePresence";
 
 export function ConfirmDialog() {
@@ -8,6 +9,8 @@ export function ConfirmDialog() {
   const lastRequest = useRef(request);
   if (request) lastRequest.current = request;
   const confirmRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(request !== null && presence.mounted, dialogRef);
 
   useEffect(() => {
     if (!request) return;
@@ -28,7 +31,13 @@ export function ConfirmDialog() {
 
   return (
     <div className={presence.closing ? "dialog-overlay closing" : "dialog-overlay"}>
-      <div className="dialog" role="alertdialog" aria-modal="true" aria-label={shown.title}>
+      <div
+        className="dialog"
+        role="alertdialog"
+        aria-modal="true"
+        aria-label={shown.title}
+        ref={dialogRef}
+      >
         <div className="dialog-title">{shown.title}</div>
         {shown.text && <p className="dialog-text">{shown.text}</p>}
         <div className="dialog-actions">
@@ -58,6 +67,8 @@ export function PromptDialog() {
   const lastRequest = useRef(request);
   if (request) lastRequest.current = request;
   const inputRef = useRef<HTMLInputElement>(null);
+  const promptDialogRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(request !== null && presence.mounted, promptDialogRef);
 
   useEffect(() => {
     if (!request) return;
@@ -80,7 +91,13 @@ export function PromptDialog() {
 
   return (
     <div className={presence.closing ? "dialog-overlay closing" : "dialog-overlay"}>
-      <div className="dialog" role="dialog" aria-modal="true" aria-label={shown.title}>
+      <div
+        className="dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-label={shown.title}
+        ref={promptDialogRef}
+      >
         <div className="dialog-title">{shown.title}</div>
         {shown.text && <p className="dialog-text">{shown.text}</p>}
         <form

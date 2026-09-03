@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { SHORTCUT_HELP } from "../shortcuts";
 import { useShortcutsStore } from "../store/shortcuts";
+import { useFocusTrap } from "./useFocusTrap";
 import { usePresence } from "./usePresence";
 
 export function ShortcutsDialog() {
@@ -8,6 +9,8 @@ export function ShortcutsDialog() {
   const setOpen = useShortcutsStore((state) => state.setOpen);
   const presence = usePresence(open, 140);
   const closeRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(open && presence.mounted, dialogRef);
 
   useEffect(() => {
     if (!open) return;
@@ -35,6 +38,7 @@ export function ShortcutsDialog() {
         role="dialog"
         aria-modal="true"
         aria-label="Keyboard shortcuts"
+        ref={dialogRef}
       >
         <div className="dialog-title">Keyboard shortcuts</div>
         {SHORTCUT_HELP.map((group) => (
