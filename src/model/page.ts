@@ -1,3 +1,4 @@
+import type { AudioItem } from "./audioItem";
 import type { ImageItem } from "./image";
 import type { Stroke } from "./stroke";
 import { newId } from "./stroke";
@@ -34,6 +35,7 @@ export interface Page {
   strokes: Stroke[];
   images: ImageItem[];
   texts: TextItem[];
+  audios: AudioItem[];
   paperColor: string;
   pattern: PagePattern;
   pdfSource?: PdfSource;
@@ -57,6 +59,7 @@ export function createPage(
     strokes: [],
     images: [],
     texts: [],
+    audios: [],
     paperColor,
     pattern,
   };
@@ -140,7 +143,8 @@ export function trimTrailingBlankPages(pages: Page[]): Page[] {
     end > 1 &&
     pages[end - 1].strokes.length === 0 &&
     pages[end - 1].images.length === 0 &&
-    pages[end - 1].texts.length === 0
+    pages[end - 1].texts.length === 0 &&
+    pages[end - 1].audios.length === 0
   ) {
     end--;
   }
@@ -161,6 +165,7 @@ export function clonePageWithNewIds(page: Page): Page {
     })),
     images: page.images.map((image) => ({ ...image, id: newId() })),
     texts: page.texts.map((text) => ({ ...text, id: newId() })),
+    audios: page.audios.map((audio) => ({ ...audio, id: newId() })),
     ...(page.pdfSource ? { pdfSource: { ...page.pdfSource } } : {}),
   };
 }

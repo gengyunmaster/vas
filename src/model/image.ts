@@ -14,6 +14,9 @@ export interface ImageItem {
   // PDF page inserted as an image: imageId holds the raster preview while
   // pdfSource points at the original document for vector PDF export.
   pdfSource?: PdfSource;
+  // Video: imageId holds the poster frame while videoId points at the media
+  // table. On screen the video plays in the DOM overlay; exports draw the poster.
+  videoId?: string;
 }
 
 export function placeImageSize(

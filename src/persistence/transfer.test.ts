@@ -5,11 +5,13 @@ import {
   buildNotebookZip,
   geometryEntryPath,
   imageEntryPath,
+  mediaEntryPath,
   NOTEBOOK_JSON_ENTRY,
   parseNotebookFile,
   pdfEntryPath,
   resolveGeometryEntries,
   resolveImageEntries,
+  resolveMediaEntries,
   resolvePdfEntries,
   sanitizeFileName,
   serializeNotebook,
@@ -24,6 +26,7 @@ function samplePage(): Page {
     pattern: "grid",
     images: [],
     texts: [],
+    audios: [],
     strokes: [
       {
         id: "stroke-1",
@@ -602,6 +605,134 @@ describe("notebook text items", () => {
       pages: [{ strokes: [] }],
     });
     expect(parseNotebookFile(text).pages[0].texts).toEqual([]);
+  });
+});
+
+describe("notebook media", () => {
+  function mediaPage(): Page {
+    return {
+      ...samplePage(),
+      images: [
+        {
+          id: "item-1",
+          imageId: "blob-1",
+          x: 40,
+          y: 40,
+          width: 320,
+          height: 180,
+          videoId: "vid-1",
+        },
+      ],
+      audios: [{ id: "audio-1", audioId: "aud-1", x: 40, y: 300, width: 240, height: 44 }],
+    };
+  }
+
+  const mediaImages = [{ imageId: "blob-1", mimeType: "image/png" }];
+  const mediaManifest = [
+    { mediaId: "vid-1", kind: "video" as const, mimeType: "video/webm" },
+    { mediaId: "aud-1", kind: "audio" as const, mimeType: "audio/webm" },
+  ];
+
+  function serializeMedia(): string {
+    return serializeNotebook("Media", [mediaPage()], mediaImages, undefined, [], [], mediaManifest);
+  }
+
+  it("round-trips video and audio items and remaps the media ids", () => {
+    const parsed = parseNotebookFile(serializeMedia());
+    expect(parsed.media).toHaveLength(2);
+    const video = parsed.media.find((e) => e.kind === "video");
+    const audio = parsed.media.find((e) => e.kind === "audio");
+    expect(video?.sourceId).toBe("vid-1");
+    expect(audio?.sourceId).toBe("aud-1");
+    expect(video?.mediaId).not.toBe("vid-1");
+    const item = parsed.pages[0].images[0];
+    expect(item.videoId).toBe(video?.mediaId);
+    expect(item.imageId).toBe(parsed.images[0].imageId);
+    const badge = parsed.pages[0].audios[0];
+    expect(badge.id).not.toBe("audio-1");
+    expect(badge.audioId).toBe(audio?.mediaId);
+    expect(badge).toMatchObject({ x: 40, y: 300, width: 240, height: 44 });
+  });
+
+  it("omits the media manifest when nothing references media", () => {
+    const text = serializeNotebook("Plain", [samplePage()]);
+    expect(parseNotebookFile(text).media).toEqual([]);
+    expect(text).not.toContain("media");
+  });
+
+  it("reads v5 files without audios as empty audio lists", () => {
+    const text = JSON.stringify({
+      format: "vas-notebook",
+      version: 5,
+      pages: [{ strokes: [] }],
+    });
+    const parsed = parseNotebookFile(text);
+    expect(parsed.pages[0].audios).toEqual([]);
+    expect(parsed.media).toEqual([]);
+  });
+
+  it("rejects a page referencing media missing from the manifest", () => {
+    const audioRef = JSON.stringify({
+      format: "vas-notebook",
+      version: 6,
+      pages: [{ strokes: [], audios: [{ audioId: "ghost", x: 0, y: 0, width: 240, height: 44 }] }],
+    });
+    expect(() => parseNotebookFile(audioRef)).toThrow("unknown media");
+    const videoRef = JSON.stringify({
+      format: "vas-notebook",
+      version: 6,
+      images: [{ imageId: "blob-1", mimeType: "image/png" }],
+      pages: [
+        {
+          strokes: [],
+          images: [{ imageId: "blob-1", x: 0, y: 0, width: 10, height: 10, videoId: "ghost" }],
+        },
+      ],
+    });
+    expect(() => parseNotebookFile(videoRef)).toThrow("unknown media");
+  });
+
+  it("rejects invalid media manifest entries and audio geometry", () => {
+    const badKind = JSON.stringify({
+      format: "vas-notebook",
+      version: 6,
+      media: [
+        { mediaId: "m1", kind: "video", mimeType: "video/webm" },
+        { mediaId: "m2", kind: "midi", mimeType: "audio/midi" },
+      ],
+      pages: [{ strokes: [] }],
+    });
+    expect(() => parseNotebookFile(badKind)).toThrow("Invalid media kind");
+    const badRect = JSON.stringify({
+      format: "vas-notebook",
+      version: 6,
+      media: [{ mediaId: "m1", kind: "audio", mimeType: "audio/webm" }],
+      pages: [{ strokes: [], audios: [{ audioId: "m1", x: 0, y: 0, width: 0, height: 44 }] }],
+    });
+    expect(() => parseNotebookFile(badRect)).toThrow("Invalid audio width");
+  });
+
+  it("resolves media bytes from the zip archive", () => {
+    const zip = buildNotebookZip(serializeMedia(), [
+      { path: imageEntryPath("blob-1", "image/png"), data: new Uint8Array([1]) },
+      { path: mediaEntryPath("vid-1", "video/webm"), data: new Uint8Array([5, 6, 7]) },
+      { path: mediaEntryPath("aud-1", "audio/webm"), data: new Uint8Array([8, 9]) },
+    ]);
+    const entries = unzipSync(zip);
+    const parsed = parseNotebookFile(strFromU8(entries[NOTEBOOK_JSON_ENTRY]));
+    const resolved = resolveMediaEntries(entries, parsed.media);
+    expect([...resolved[0]]).toEqual([5, 6, 7]);
+    expect([...resolved[1]]).toEqual([8, 9]);
+  });
+
+  it("resolveMediaEntries throws when a media file is missing", () => {
+    const entries = unzipSync(
+      buildNotebookZip(serializeMedia(), [
+        { path: imageEntryPath("blob-1", "image/png"), data: new Uint8Array([1]) },
+      ]),
+    );
+    const parsed = parseNotebookFile(strFromU8(entries[NOTEBOOK_JSON_ENTRY]));
+    expect(() => resolveMediaEntries(entries, parsed.media)).toThrow("Missing media data");
   });
 });
 

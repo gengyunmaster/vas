@@ -1,3 +1,5 @@
+import { publishMediaFrame } from "../media/mediaFrameBus";
+import type { AudioItem } from "../model/audioItem";
 import { type Bounds, ERASER_TOLERANCE, hitTestStroke, strokeBounds } from "../model/hitTest";
 import type { ImageItem } from "../model/image";
 import {
@@ -10,7 +12,7 @@ import {
   pageTops,
   pageTopY,
 } from "../model/page";
-import { imagesInLasso, strokesInLasso, textsInLasso } from "../model/selection";
+import { audiosInLasso, imagesInLasso, strokesInLasso, textsInLasso } from "../model/selection";
 import {
   createStroke,
   effectiveStrokeSize,
@@ -26,10 +28,12 @@ import {
   clampMoveDelta,
   clampScaleToPage,
   elementsBounds,
+  scaleAudio,
   scaleBounds,
   scaleImage,
   scaleStroke,
   scaleTextReflow,
+  translateAudio,
   translateBounds,
   translateImage,
   translateStroke,
@@ -70,6 +74,7 @@ export interface SelectionSnapshot {
   strokeIds: string[];
   imageIds: string[];
   textIds: string[];
+  audioIds: string[];
 }
 
 interface BoardCallbacks {
@@ -80,8 +85,8 @@ interface BoardCallbacks {
   onSelectionChange: (selection: SelectionSnapshot | null) => void;
   onSelectionAnchor: (anchor: Point | null) => void;
   onTransformSelection: (
-    before: { strokes: Stroke[]; images: ImageItem[]; texts: TextItem[] },
-    after: { strokes: Stroke[]; images: ImageItem[]; texts: TextItem[] },
+    before: { strokes: Stroke[]; images: ImageItem[]; texts: TextItem[]; audios: AudioItem[] },
+    after: { strokes: Stroke[]; images: ImageItem[]; texts: TextItem[]; audios: AudioItem[] },
   ) => void;
   onTextTap: (pageId: string, x: number, y: number) => void;
   onViewportChange: (viewState: ViewState) => void;
@@ -124,6 +129,7 @@ interface SelectionState {
   strokes: Stroke[];
   images: ImageItem[];
   texts: TextItem[];
+  audios: AudioItem[];
   bounds: Bounds;
 }
 
@@ -252,10 +258,12 @@ export class Board {
       const strokeIds = new Set(this.selection.strokes.map((s) => s.id));
       const imageIds = new Set(this.selection.images.map((i) => i.id));
       const textIds = new Set(this.selection.texts.map((t) => t.id));
+      const audioIds = new Set(this.selection.audios.map((a) => a.id));
       const strokes = page?.strokes.filter((s) => strokeIds.has(s.id)) ?? [];
       const images = page?.images.filter((i) => imageIds.has(i.id)) ?? [];
       const texts = page?.texts.filter((t) => textIds.has(t.id)) ?? [];
-      const bounds = this.selectionBounds(strokes, images, texts);
+      const audios = page?.audios.filter((a) => audioIds.has(a.id)) ?? [];
+      const bounds = this.selectionBounds(strokes, images, texts, audios);
       if (!page || !bounds) {
         this.selection = null;
         this.gesture = null;
@@ -265,7 +273,7 @@ export class Board {
       } else {
         // External document change during a drag leaves the gesture anchor stale.
         this.gesture = null;
-        this.selection = { pageId: page.id, strokes, images, texts, bounds };
+        this.selection = { pageId: page.id, strokes, images, texts, audios, bounds };
       }
     }
     if (this.presenting) {
@@ -316,10 +324,12 @@ export class Board {
     const strokeIds = new Set(target.strokeIds);
     const imageIds = new Set(target.imageIds);
     const textIds = new Set(target.textIds);
+    const audioIds = new Set(target.audioIds);
     const strokes = page.strokes.filter((s) => strokeIds.has(s.id));
     const images = page.images.filter((i) => imageIds.has(i.id));
     const texts = page.texts.filter((t) => textIds.has(t.id));
-    const bounds = this.selectionBounds(strokes, images, texts);
+    const audios = page.audios.filter((a) => audioIds.has(a.id));
+    const bounds = this.selectionBounds(strokes, images, texts, audios);
     if (!bounds) return;
     if (
       this.selection &&
@@ -329,11 +339,13 @@ export class Board {
       this.selection.images.length === images.length &&
       this.selection.images.every((i) => imageIds.has(i.id)) &&
       this.selection.texts.length === texts.length &&
-      this.selection.texts.every((t) => textIds.has(t.id))
+      this.selection.texts.every((t) => textIds.has(t.id)) &&
+      this.selection.audios.length === audios.length &&
+      this.selection.audios.every((a) => audioIds.has(a.id))
     ) {
       return;
     }
-    this.selection = { pageId: target.pageId, strokes, images, texts, bounds };
+    this.selection = { pageId: target.pageId, strokes, images, texts, audios, bounds };
     this.selectionBase = null;
     this.strokeOverlayCache = null;
     this.gesture = null;
@@ -344,11 +356,13 @@ export class Board {
     strokes: Stroke[],
     images: ImageItem[],
     texts: TextItem[],
+    audios: AudioItem[] = [],
   ): Bounds | null {
     return elementsBounds(
       strokes,
       images,
       texts.map((item) => ({ item, height: textItemHeight(item) })),
+      audios,
     );
   }
 
@@ -612,6 +626,7 @@ export class Board {
     this.renderLaserTrail(dpr);
     this.renderEraserRing(dpr);
     this.publishTexts(board, tops);
+    this.publishMedia(board, tops);
     this.reportViewPage();
     this.pushSelectionAnchor();
     this.reportViewport();
@@ -680,24 +695,47 @@ export class Board {
         y: (tops[i] - vp.y) * vp.scale,
       });
     }
-    const gesture = this.gesture;
-    const snapshot: SelectionGestureSnapshot | null = gesture
-      ? gesture.kind === "move"
-        ? { kind: "move", dx: gesture.dx, dy: gesture.dy, anchor: { x: 0, y: 0 }, sx: 1, sy: 1 }
-        : {
-            kind: "resize",
-            dx: 0,
-            dy: 0,
-            anchor: gesture.anchor,
-            sx: gesture.sx,
-            sy: gesture.sy,
-          }
-      : null;
     publishTextFrame({
       scale: vp.scale,
       pages,
-      gesture: snapshot,
+      gesture: this.gestureSnapshot(),
       selectedTextIds: this.selection?.texts.map((t) => t.id) ?? [],
+    });
+  }
+
+  private gestureSnapshot(): SelectionGestureSnapshot | null {
+    const gesture = this.gesture;
+    if (!gesture) return null;
+    return gesture.kind === "move"
+      ? { kind: "move", dx: gesture.dx, dy: gesture.dy, anchor: { x: 0, y: 0 }, sx: 1, sy: 1 }
+      : {
+          kind: "resize",
+          dx: 0,
+          dy: 0,
+          anchor: gesture.anchor,
+          sx: gesture.sx,
+          sy: gesture.sy,
+        };
+  }
+
+  private publishMedia(board: number, tops: number[]): void {
+    const vp = this.viewport;
+    const pages: { pageId: string; x: number; y: number }[] = [];
+    for (let i = 0; i < this.pages.length; i++) {
+      const page = this.pages[i];
+      if (!hasDomOverlay(page)) continue;
+      pages.push({
+        pageId: page.id,
+        x: (pageLeftX(board, page) - vp.x) * vp.scale,
+        y: (tops[i] - vp.y) * vp.scale,
+      });
+    }
+    publishMediaFrame({
+      scale: vp.scale,
+      pages,
+      gesture: this.gestureSnapshot(),
+      selectedVideoIds: this.selection?.images.filter((i) => i.videoId).map((i) => i.id) ?? [],
+      selectedAudioIds: this.selection?.audios.map((a) => a.id) ?? [],
     });
   }
 
@@ -727,12 +765,13 @@ export class Board {
     return derived;
   }
 
-  // Text lives in the DOM overlay between the base and active canvases, so a
-  // page with texts keeps its ink out of the base bitmap; the strokes composite
-  // separately above the overlay (renderPageInk) to match the export order.
+  // Text and media live in DOM overlays between the base and active canvases,
+  // so a page with either keeps its ink out of the base bitmap; the strokes
+  // composite separately above the overlays (renderPageInk) to match the
+  // export order.
   private basePageFor(page: Page): Page {
     const source = this.pageForCache(page);
-    if (source.texts.length === 0) return source;
+    if (!hasDomOverlay(source)) return source;
     let derived = this.derivedBase.get(source);
     if (!derived) {
       derived = { ...source, strokes: [] };
@@ -743,10 +782,10 @@ export class Board {
 
   private inkPageFor(page: Page): Page | null {
     const source = this.pageForCache(page);
-    if (source.texts.length === 0 || source.strokes.length === 0) return null;
+    if (!hasDomOverlay(source) || source.strokes.length === 0) return null;
     let derived = this.derivedInk.get(source);
     if (!derived) {
-      derived = { ...source, images: [], pattern: "blank", paperColor: "transparent" };
+      derived = { ...source, images: [], audios: [], pattern: "blank", paperColor: "transparent" };
       this.derivedInk.set(source, derived);
     }
     return derived;
@@ -1631,22 +1670,24 @@ export class Board {
     if (gesture.kind === "move") {
       if (Math.abs(gesture.dx) < 0.01 && Math.abs(gesture.dy) < 0.01) return;
       this.callbacks.onTransformSelection(
-        { strokes: sel.strokes, images: sel.images, texts: sel.texts },
+        { strokes: sel.strokes, images: sel.images, texts: sel.texts, audios: sel.audios },
         {
           strokes: sel.strokes.map((s) => translateStroke(s, gesture.dx, gesture.dy)),
           images: sel.images.map((i) => translateImage(i, gesture.dx, gesture.dy)),
           texts: sel.texts.map((t) => translateText(t, gesture.dx, gesture.dy)),
+          audios: sel.audios.map((a) => translateAudio(a, gesture.dx, gesture.dy)),
         },
       );
       return;
     }
     if (Math.abs(gesture.sx - 1) < 0.001 && Math.abs(gesture.sy - 1) < 0.001) return;
     this.callbacks.onTransformSelection(
-      { strokes: sel.strokes, images: sel.images, texts: sel.texts },
+      { strokes: sel.strokes, images: sel.images, texts: sel.texts, audios: sel.audios },
       {
         strokes: sel.strokes.map((s) => scaleStroke(s, gesture.anchor, gesture.sx, gesture.sy)),
         images: sel.images.map((i) => scaleImage(i, gesture.anchor, gesture.sx, gesture.sy)),
         texts: sel.texts.map((t) => scaleTextReflow(t, gesture.anchor, gesture.sx, gesture.sy)),
+        audios: sel.audios.map((a) => scaleAudio(a, gesture.anchor, gesture.sx, gesture.sy)),
       },
     );
   }
@@ -1660,12 +1701,13 @@ export class Board {
     const strokes = page ? strokesInLasso(page.strokes, lasso.points) : [];
     const images = page ? imagesInLasso(page.images, lasso.points) : [];
     const texts = page ? textsInLasso(page.texts, lasso.points, textItemHeight) : [];
-    const bounds = this.selectionBounds(strokes, images, texts);
+    const audios = page ? audiosInLasso(page.audios, lasso.points) : [];
+    const bounds = this.selectionBounds(strokes, images, texts, audios);
     if (!page || !bounds) {
       this.clearSelection();
       return;
     }
-    this.selection = { pageId: page.id, strokes, images, texts, bounds };
+    this.selection = { pageId: page.id, strokes, images, texts, audios, bounds };
     this.selectionBase = null;
     this.strokeOverlayCache = null;
     this.callbacks.onSelectionChange({
@@ -1673,6 +1715,7 @@ export class Board {
       strokeIds: strokes.map((s) => s.id),
       imageIds: images.map((i) => i.id),
       textIds: texts.map((t) => t.id),
+      audioIds: audios.map((a) => a.id),
     });
   }
 
@@ -1818,4 +1861,13 @@ function preventDefault(event: Event): void {
 
 function isShapeTool(tool: ToolKind): tool is ShapeKind {
   return SHAPE_KINDS.includes(tool as ShapeKind);
+}
+
+// Pages with DOM-rendered content (text items, videos, audio badges) route
+// their committed strokes through the transparent ink cache so the overlays
+// stay between the paper/images layer and the ink layer.
+function hasDomOverlay(page: Page): boolean {
+  return (
+    page.texts.length > 0 || page.audios.length > 0 || page.images.some((image) => image.videoId)
+  );
 }

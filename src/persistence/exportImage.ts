@@ -1,5 +1,6 @@
 import { acquireFirstFrames, ensureImageLoaded } from "../engine/imageCache";
 import { paintElements, paintPageForExport } from "../engine/renderPage";
+import type { AudioItem } from "../model/audioItem";
 import type { ImageItem } from "../model/image";
 import { type Page, trimTrailingBlankPages } from "../model/page";
 import type { Stroke } from "../model/stroke";
@@ -40,11 +41,14 @@ export async function exportSelectionPng(
   strokes: Stroke[],
   images: ImageItem[],
   texts: TextItem[] = [],
+  audios: AudioItem[] = [],
+  paperColor = "#ffffff",
 ): Promise<void> {
   const bounds = elementsBounds(
     strokes,
     images,
     texts.map((item) => ({ item, height: textItemHeight(item) })),
+    audios,
   );
   if (!bounds) return;
   const ids = imageIdsInScope(images, texts);
@@ -59,6 +63,8 @@ export async function exportSelectionPng(
       bounds,
       cappedRenderScale(PNG_SCALE, bounds.maxX - bounds.minX, bounds.maxY - bounds.minY),
       texts,
+      audios,
+      paperColor,
     );
     downloadBlob(await canvasToPng(canvas), `${title}-selection.png`);
   } finally {

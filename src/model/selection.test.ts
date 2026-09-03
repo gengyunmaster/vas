@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Page } from "./page";
 import {
+  audiosInLasso,
   imageInLasso,
   imagesInLasso,
   pickElements,
@@ -250,6 +251,24 @@ describe("imageInLasso", () => {
   });
 });
 
+describe("audiosInLasso", () => {
+  const badge = { id: "a1", audioId: "m1", x: 10, y: 10, width: 60, height: 20 };
+
+  it("selects badges whose rect intersects the lasso", () => {
+    expect(audiosInLasso([badge], square).map((a) => a.id)).toEqual(["a1"]);
+    expect(audiosInLasso([{ ...badge, x: 500, y: 500 }], square)).toEqual([]);
+  });
+
+  it("selects a badge that contains the whole lasso", () => {
+    const big = { ...badge, x: -50, y: -50, width: 500, height: 500 };
+    expect(audiosInLasso([big], square).map((a) => a.id)).toEqual(["a1"]);
+  });
+
+  it("returns empty for degenerate lassos", () => {
+    expect(audiosInLasso([badge], [{ x: 5, y: 5 }])).toEqual([]);
+  });
+});
+
 describe("pickElements", () => {
   it("returns only the referenced strokes and images, in page order", () => {
     const a = penStroke("a", [{ x: 0, y: 0 }]);
@@ -266,9 +285,14 @@ describe("pickElements", () => {
         { id: "i2", imageId: "m2", x: 5, y: 5, width: 10, height: 10 },
       ],
       texts: [],
+      audios: [
+        { id: "au1", audioId: "m3", x: 0, y: 0, width: 240, height: 44 },
+        { id: "au2", audioId: "m4", x: 300, y: 0, width: 240, height: 44 },
+      ],
     };
-    const picked = pickElements(page, ["b"], ["i2"]);
+    const picked = pickElements(page, ["b"], ["i2"], [], ["au2"]);
     expect(picked.strokes).toEqual([b]);
     expect(picked.images.map((image) => image.id)).toEqual(["i2"]);
+    expect(picked.audios.map((audio) => audio.id)).toEqual(["au2"]);
   });
 });

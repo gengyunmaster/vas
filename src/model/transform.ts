@@ -1,3 +1,4 @@
+import type { AudioItem } from "./audioItem";
 import { type Bounds, strokeBounds } from "./hitTest";
 import type { ImageItem } from "./image";
 import type { Point } from "./shapeGeometry";
@@ -56,6 +57,37 @@ export function imagesBounds(images: ImageItem[]): Bounds | null {
   return { minX, minY, maxX, maxY };
 }
 
+export function translateAudio(audio: AudioItem, dx: number, dy: number): AudioItem {
+  return { ...audio, x: audio.x + dx, y: audio.y + dy };
+}
+
+// Audio badges scale geometrically like images: the badge is procedural, so
+// stretching it just redraws the pill at the new rect.
+export function scaleAudio(audio: AudioItem, anchor: Point, sx: number, sy: number): AudioItem {
+  return {
+    ...audio,
+    x: anchor.x + (audio.x - anchor.x) * sx,
+    y: anchor.y + (audio.y - anchor.y) * sy,
+    width: audio.width * sx,
+    height: audio.height * sy,
+  };
+}
+
+export function audiosBounds(audios: AudioItem[]): Bounds | null {
+  if (audios.length === 0) return null;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const audio of audios) {
+    minX = Math.min(minX, audio.x);
+    minY = Math.min(minY, audio.y);
+    maxX = Math.max(maxX, audio.x + audio.width);
+    maxY = Math.max(maxY, audio.y + audio.height);
+  }
+  return { minX, minY, maxX, maxY };
+}
+
 // Text boxes need their laid-out height for bounds; callers resolve it from
 // the text height cache and pass it along.
 export function textBounds(text: TextItem, height: number): Bounds {
@@ -104,10 +136,11 @@ export function elementsBounds(
   strokes: Stroke[],
   images: ImageItem[],
   texts: { item: TextItem; height: number }[] = [],
+  audios: AudioItem[] = [],
 ): Bounds | null {
   let bounds = unionBounds(strokesBounds(strokes), imagesBounds(images));
   for (const { item, height } of texts) bounds = unionBounds(bounds, textBounds(item, height));
-  return bounds;
+  return unionBounds(bounds, audiosBounds(audios));
 }
 
 export function scaleStroke(stroke: Stroke, anchor: Point, sx: number, sy: number): Stroke {

@@ -2,6 +2,7 @@ import type { ViewState } from "../model/viewState";
 import { useBoardStore } from "../store/useBoardStore";
 import { gcUnreferencedGeometries } from "./geometries";
 import { gcUnreferencedImages } from "./images";
+import { gcUnreferencedMedia } from "./media";
 import { loadNotebook, saveViewState } from "./notebooks";
 import { gcUnreferencedPdfs } from "./pdfs";
 
@@ -43,6 +44,7 @@ export async function openNotebook(id: string): Promise<void> {
   void gcUnreferencedImages().catch((error) => console.error("Image GC failed", error));
   void gcUnreferencedPdfs().catch((error) => console.error("PDF GC failed", error));
   void gcUnreferencedGeometries().catch((error) => console.error("Geometry GC failed", error));
+  void gcUnreferencedMedia().catch((error) => console.error("Media GC failed", error));
   try {
     localStorage.setItem(LAST_NOTEBOOK_KEY, id);
   } catch {

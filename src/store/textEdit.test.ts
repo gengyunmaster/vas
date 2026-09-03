@@ -12,7 +12,7 @@ function reset(): void {
     paperColor: "#ffffff",
     selection: null,
     selectionAnchor: null,
-    clipboard: { strokes: [], images: [], texts: [] },
+    clipboard: { strokes: [], images: [], texts: [], audios: [] },
     editingText: null,
     textEditOrigin: null,
   });
@@ -122,7 +122,7 @@ describe("text clipboard", () => {
 
     useBoardStore
       .getState()
-      .setSelection({ pageId, strokeIds: [], imageIds: [], textIds: [itemId] });
+      .setSelection({ pageId, strokeIds: [], imageIds: [], textIds: [itemId], audioIds: [] });
     useBoardStore.getState().copySelection();
     useBoardStore.getState().setSelection(null);
     useBoardStore.getState().pasteClipboard();

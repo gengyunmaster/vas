@@ -1,6 +1,8 @@
+import type { AudioItem } from "../model/audioItem";
 import { isDarkColor } from "../model/color";
 import type { Bounds } from "../model/hitTest";
 import type { ImageItem } from "../model/image";
+import { paintBadge } from "../model/mediaBadge";
 import type { Page } from "../model/page";
 import type { Stroke } from "../model/stroke";
 import type { TextItem } from "../model/textItem";
@@ -25,9 +27,9 @@ export function paintPage(canvas: HTMLCanvasElement, page: Page, renderScale: nu
   for (const stroke of page.strokes) drawStroke(ctx, stroke);
 }
 
-// Export-only variant: texts stay in the DOM overlay on screen, so the hot
-// cache path above stays synchronous; here they join the bitmap between the
-// image layer and the ink layer.
+// Export-only variant: texts and audio badges stay in DOM overlays on screen,
+// so the hot cache path above stays synchronous; here they join the bitmap
+// between the image layer and the ink layer.
 export async function paintPageForExport(
   canvas: HTMLCanvasElement,
   page: Page,
@@ -44,6 +46,7 @@ export async function paintPageForExport(
     const bitmap = getImageBitmap(image.imageId);
     if (bitmap) ctx.drawImage(bitmap, image.x, image.y, image.width, image.height);
   }
+  for (const audio of page.audios) paintBadge(ctx, audio, page.paperColor);
   await paintTextItems(ctx, page.texts, isDarkColor(page.paperColor));
   for (const stroke of page.strokes) drawStroke(ctx, stroke);
 }
@@ -55,6 +58,8 @@ export async function paintElements(
   bounds: Bounds,
   renderScale: number,
   texts: TextItem[] = [],
+  audios: AudioItem[] = [],
+  paperColor = "#ffffff",
 ): Promise<void> {
   canvas.width = Math.max(1, Math.round((bounds.maxX - bounds.minX) * renderScale));
   canvas.height = Math.max(1, Math.round((bounds.maxY - bounds.minY) * renderScale));
@@ -71,6 +76,7 @@ export async function paintElements(
     const bitmap = getImageBitmap(image.imageId);
     if (bitmap) ctx.drawImage(bitmap, image.x, image.y, image.width, image.height);
   }
+  for (const audio of audios) paintBadge(ctx, audio, paperColor);
   await paintTextItems(ctx, texts);
   for (const stroke of strokes) drawStroke(ctx, stroke);
 }

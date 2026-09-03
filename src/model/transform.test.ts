@@ -1,15 +1,18 @@
 import { describe, expect, it } from "vitest";
 import type { Stroke } from "./stroke";
 import {
+  audiosBounds,
   centerDelta,
   clampMoveDelta,
   clampScaleToPage,
   elementsBounds,
   imagesBounds,
+  scaleAudio,
   scaleBounds,
   scaleImage,
   scaleStroke,
   strokesBounds,
+  translateAudio,
   translateBounds,
   translateImage,
   translateStroke,
@@ -65,8 +68,42 @@ describe("elementsBounds", () => {
     expect(elementsBounds([stroke], [image])).toEqual({ minX: 10, minY: 10, maxX: 62, maxY: 62 });
   });
 
+  it("includes audio badges", () => {
+    const audio = { id: "a1", audioId: "m1", x: 200, y: 300, width: 240, height: 44 };
+    expect(elementsBounds([], [], [], [audio])).toEqual({
+      minX: 200,
+      minY: 300,
+      maxX: 440,
+      maxY: 344,
+    });
+  });
+
   it("returns null when there is nothing to export", () => {
     expect(elementsBounds([], [])).toBeNull();
+  });
+});
+
+describe("audio transforms", () => {
+  const badge = { id: "a1", audioId: "m1", x: 100, y: 50, width: 240, height: 44 };
+
+  it("translateAudio moves the badge rect", () => {
+    const moved = translateAudio(badge, 10, -5);
+    expect(moved).toMatchObject({ x: 110, y: 45, width: 240, height: 44 });
+    expect(badge.x).toBe(100);
+  });
+
+  it("scaleAudio scales and stretches about the anchor", () => {
+    const scaled = scaleAudio(badge, { x: 100, y: 50 }, 2, 3);
+    expect(scaled).toMatchObject({ x: 100, y: 50, width: 480, height: 132 });
+    const stretched = scaleAudio(badge, { x: 0, y: 0 }, 0.5, 2);
+    expect(stretched).toMatchObject({ x: 50, y: 100, width: 120, height: 88 });
+  });
+
+  it("audiosBounds unions badge rects and handles empties", () => {
+    expect(audiosBounds([])).toBeNull();
+    expect(
+      audiosBounds([badge, { ...badge, id: "a2", x: 400, y: 400, width: 100, height: 30 }]),
+    ).toEqual({ minX: 100, minY: 50, maxX: 500, maxY: 430 });
   });
 });
 

@@ -130,7 +130,8 @@ export default function App() {
       if (
         state.clipboard.strokes.length > 0 ||
         state.clipboard.images.length > 0 ||
-        state.clipboard.texts.length > 0
+        state.clipboard.texts.length > 0 ||
+        state.clipboard.audios.length > 0
       ) {
         event.preventDefault();
         state.pasteClipboard();

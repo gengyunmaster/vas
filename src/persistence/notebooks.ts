@@ -32,6 +32,7 @@ function toPageRecord(notebookId: string, index: number, page: Page) {
     strokes: page.strokes,
     images: page.images,
     texts: page.texts,
+    audios: page.audios,
     ...(page.pdfSource ? { pdfSource: page.pdfSource } : {}),
   };
 }
@@ -51,6 +52,7 @@ export async function loadNotebook(id: string): Promise<{ meta: NotebookRecord; 
     strokes: record.strokes,
     images: record.images ?? [],
     texts: record.texts ?? [],
+    audios: record.audios ?? [],
     ...(record.pdfSource ? { pdfSource: record.pdfSource } : {}),
   }));
   if (pages.length === 0) pages.push(createPage(DEFAULT_PAPER_COLOR));

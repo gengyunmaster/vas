@@ -19,6 +19,7 @@ import {
   reRasterizePdfBase,
 } from "../persistence/importPdf";
 import { insertImageFile } from "../persistence/insertImage";
+import { insertMediaFile } from "../persistence/insertMedia";
 import { requestInstall, useInstallStore } from "../pwa/installPrompt";
 import { askConfirm } from "../store/dialogs";
 import { toast } from "../store/toasts";
@@ -82,7 +83,8 @@ export function SettingsPanel({ closing = false }: { closing?: boolean }) {
     return (
       (page?.strokes.length ?? 0) > 0 ||
       (page?.images.some((i) => !i.locked) ?? false) ||
-      (page?.texts.length ?? 0) > 0
+      (page?.texts.length ?? 0) > 0 ||
+      (page?.audios.length ?? 0) > 0
     );
   });
   const canDeletePage = useBoardStore((state) => state.pages.length > 1);
@@ -90,7 +92,8 @@ export function SettingsPanel({ closing = false }: { closing?: boolean }) {
     (state) =>
       state.clipboard.strokes.length > 0 ||
       state.clipboard.images.length > 0 ||
-      state.clipboard.texts.length > 0,
+      state.clipboard.texts.length > 0 ||
+      state.clipboard.audios.length > 0,
   );
   const sidebarOpen = useBoardStore((state) => state.sidebarOpen);
   const theme = useBoardStore((state) => state.theme);
@@ -150,15 +153,17 @@ export function SettingsPanel({ closing = false }: { closing?: boolean }) {
           ? state.pages.find((candidate) => candidate.id === selection.pageId)
           : undefined;
         if (!selection || !page) return;
-        const { strokes, images, texts } = pickElements(
+        const { strokes, images, texts, audios } = pickElements(
           page,
           selection.strokeIds,
           selection.imageIds,
           selection.textIds,
+          selection.audioIds,
         );
-        if (format === "pdf") await exportSelectionPdf(title, page, strokes, images, texts);
-        else if (format === "svg") await exportSelectionSvg(title, page, strokes, images, texts);
-        else await exportSelectionPng(title, strokes, images, texts);
+        if (format === "pdf") await exportSelectionPdf(title, page, strokes, images, texts, audios);
+        else if (format === "svg")
+          await exportSelectionSvg(title, page, strokes, images, texts, audios);
+        else await exportSelectionPng(title, strokes, images, texts, audios, page.paperColor);
       } else if (exportRange === "page") {
         const page = state.pages[state.viewPageIndex];
         if (!page) return;
@@ -194,13 +199,15 @@ export function SettingsPanel({ closing = false }: { closing?: boolean }) {
   const pickImage = async (file: File | undefined) => {
     if (!file) return;
     const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+    const isMedia = file.type.startsWith("video/") || file.type.startsWith("audio/");
     try {
       if (isPdf) await insertPdfImageFile(file);
+      else if (isMedia) await insertMediaFile(file);
       else await insertImageFile(file);
     } catch (error) {
       if (error instanceof Error && error.message.startsWith("Import cancelled")) return;
-      console.error("Failed to insert image", error);
-      toast(error instanceof Error ? error.message : "Failed to insert image.");
+      console.error("Failed to insert file", error);
+      toast(error instanceof Error ? error.message : "Failed to insert file.");
     }
   };
 
@@ -423,7 +430,7 @@ export function SettingsPanel({ closing = false }: { closing?: boolean }) {
           </button>
           <button
             type="button"
-            title="Insert image"
+            title="Insert media"
             disabled={exporting}
             onClick={() => imageInputRef.current?.click()}
           >
@@ -432,7 +439,7 @@ export function SettingsPanel({ closing = false }: { closing?: boolean }) {
           <input
             ref={imageInputRef}
             type="file"
-            accept="image/*,.pdf,application/pdf"
+            accept="image/*,video/*,audio/*,.pdf,application/pdf"
             hidden
             onChange={(e) => {
               void pickImage(e.target.files?.[0]);

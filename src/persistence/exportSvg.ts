@@ -1,8 +1,10 @@
 import { ensureImageLoaded, getImageBitmap } from "../engine/imageCache";
 import { getOutlinePoints, HIGHLIGHTER_ALPHA } from "../engine/renderStroke";
+import type { AudioItem } from "../model/audioItem";
 import { isDarkColor } from "../model/color";
 import type { Bounds } from "../model/hitTest";
 import type { ImageItem } from "../model/image";
+import { badgeToSvgElements } from "../model/mediaBadge";
 import { type Page, trimTrailingBlankPages } from "../model/page";
 import { PATTERN_DASH, patternLayout } from "../model/patternLayout";
 import { arrowHead } from "../model/shapeGeometry";
@@ -48,15 +50,17 @@ export async function exportSelectionSvg(
   strokes: Stroke[],
   images: ImageItem[],
   texts: TextItem[] = [],
+  audios: AudioItem[] = [],
 ): Promise<void> {
   const bounds = elementsBounds(
     strokes,
     images,
     texts.map((item) => ({ item, height: textItemHeight(item) })),
+    audios,
   );
   if (!bounds) return;
   const imageData = await collectSelectionImageData(images, texts);
-  const svg = await pageToSvg({ ...page, strokes, images, texts }, imageData, {
+  const svg = await pageToSvg({ ...page, strokes, images, texts, audios }, imageData, {
     annotationOnly: true,
     clipTo: bounds,
     darkPaper: false,
@@ -118,6 +122,11 @@ export async function pageToSvg(
       parts.push(
         `<image x="${fmt(image.x)}" y="${fmt(image.y)}" width="${fmt(image.width)}" height="${fmt(image.height)}" href="${href}" xlink:href="${href}" preserveAspectRatio="none"/>`,
       );
+    }
+    // Audio badges sit between the image layer and the text layer, matching
+    // the on-screen overlay order; video items export their poster above.
+    for (const audio of page.audios) {
+      parts.push(...badgeToSvgElements(audio, page.paperColor));
     }
   }
   const textMode = options.textMode ?? "all";

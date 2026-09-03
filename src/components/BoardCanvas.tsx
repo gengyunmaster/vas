@@ -7,6 +7,7 @@ import { startAutosave } from "../persistence/autosave";
 import { scheduleViewStateSave } from "../persistence/session";
 import { useBoardStore } from "../store/useBoardStore";
 import { textItemHeight } from "../text/textHeight";
+import { MediaOverlay } from "./MediaOverlay";
 import { TextOverlay } from "./TextOverlay";
 
 function cursorForTool(tool: ToolKind): string {
@@ -121,8 +122,8 @@ export function BoardCanvas() {
   ]
     .filter(Boolean)
     .join(" ");
-  // The text overlay must sit between the base and active canvases; portaling
-  // it into the board container puts all three in one stacking context.
+  // The overlays must sit between the base and active canvases (media below
+  // text); portaling them into the board container shares one stacking context.
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions lint/a11y/useKeyWithClickEvents: pointer-only link shortcut on the canvas surface; links stay real keyboard-focusable anchors in the overlay
     <div
@@ -147,6 +148,7 @@ export function BoardCanvas() {
         window.open(press.url, "_blank", "noopener,noreferrer");
       }}
     >
+      {container ? createPortal(<MediaOverlay />, container) : null}
       {container ? createPortal(<TextOverlay />, container) : null}
     </div>
   );

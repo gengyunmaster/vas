@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { type AudioItem, createAudioItem } from "../model/audioItem";
 import { createImageItem, type ImageItem } from "../model/image";
 import {
   createPage,
@@ -13,14 +14,17 @@ import { buildPdfPages, type PdfPageImage } from "../model/pdfPage";
 import { newId, type PenKind, type Stroke, type ToolKind } from "../model/stroke";
 import { createTextItem, DEFAULT_TEXT_FONT_SIZE, type TextItem } from "../model/textItem";
 import {
+  audiosBounds,
   centerDelta,
   elementsBounds,
   imagesBounds,
+  scaleAudio,
   scaleImage,
   scaleStroke,
   scaleTextUniform,
   strokesBounds,
   textBounds,
+  translateAudio,
   translateImage,
   translateStroke,
   translateText,
@@ -50,6 +54,7 @@ export type Edit =
       strokes: Stroke[];
       images: ImageItem[];
       texts: TextItem[];
+      audios: AudioItem[];
     }
   | {
       kind: "add-elements";
@@ -57,6 +62,7 @@ export type Edit =
       strokes: Stroke[];
       images: ImageItem[];
       texts: TextItem[];
+      audios: AudioItem[];
     }
   | {
       kind: "remove-elements";
@@ -64,6 +70,7 @@ export type Edit =
       strokes: { index: number; stroke: Stroke }[];
       images: { index: number; image: ImageItem }[];
       texts: { index: number; text: TextItem }[];
+      audios: { index: number; audio: AudioItem }[];
     }
   | {
       kind: "replace-elements";
@@ -74,6 +81,8 @@ export type Edit =
       imagesAfter: ImageItem[];
       textsBefore: TextItem[];
       textsAfter: TextItem[];
+      audiosBefore: AudioItem[];
+      audiosAfter: AudioItem[];
     };
 
 export interface SelectionTarget {
@@ -81,12 +90,14 @@ export interface SelectionTarget {
   strokeIds: string[];
   imageIds: string[];
   textIds: string[];
+  audioIds: string[];
 }
 
 export interface ClipboardContent {
   strokes: Stroke[];
   images: ImageItem[];
   texts: TextItem[];
+  audios: AudioItem[];
 }
 
 interface ElementEntries {
@@ -94,6 +105,7 @@ interface ElementEntries {
   strokes: { index: number; stroke: Stroke }[];
   images: { index: number; image: ImageItem }[];
   texts: { index: number; text: TextItem }[];
+  audios: { index: number; audio: AudioItem }[];
 }
 
 interface BoardState {
@@ -149,8 +161,8 @@ interface BoardState {
   setSelection: (selection: SelectionTarget | null) => void;
   setSelectionAnchor: (anchor: { x: number; y: number } | null) => void;
   transformSelection: (
-    before: { strokes: Stroke[]; images: ImageItem[]; texts: TextItem[] },
-    after: { strokes: Stroke[]; images: ImageItem[]; texts: TextItem[] },
+    before: { strokes: Stroke[]; images: ImageItem[]; texts: TextItem[]; audios: AudioItem[] },
+    after: { strokes: Stroke[]; images: ImageItem[]; texts: TextItem[]; audios: AudioItem[] },
   ) => void;
   centerSelection: (axis: "horizontal" | "vertical") => void;
   recolorSelection: (color: string) => void;
@@ -173,8 +185,9 @@ interface BoardState {
     imageId: string,
     naturalWidth: number,
     naturalHeight: number,
-    extra?: { geometryId?: string; pdfSource?: PdfSource },
+    extra?: { geometryId?: string; pdfSource?: PdfSource; videoId?: string },
   ) => void;
+  insertAudio: (audioId: string) => void;
   insertPdfPages: (pdfPages: PdfPageImage[], pdfSource?: { docId: string }) => void;
   setPdfImport: (notebookId: string, progress: { done: number; total: number } | null) => void;
   setPdfRangeRequest: (request: { numPages: number; mode: "range" | "single" } | null) => void;
@@ -212,6 +225,7 @@ function withoutElements(
   strokeIds: Set<string>,
   imageIds: Set<string>,
   textIds: Set<string> = new Set(),
+  audioIds: Set<string> = new Set(),
 ): Page[] {
   return pages.map((p) =>
     p.id === pageId
@@ -220,6 +234,7 @@ function withoutElements(
           strokes: p.strokes.filter((s) => !strokeIds.has(s.id)),
           images: p.images.filter((i) => !imageIds.has(i.id)),
           texts: p.texts.filter((t) => !textIds.has(t.id)),
+          audios: p.audios.filter((a) => !audioIds.has(a.id)),
         }
       : p,
   );
@@ -276,8 +291,20 @@ function applyEdit(pages: Page[], edit: Edit, direction: "do" | "undo"): Page[] 
       return pages.map((p) =>
         p.id === edit.pageId
           ? direction === "do"
-            ? { ...p, strokes: [], images: p.images.filter((i) => i.locked), texts: [] }
-            : { ...p, strokes: edit.strokes, images: edit.images, texts: edit.texts }
+            ? {
+                ...p,
+                strokes: [],
+                images: p.images.filter((i) => i.locked),
+                texts: [],
+                audios: [],
+              }
+            : {
+                ...p,
+                strokes: edit.strokes,
+                images: edit.images,
+                texts: edit.texts,
+                audios: edit.audios,
+              }
           : p,
       );
     case "add-elements": {
@@ -289,6 +316,7 @@ function applyEdit(pages: Page[], edit: Edit, direction: "do" | "undo"): Page[] 
                 strokes: [...p.strokes, ...edit.strokes],
                 images: [...p.images, ...edit.images],
                 texts: [...p.texts, ...edit.texts],
+                audios: [...p.audios, ...edit.audios],
               }
             : p,
         );
@@ -299,6 +327,7 @@ function applyEdit(pages: Page[], edit: Edit, direction: "do" | "undo"): Page[] 
         new Set(edit.strokes.map((s) => s.id)),
         new Set(edit.images.map((i) => i.id)),
         new Set(edit.texts.map((t) => t.id)),
+        new Set(edit.audios.map((a) => a.id)),
       );
     }
     case "remove-elements": {
@@ -309,6 +338,7 @@ function applyEdit(pages: Page[], edit: Edit, direction: "do" | "undo"): Page[] 
           new Set(edit.strokes.map((e) => e.stroke.id)),
           new Set(edit.images.map((e) => e.image.id)),
           new Set(edit.texts.map((e) => e.text.id)),
+          new Set(edit.audios.map((e) => e.audio.id)),
         );
       }
       return pages.map((p) => {
@@ -325,7 +355,11 @@ function applyEdit(pages: Page[], edit: Edit, direction: "do" | "undo"): Page[] 
         for (const entry of [...edit.texts].sort((a, b) => a.index - b.index)) {
           texts.splice(Math.min(entry.index, texts.length), 0, entry.text);
         }
-        return { ...p, strokes, images, texts };
+        const audios = [...p.audios];
+        for (const entry of [...edit.audios].sort((a, b) => a.index - b.index)) {
+          audios.splice(Math.min(entry.index, audios.length), 0, entry.audio);
+        }
+        return { ...p, strokes, images, texts, audios };
       });
     }
     case "replace-elements": {
@@ -335,6 +369,8 @@ function applyEdit(pages: Page[], edit: Edit, direction: "do" | "undo"): Page[] 
       const imagesAfter = direction === "do" ? edit.imagesAfter : edit.imagesBefore;
       const textsBefore = direction === "do" ? edit.textsBefore : edit.textsAfter;
       const textsAfter = direction === "do" ? edit.textsAfter : edit.textsBefore;
+      const audiosBefore = direction === "do" ? edit.audiosBefore : edit.audiosAfter;
+      const audiosAfter = direction === "do" ? edit.audiosAfter : edit.audiosBefore;
       return pages.map((p) =>
         p.id === edit.pageId
           ? {
@@ -342,6 +378,7 @@ function applyEdit(pages: Page[], edit: Edit, direction: "do" | "undo"): Page[] 
               strokes: replaceById(p.strokes, strokesBefore, strokesAfter),
               images: replaceById(p.images, imagesBefore, imagesAfter),
               texts: replaceById(p.texts, textsBefore, textsAfter),
+              audios: replaceById(p.audios, audiosBefore, audiosAfter),
             }
           : p,
       );
@@ -357,9 +394,11 @@ function selectedElements(state: BoardState): ElementEntries | null {
   const strokeIds = new Set(selection.strokeIds);
   const imageIds = new Set(selection.imageIds);
   const textIds = new Set(selection.textIds);
+  const audioIds = new Set(selection.audioIds);
   const strokes: { index: number; stroke: Stroke }[] = [];
   const images: { index: number; image: ImageItem }[] = [];
   const texts: { index: number; text: TextItem }[] = [];
+  const audios: { index: number; audio: AudioItem }[] = [];
   page.strokes.forEach((stroke, index) => {
     if (strokeIds.has(stroke.id)) strokes.push({ index, stroke });
   });
@@ -369,8 +408,13 @@ function selectedElements(state: BoardState): ElementEntries | null {
   page.texts.forEach((text, index) => {
     if (textIds.has(text.id)) texts.push({ index, text });
   });
-  if (strokes.length === 0 && images.length === 0 && texts.length === 0) return null;
-  return { pageId: page.id, strokes, images, texts };
+  page.audios.forEach((audio, index) => {
+    if (audioIds.has(audio.id)) audios.push({ index, audio });
+  });
+  if (strokes.length === 0 && images.length === 0 && texts.length === 0 && audios.length === 0) {
+    return null;
+  }
+  return { pageId: page.id, strokes, images, texts, audios };
 }
 
 export const useBoardStore = create<BoardState>()((set) => ({
@@ -396,7 +440,7 @@ export const useBoardStore = create<BoardState>()((set) => ({
   theme: "system",
   selection: null,
   selectionAnchor: null,
-  clipboard: { strokes: [], images: [], texts: [] },
+  clipboard: { strokes: [], images: [], texts: [], audios: [] },
   editingText: null,
   textEditOrigin: null,
   viewState: null,
@@ -496,12 +540,15 @@ export const useBoardStore = create<BoardState>()((set) => ({
       const page = state.pages.find((p) => p.id === pageId);
       const hasUnlockedContent =
         page &&
-        (page.strokes.length > 0 || page.images.some((i) => !i.locked) || page.texts.length > 0);
+        (page.strokes.length > 0 ||
+          page.images.some((i) => !i.locked) ||
+          page.texts.length > 0 ||
+          page.audios.length > 0);
       if (!page || !hasUnlockedContent) return state;
       return {
         pages: state.pages.map((p) =>
           p.id === pageId
-            ? { ...p, strokes: [], images: p.images.filter((i) => i.locked), texts: [] }
+            ? { ...p, strokes: [], images: p.images.filter((i) => i.locked), texts: [], audios: [] }
             : p,
         ),
         past: [
@@ -512,6 +559,7 @@ export const useBoardStore = create<BoardState>()((set) => ({
             strokes: page.strokes,
             images: page.images,
             texts: page.texts,
+            audios: page.audios,
           },
         ],
         future: [],
@@ -575,7 +623,14 @@ export const useBoardStore = create<BoardState>()((set) => ({
       set((s) => ({
         past: [
           ...s.past,
-          { kind: "add-elements", pageId: page.id, strokes: [], images: [], texts: [item] },
+          {
+            kind: "add-elements",
+            pageId: page.id,
+            strokes: [],
+            images: [],
+            texts: [item],
+            audios: [],
+          },
         ],
         future: [],
       }));
@@ -624,6 +679,8 @@ export const useBoardStore = create<BoardState>()((set) => ({
             imagesAfter: [after],
             textsBefore: [],
             textsAfter: [],
+            audiosBefore: [],
+            audiosAfter: [],
           },
         ],
         future: [],
@@ -681,6 +738,8 @@ export const useBoardStore = create<BoardState>()((set) => ({
             imagesAfter: [],
             textsBefore: [before],
             textsAfter: [after],
+            audiosBefore: [],
+            audiosAfter: [],
           },
         ],
         future: [],
@@ -766,7 +825,11 @@ export const useBoardStore = create<BoardState>()((set) => ({
         before.strokes.length !== after.strokes.length ||
         before.images.length !== after.images.length ||
         before.texts.length !== after.texts.length ||
-        (before.strokes.length === 0 && before.images.length === 0 && before.texts.length === 0)
+        before.audios.length !== after.audios.length ||
+        (before.strokes.length === 0 &&
+          before.images.length === 0 &&
+          before.texts.length === 0 &&
+          before.audios.length === 0)
       ) {
         return state;
       }
@@ -779,6 +842,7 @@ export const useBoardStore = create<BoardState>()((set) => ({
                 strokes: replaceById(p.strokes, before.strokes, after.strokes),
                 images: replaceById(p.images, before.images, after.images),
                 texts: replaceById(p.texts, before.texts, after.texts),
+                audios: replaceById(p.audios, before.audios, after.audios),
               }
             : p,
         ),
@@ -793,6 +857,8 @@ export const useBoardStore = create<BoardState>()((set) => ({
             imagesAfter: after.images,
             textsBefore: before.texts,
             textsAfter: after.texts,
+            audiosBefore: before.audios,
+            audiosAfter: after.audios,
           },
         ],
         future: [],
@@ -807,10 +873,12 @@ export const useBoardStore = create<BoardState>()((set) => ({
       const strokesBefore = selected.strokes.map((e) => e.stroke);
       const imagesBefore = selected.images.map((e) => e.image);
       const textsBefore = selected.texts.map((e) => e.text);
+      const audiosBefore = selected.audios.map((e) => e.audio);
       const bounds = elementsBounds(
         strokesBefore,
         imagesBefore,
         textsBefore.map((t) => ({ item: t, height: textItemHeight(t) })),
+        audiosBefore,
       );
       if (!bounds) return state;
       const { dx, dy } = centerDelta(bounds, page.width, page.height, axis);
@@ -818,6 +886,7 @@ export const useBoardStore = create<BoardState>()((set) => ({
       const strokesAfter = strokesBefore.map((s) => translateStroke(s, dx, dy));
       const imagesAfter = imagesBefore.map((i) => translateImage(i, dx, dy));
       const textsAfter = textsBefore.map((t) => translateText(t, dx, dy));
+      const audiosAfter = audiosBefore.map((a) => translateAudio(a, dx, dy));
       return {
         pages: state.pages.map((p) =>
           p.id === selected.pageId
@@ -826,6 +895,7 @@ export const useBoardStore = create<BoardState>()((set) => ({
                 strokes: replaceById(p.strokes, strokesBefore, strokesAfter),
                 images: replaceById(p.images, imagesBefore, imagesAfter),
                 texts: replaceById(p.texts, textsBefore, textsAfter),
+                audios: replaceById(p.audios, audiosBefore, audiosAfter),
               }
             : p,
         ),
@@ -840,6 +910,8 @@ export const useBoardStore = create<BoardState>()((set) => ({
             imagesAfter,
             textsBefore,
             textsAfter,
+            audiosBefore,
+            audiosAfter,
           },
         ],
         future: [],
@@ -882,6 +954,8 @@ export const useBoardStore = create<BoardState>()((set) => ({
             imagesAfter: [],
             textsBefore,
             textsAfter,
+            audiosBefore: [],
+            audiosAfter: [],
           },
         ],
         future: [],
@@ -898,6 +972,7 @@ export const useBoardStore = create<BoardState>()((set) => ({
           new Set(selected.strokes.map((e) => e.stroke.id)),
           new Set(selected.images.map((e) => e.image.id)),
           new Set(selected.texts.map((e) => e.text.id)),
+          new Set(selected.audios.map((e) => e.audio.id)),
         ),
         past: [
           ...state.past,
@@ -907,6 +982,7 @@ export const useBoardStore = create<BoardState>()((set) => ({
             strokes: selected.strokes,
             images: selected.images,
             texts: selected.texts,
+            audios: selected.audios,
           },
         ],
         future: [],
@@ -923,6 +999,7 @@ export const useBoardStore = create<BoardState>()((set) => ({
           strokes: structuredClone(selected.strokes.map((e) => e.stroke)),
           images: structuredClone(selected.images.map((e) => e.image)),
           texts: structuredClone(selected.texts.map((e) => e.text)),
+          audios: structuredClone(selected.audios.map((e) => e.audio)),
         },
       };
     }),
@@ -935,6 +1012,7 @@ export const useBoardStore = create<BoardState>()((set) => ({
           strokes: structuredClone(selected.strokes.map((e) => e.stroke)),
           images: structuredClone(selected.images.map((e) => e.image)),
           texts: structuredClone(selected.texts.map((e) => e.text)),
+          audios: structuredClone(selected.audios.map((e) => e.audio)),
         },
         pages: withoutElements(
           state.pages,
@@ -942,6 +1020,7 @@ export const useBoardStore = create<BoardState>()((set) => ({
           new Set(selected.strokes.map((e) => e.stroke.id)),
           new Set(selected.images.map((e) => e.image.id)),
           new Set(selected.texts.map((e) => e.text.id)),
+          new Set(selected.audios.map((e) => e.audio.id)),
         ),
         past: [
           ...state.past,
@@ -951,6 +1030,7 @@ export const useBoardStore = create<BoardState>()((set) => ({
             strokes: selected.strokes,
             images: selected.images,
             texts: selected.texts,
+            audios: selected.audios,
           },
         ],
         future: [],
@@ -961,7 +1041,12 @@ export const useBoardStore = create<BoardState>()((set) => ({
   pasteClipboard: () =>
     set((state) => {
       const clip = state.clipboard;
-      if (clip.strokes.length === 0 && clip.images.length === 0 && clip.texts.length === 0) {
+      if (
+        clip.strokes.length === 0 &&
+        clip.images.length === 0 &&
+        clip.texts.length === 0 &&
+        clip.audios.length === 0
+      ) {
         return state;
       }
       const page = state.pages[state.viewPageIndex] ?? state.pages[0];
@@ -969,11 +1054,15 @@ export const useBoardStore = create<BoardState>()((set) => ({
       const strokes = clip.strokes.map((s) => ({ ...structuredClone(s), id: newId() }));
       const images = clip.images.map((i) => ({ ...structuredClone(i), id: newId() }));
       const texts = clip.texts.map((t) => ({ ...structuredClone(t), id: newId() }));
+      const audios = clip.audios.map((a) => ({ ...structuredClone(a), id: newId() }));
       const bounds = unionBounds(
         unionBounds(strokesBounds(strokes), imagesBounds(images)),
-        texts.reduce<ReturnType<typeof imagesBounds>>(
-          (acc, t) => unionBounds(acc, textBounds(t, textItemHeight(t))),
-          null,
+        unionBounds(
+          texts.reduce<ReturnType<typeof imagesBounds>>(
+            (acc, t) => unionBounds(acc, textBounds(t, textItemHeight(t))),
+            null,
+          ),
+          audiosBounds(audios),
         ),
       );
       if (!bounds) return state;
@@ -987,11 +1076,13 @@ export const useBoardStore = create<BoardState>()((set) => ({
         fit === 1 ? strokes : strokes.map((s) => scaleStroke(s, origin, fit, fit));
       const scaledImages = fit === 1 ? images : images.map((i) => scaleImage(i, origin, fit, fit));
       const scaledTexts = fit === 1 ? texts : texts.map((t) => scaleTextUniform(t, origin, fit));
+      const scaledAudios = fit === 1 ? audios : audios.map((a) => scaleAudio(a, origin, fit, fit));
       const dx = PLACEMENT_MARGIN - bounds.minX * fit;
       const dy = PLACEMENT_MARGIN - bounds.minY * fit;
       const placedStrokes = scaledStrokes.map((s) => translateStroke(s, dx, dy));
       const placedImages = scaledImages.map((i) => translateImage(i, dx, dy));
       const placedTexts = scaledTexts.map((t) => translateText(t, dx, dy));
+      const placedAudios = scaledAudios.map((a) => translateAudio(a, dx, dy));
       const pages = withContinuationPage(
         state.pages.map((p) =>
           p.id === page.id
@@ -1000,6 +1091,7 @@ export const useBoardStore = create<BoardState>()((set) => ({
                 strokes: [...p.strokes, ...placedStrokes],
                 images: [...p.images, ...placedImages],
                 texts: [...p.texts, ...placedTexts],
+                audios: [...p.audios, ...placedAudios],
               }
             : p,
         ),
@@ -1015,6 +1107,7 @@ export const useBoardStore = create<BoardState>()((set) => ({
             strokes: placedStrokes,
             images: placedImages,
             texts: placedTexts,
+            audios: placedAudios,
           },
         ],
         future: [],
@@ -1023,6 +1116,7 @@ export const useBoardStore = create<BoardState>()((set) => ({
           strokeIds: placedStrokes.map((s) => s.id),
           imageIds: placedImages.map((i) => i.id),
           textIds: placedTexts.map((t) => t.id),
+          audioIds: placedAudios.map((a) => a.id),
         },
         tool: "select",
       };
@@ -1034,6 +1128,7 @@ export const useBoardStore = create<BoardState>()((set) => ({
       const image = createImageItem(imageId, naturalWidth, naturalHeight, page.width, page.height);
       if (extra?.geometryId) image.geometryId = extra.geometryId;
       if (extra?.pdfSource) image.pdfSource = extra.pdfSource;
+      if (extra?.videoId) image.videoId = extra.videoId;
       const pages = withContinuationPage(
         state.pages.map((p) => (p.id === page.id ? { ...p, images: [...p.images, image] } : p)),
         page.id,
@@ -1048,10 +1143,50 @@ export const useBoardStore = create<BoardState>()((set) => ({
             strokes: [],
             images: [image],
             texts: [],
+            audios: [],
           },
         ],
         future: [],
-        selection: { pageId: page.id, strokeIds: [], imageIds: [image.id], textIds: [] },
+        selection: {
+          pageId: page.id,
+          strokeIds: [],
+          imageIds: [image.id],
+          textIds: [],
+          audioIds: [],
+        },
+        tool: "select",
+      };
+    }),
+  insertAudio: (audioId) =>
+    set((state) => {
+      const page = state.pages[state.viewPageIndex] ?? state.pages[0];
+      if (!page) return state;
+      const audio = createAudioItem(audioId, page.width);
+      const pages = withContinuationPage(
+        state.pages.map((p) => (p.id === page.id ? { ...p, audios: [...p.audios, audio] } : p)),
+        page.id,
+      );
+      return {
+        pages,
+        past: [
+          ...state.past,
+          {
+            kind: "add-elements",
+            pageId: page.id,
+            strokes: [],
+            images: [],
+            texts: [],
+            audios: [audio],
+          },
+        ],
+        future: [],
+        selection: {
+          pageId: page.id,
+          strokeIds: [],
+          imageIds: [],
+          textIds: [],
+          audioIds: [audio.id],
+        },
         tool: "select",
       };
     }),

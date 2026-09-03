@@ -38,6 +38,11 @@ self-hosted instance keep separate data; use export / import to move notebooks a
   inserted as a regular (selectable, movable, scalable) image — rendered on screen as
   a 4x transparent-background preview (the white backdrop is keyed out), stored with
   the full original PDF, and re-embedded as a true vector page on PDF export
+- **Video & audio** — insert video or audio from the same picker; videos appear as a
+  poster frame with an inline player (play / seek / volume / fullscreen) and audio as a
+  paper-adaptive badge, both in a DOM overlay that keeps playing while you scroll or
+  turn pages; they participate in lasso selection (move / scale / copy / paste), and
+  exports carry the poster frame or a vector badge — never playable media
 - **PDF import** — import a PDF from the home screen to create a notebook, or into the
   open notebook (pages inserted after the current one, inheriting its style); every page
   is rendered at 4x point resolution, scaled to fill the sheet, and locked in place
