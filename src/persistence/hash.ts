@@ -42,7 +42,9 @@ export function sha256Hex(bytes: Uint8Array): string {
   view.setUint32(paddedLength - 8, Math.floor(bitLength / 2 ** 32));
   view.setUint32(paddedLength - 4, bitLength >>> 0);
 
-  const hash = [0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19];
+  const hash = [
+    0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
+  ];
   const w = new Uint32Array(64);
   for (let block = 0; block < paddedLength; block += 64) {
     for (let t = 0; t < 16; t++) w[t] = view.getUint32(block + t * 4);
