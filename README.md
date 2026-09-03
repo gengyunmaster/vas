@@ -34,12 +34,16 @@ self-hosted instance keep separate data; use export / import to move notebooks a
 ## Features
 
 - **Natural pen feel** — pressure-sensitive strokes (Apple Pencil & compatible pens),
-  velocity-simulated pressure for finger and mouse, low-latency canvas rendering
+  velocity-simulated pressure for finger and mouse, low-latency canvas rendering;
+  three pressure curves (soft / standard / firm) to match your hand, stylus tilt widens
+  the highlighter like a side nib, and an optional dashed stroke style
 - **Paginated notebooks** — continuous vertical scrolling, pinch zoom up to 20x with
   crisp vector redraw; page size is per-page (A4-proportioned 794×1123 by default,
   adjustable per page from 200 to 5000 px, mixed sizes within one notebook)
 - **Tools** — pen, highlighter, stroke eraser, laser pointer (for teaching), and shapes
-  (line / arrow / rectangle / ellipse)
+  (line / arrow / rectangle / ellipse); draw a rough line, rectangle or ellipse and hold
+  still for a beat to snap it into a clean shape (keep holding to adjust it);
+  two-finger tap undoes, three-finger tap redoes
 - **Text** — click anywhere with the text tool to place a markdown text box (source
   textarea + live preview): headings, lists, quotes, code, bold/italic/strikethrough,
   links (ink-colored and underlined everywhere; clickable in SVG and PDF exports, and
@@ -80,8 +84,9 @@ self-hosted instance keep separate data; use export / import to move notebooks a
   browser on import (qpdf-wasm, password prompted once) and stored without a password,
   so exports can re-embed them as true vector pages
 - **Per-page paper** — paper colors (presets incl. blackboard green and calligraphy tan,
-  plus custom hex) and background templates (blank / lined / grid / dots / rice grid),
-  with contrast-aware guide lines
+  plus custom hex with a recent-colors row that remembers your picks) and background
+  templates (blank / lined / grid / dots / rice grid / staff / Cornell), with
+  contrast-aware guide lines
 - **Polished UI** — light / dark / follow-system theme (paper colors are document content
   and stay untouched), animated panels, dialogs and selection bars with reduced-motion
   support, in-app toasts and styled confirm/prompt dialogs replacing native popups,
@@ -91,7 +96,9 @@ self-hosted instance keep separate data; use export / import to move notebooks a
 - **Presentation mode** — full-screen slideshow: one page fitted to the screen on a
   black backdrop, wheel / swipe / arrow-key paging with a scroll animation, writing
   stays enabled
-- **Multiple notebooks** — home screen with create / rename / delete, plus merging:
+- **Multiple notebooks** — home screen with create / rename / delete, drag-and-drop
+  import (.json/.zip notebooks and PDFs alike), batch export (selected notebooks
+  download as one bundle zip that imports back notebook by notebook), plus merging:
   select notebooks to combine their pages into a new one (selection order preserved;
   a single selection duplicates a notebook; files shared between notebooks stay stored once)
 - **Geometry board** — a full-screen geometry editor (points, segments, circles,
@@ -121,7 +128,10 @@ self-hosted instance keep separate data; use export / import to move notebooks a
 - **PWA** — installable and fully offline; all assets (including the on-demand PDF
   engine) are precached. A one-time, platform-aware install hint on the home screen
   triggers the native install prompt where supported (Chrome/Edge) or shows
-  Add-to-Home-Screen steps on iOS, and never nags again once dismissed
+  Add-to-Home-Screen steps on iOS, and never nags again once dismissed; updates arrive
+  as a non-intrusive reload banner, and the installed app registers as an opener for
+  .json/.zip/.pdf files (Chromium platforms), importing them as new notebooks.
+  Press `?` anywhere for a keyboard-shortcut cheat sheet
 
 ## Screenshots
 
