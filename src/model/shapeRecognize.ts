@@ -49,7 +49,11 @@ export function recognizeShape(
     };
   }
   if (isEllipse(points, box)) {
-    return { kind: "ellipse", start: { x: box.x, y: box.y }, end: { x: box.x + box.width, y: box.y + box.height } };
+    return {
+      kind: "ellipse",
+      start: { x: box.x, y: box.y },
+      end: { x: box.x + box.width, y: box.y + box.height },
+    };
   }
   return null;
 }
@@ -106,9 +110,10 @@ function rectangleVertices(points: readonly Point[], box: Box, diagonal: number)
   if (box.width < MIN_DIAGONAL * 0.4 || box.height < MIN_DIAGONAL * 0.4) return null;
   const corners = simplify(points, diagonal * 0.04);
   // A closed rectangle simplifies to 4 corners plus the duplicated closure point.
-  const vertices = corners.length >= 5 && samePoint(corners[0], corners[corners.length - 1], diagonal * 0.05)
-    ? corners.slice(0, -1)
-    : corners;
+  const vertices =
+    corners.length >= 5 && samePoint(corners[0], corners[corners.length - 1], diagonal * 0.05)
+      ? corners.slice(0, -1)
+      : corners;
   if (vertices.length !== 4) return null;
   for (let i = 0; i < 4; i++) {
     const prev = vertices[(i + 3) % 4];
@@ -175,7 +180,10 @@ function simplify(points: readonly Point[], epsilon: number): Point[] {
     }
   }
   if (maxDeviation <= epsilon) return [{ ...first }, { ...last }];
-  return [...simplify(points.slice(0, split + 1), epsilon).slice(0, -1), ...simplify(points.slice(split), epsilon)];
+  return [
+    ...simplify(points.slice(0, split + 1), epsilon).slice(0, -1),
+    ...simplify(points.slice(split), epsilon),
+  ];
 }
 
 function samePoint(a: Point, b: Point, tolerance: number): boolean {

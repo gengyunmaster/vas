@@ -13,6 +13,7 @@ import {
   pageTopY,
 } from "../model/page";
 import { audiosInLasso, imagesInLasso, strokesInLasso, textsInLasso } from "../model/selection";
+import { recognizeShape } from "../model/shapeRecognize";
 import {
   createStroke,
   effectiveStrokeSize,
@@ -23,7 +24,7 @@ import {
   type StrokePoint,
   type ToolKind,
 } from "../model/stroke";
-import { recognizeShape } from "../model/shapeRecognize";
+import { tapAction } from "../model/tapGesture";
 import type { TextItem } from "../model/textItem";
 import {
   clampMoveDelta,
@@ -82,6 +83,8 @@ interface BoardCallbacks {
   getTool: () => ToolSettings;
   onCommitStroke: (pageId: string, stroke: Stroke) => void;
   onEraseStroke: (pageId: string, strokeId: string) => void;
+  onUndo: () => void;
+  onRedo: () => void;
   onViewChange: (pageIndex: number) => void;
   onSelectionChange: (selection: SelectionSnapshot | null) => void;
   onSelectionAnchor: (anchor: Point | null) => void;
@@ -97,6 +100,8 @@ interface TrackedPointer {
   x: number;
   y: number;
   type: string;
+  downX: number;
+  downY: number;
 }
 
 interface ActiveStroke {
@@ -171,6 +176,7 @@ const SWIPE_PAGE_THRESHOLD = 80;
 const HANDLE_SIZE = 10;
 const HANDLE_HIT_RADIUS = 12;
 const SHAPE_HOLD_MS = 350;
+const TAP_SLOP_PX = 12;
 const MIN_SELECTION_SCALE = 0.05;
 const SELECTION_ACCENT = "#2f6fdd";
 
@@ -220,6 +226,7 @@ export class Board {
   private wheelAccum = 0;
   private wheelAccumTimer: number | undefined;
   private shapeHoldTimer: number | undefined;
+  private tapSession: { count: number; startAt: number; moved: boolean } | null = null;
   private pendingTurns = 0;
   private touchpadFlipped = false;
   private lastWheelAt = 0;
@@ -1260,8 +1267,20 @@ export class Board {
     if (this.callbacks.getTool().exporting) return;
     this.activeCanvas.setPointerCapture(event.pointerId);
     const pos = this.eventPos(event);
-    this.pointers.set(event.pointerId, { ...pos, type: event.pointerType });
+    this.pointers.set(event.pointerId, {
+      ...pos,
+      type: event.pointerType,
+      downX: pos.x,
+      downY: pos.y,
+    });
     if (event.pointerType === "pen") this.markPenSeen();
+
+    if (event.pointerType === "touch") {
+      if (!this.tapSession) this.tapSession = { count: 0, startAt: event.timeStamp, moved: false };
+      this.tapSession.count++;
+    } else {
+      this.tapSession = null;
+    }
 
     if (this.touchCount() === 2) {
       if (this.stroke && this.pointerTypeOf(this.stroke.pointerId) === "touch") this.cancelStroke();
@@ -1342,7 +1361,11 @@ export class Board {
     }
     const prev = this.pointers.get(event.pointerId);
     if (!prev) return;
-    this.pointers.set(event.pointerId, { ...pos, type: event.pointerType });
+    this.pointers.set(event.pointerId, { ...prev, x: pos.x, y: pos.y });
+    if (this.tapSession && event.pointerType === "touch" && !this.tapSession.moved) {
+      if (Math.hypot(pos.x - prev.downX, pos.y - prev.downY) > TAP_SLOP_PX)
+        this.tapSession.moved = true;
+    }
 
     if (this.pinching && event.pointerType === "touch") {
       if (this.presenting) this.applySwipe(event.pointerId, pos);
@@ -1417,6 +1440,17 @@ export class Board {
 
   private handlePointerEnd = (event: PointerEvent): void => {
     this.pointers.delete(event.pointerId);
+    if (event.pointerType === "touch" && this.tapSession) {
+      if (event.type === "pointercancel") {
+        this.tapSession = null;
+      } else if (![...this.pointers.values()].some((p) => p.type === "touch")) {
+        const session = this.tapSession;
+        this.tapSession = null;
+        const action = tapAction(session.count, event.timeStamp - session.startAt, session.moved);
+        if (action === "undo") this.callbacks.onUndo();
+        else if (action === "redo") this.callbacks.onRedo();
+      }
+    }
     if (
       this.stroke?.pointerId === event.pointerId &&
       (event.type === "pointercancel" || event.button === this.stroke.button)

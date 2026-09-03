@@ -21,7 +21,6 @@ import { toast } from "../store/toasts";
 import { COLORS, PAPER_COLORS, SIZES, useBoardStore } from "../store/useBoardStore";
 import { THEME_PREFERENCES, type ThemePreference } from "../theme";
 import { ColorField } from "./ColorField";
-import { StorageSection } from "./StorageMeter";
 import {
   AddPageIcon,
   DeletePageIcon,
@@ -35,6 +34,7 @@ import {
   TrashIcon,
   UndoIcon,
 } from "./icons";
+import { StorageSection } from "./StorageMeter";
 
 const PATTERN_LABELS: Record<PagePattern, string> = {
   blank: "Blank",

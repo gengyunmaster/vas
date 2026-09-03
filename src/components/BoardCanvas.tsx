@@ -54,6 +54,8 @@ export function BoardCanvas() {
       },
       onCommitStroke: (pageId, stroke) => useBoardStore.getState().addStroke(pageId, stroke),
       onEraseStroke: (pageId, strokeId) => useBoardStore.getState().removeStroke(pageId, strokeId),
+      onUndo: () => useBoardStore.getState().undo(),
+      onRedo: () => useBoardStore.getState().redo(),
       onViewChange: (index) => {
         if (useBoardStore.getState().viewPageIndex !== index) {
           useBoardStore.getState().setViewPageIndex(index);

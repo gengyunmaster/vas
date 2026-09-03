@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { recognizeShape } from "./shapeRecognize";
 import type { Point } from "./shapeGeometry";
+import { recognizeShape } from "./shapeRecognize";
 
 function jitter(value: number, amount: number, seed: number): number {
   // Deterministic pseudo-noise so tests are stable.
@@ -22,10 +22,22 @@ function tracedLine(x1: number, y1: number, x2: number, y2: number, wobble = 1.5
 function tracedRect(x: number, y: number, w: number, h: number, wobble = 3): Point[] {
   const points: Point[] = [];
   const edges: [Point, Point][] = [
-    [{ x, y }, { x: x + w, y }],
-    [{ x: x + w, y }, { x: x + w, y: y + h }],
-    [{ x: x + w, y: y + h }, { x, y: y + h }],
-    [{ x, y: y + h }, { x, y }],
+    [
+      { x, y },
+      { x: x + w, y },
+    ],
+    [
+      { x: x + w, y },
+      { x: x + w, y: y + h },
+    ],
+    [
+      { x: x + w, y: y + h },
+      { x, y: y + h },
+    ],
+    [
+      { x, y: y + h },
+      { x, y },
+    ],
   ];
   let seed = 0;
   for (const [a, b] of edges) {

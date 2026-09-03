@@ -6,7 +6,10 @@ interface SwUpdateState {
   applyUpdate: (() => void) | null;
 }
 
-export const useSwUpdateStore = create<SwUpdateState>(() => ({ updateReady: false, applyUpdate: null }));
+export const useSwUpdateStore = create<SwUpdateState>(() => ({
+  updateReady: false,
+  applyUpdate: null,
+}));
 
 export function dismissSwUpdate(): void {
   useSwUpdateStore.setState({ updateReady: false, applyUpdate: null });

@@ -1,5 +1,10 @@
 import { useEffect, useState } from "react";
-import { formatBytes, getStorageHealth, type StorageHealth, storageLevel } from "../persistence/storageHealth";
+import {
+  formatBytes,
+  getStorageHealth,
+  type StorageHealth,
+  storageLevel,
+} from "../persistence/storageHealth";
 
 export function StorageSection() {
   const [health, setHealth] = useState<StorageHealth | null>(null);
