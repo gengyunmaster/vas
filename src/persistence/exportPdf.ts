@@ -443,7 +443,7 @@ function drawPattern(pdflib: PdfLib, pdfPage: PDFPage, page: Page, paperColor: s
     pdfPage.drawLine({
       start: { x: line.x1 * PT_PER_UNIT, y: toY(page.height, line.y1) },
       end: { x: line.x2 * PT_PER_UNIT, y: toY(page.height, line.y2) },
-      thickness: 0.75,
+      thickness: line.strong ? 1.35 : 0.75,
       color,
       opacity,
       ...(line.dashed ? { dashArray: PATTERN_DASH.map((v) => v * PT_PER_UNIT) } : {}),

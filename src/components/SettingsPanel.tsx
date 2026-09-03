@@ -45,6 +45,8 @@ const PATTERN_LABELS: Record<PagePattern, string> = {
   grid: "Grid",
   dots: "Dots",
   rice: "Rice",
+  staff: "Staff",
+  cornell: "Cornell",
 };
 
 const SHAPE_LABELS: Record<ShapeKind, string> = {

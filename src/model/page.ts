@@ -12,7 +12,15 @@ export const PAGE_GAP = 24;
 export const PAGE_TOP_MARGIN = 24;
 export const PLACEMENT_MARGIN = 40;
 
-export const PAGE_PATTERNS = ["blank", "lined", "grid", "dots", "rice"] as const;
+export const PAGE_PATTERNS = [
+  "blank",
+  "lined",
+  "grid",
+  "dots",
+  "rice",
+  "staff",
+  "cornell",
+] as const;
 
 export type PagePattern = (typeof PAGE_PATTERNS)[number];
 

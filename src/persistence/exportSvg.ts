@@ -202,7 +202,7 @@ function patternToSvg(page: Page): string[] {
   for (const line of lines) {
     const dash = line.dashed ? ` stroke-dasharray="${PATTERN_DASH.join(" ")}"` : "";
     elements.push(
-      `<line x1="${fmt(line.x1)}" y1="${fmt(line.y1)}" x2="${fmt(line.x2)}" y2="${fmt(line.y2)}" stroke="${color}" stroke-opacity="${opacity}" stroke-width="1"${dash}/>`,
+      `<line x1="${fmt(line.x1)}" y1="${fmt(line.y1)}" x2="${fmt(line.x2)}" y2="${fmt(line.y2)}" stroke="${color}" stroke-opacity="${opacity}" stroke-width="${line.strong ? 1.8 : 1}"${dash}/>`,
     );
   }
   for (const dot of dots) {

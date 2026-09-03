@@ -1,4 +1,12 @@
-import { clonePageWithNewIds, createPage, PAGE_HEIGHT, PAGE_WIDTH, type Page } from "../model/page";
+import {
+  clonePageWithNewIds,
+  createPage,
+  PAGE_HEIGHT,
+  PAGE_PATTERNS,
+  PAGE_WIDTH,
+  type Page,
+  type PagePattern,
+} from "../model/page";
 import { newId } from "../model/stroke";
 import type { ViewState } from "../model/viewState";
 import { db, type NotebookRecord } from "./db";
@@ -48,7 +56,9 @@ export async function loadNotebook(id: string): Promise<{ meta: NotebookRecord; 
     width: record.width ?? PAGE_WIDTH,
     height: record.height ?? PAGE_HEIGHT,
     paperColor: record.paperColor,
-    pattern: record.pattern ?? "blank",
+    // A pattern from a newer version falls back to blank instead of crashing
+    // the pattern layout switch.
+    pattern: PAGE_PATTERNS.includes(record.pattern as PagePattern) ? record.pattern : "blank",
     strokes: record.strokes,
     images: record.images ?? [],
     texts: record.texts ?? [],
