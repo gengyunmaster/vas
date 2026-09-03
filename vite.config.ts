@@ -35,7 +35,7 @@ export default defineConfig(({ mode }) => {
           ],
         },
         workbox: {
-          globPatterns: ["**/*.{js,mjs,css,html,svg,png,webmanifest,wasm,ttf,woff2}"],
+          globPatterns: ["**/*.{js,mjs,css,html,svg,png,webmanifest,wasm,ttf,woff,woff2}"],
           navigateFallback: `${base}index.html`,
           // Geometry chunks (compute-engine, jsxgraph, mathlive) exceed the 2 MiB default.
           maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
