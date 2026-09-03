@@ -258,8 +258,10 @@ async function rasterizePage(
   const canvas = document.createElement("canvas");
   canvas.width = Math.max(1, Math.ceil(viewport.width));
   canvas.height = Math.max(1, Math.ceil(viewport.height));
-  // pdf.js always paints an opaque background (white unless overridden); for the
-  // transparent path we key the white backdrop back out afterwards.
+  // pdf.js paints an opaque white backdrop and grabs the 2d context as
+  // alpha: false; claim it first on the transparent path, or the keyed-out
+  // backdrop stays opaque and even survives PNG encoding as solid white.
+  if (transparent) canvas.getContext("2d", { willReadFrequently: true });
   await pdfPage.render({
     canvas,
     viewport,
