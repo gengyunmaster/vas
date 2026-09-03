@@ -878,6 +878,43 @@ body {
   border-color: transparent;
 }
 
+.shortcuts-dialog {
+  width: min(400px, calc(100vw - 48px));
+}
+
+.shortcut-group {
+  margin-top: 12px;
+}
+
+.shortcut-group-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-5);
+  margin-bottom: 2px;
+}
+
+.shortcut-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 5px 0;
+  font-size: 13px;
+}
+
+.shortcut-action {
+  color: var(--text);
+}
+
+.shortcut-keys {
+  color: var(--text-5);
+  font-size: 12px;
+  text-align: right;
+  white-space: nowrap;
+}
+
 .dialog-check {
   display: flex;
   align-items: center;

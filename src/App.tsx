@@ -8,6 +8,7 @@ import { PageIndicator } from "./components/PageIndicator";
 import { PageRangeDialog } from "./components/PageRangeDialog";
 import { PageSidebar } from "./components/PageSidebar";
 import { SelectionBar } from "./components/SelectionBar";
+import { ShortcutsDialog } from "./components/ShortcutsDialog";
 import { TextEditor } from "./components/TextEditor";
 import { Toasts } from "./components/Toasts";
 import { Toolbar } from "./components/Toolbar";
@@ -18,7 +19,9 @@ import { createNotebook, listNotebooks } from "./persistence/notebooks";
 import { pastePlainText } from "./persistence/pasteText";
 import { loadToolPrefs, startPrefsSync } from "./persistence/prefs";
 import { flushViewStateSave, openNotebook, readLastNotebookId } from "./persistence/session";
+import { COMBOS, matchCombo } from "./shortcuts";
 import { useDialogStore } from "./store/dialogs";
+import { useShortcutsStore } from "./store/shortcuts";
 import { toast } from "./store/toasts";
 import { useBoardStore } from "./store/useBoardStore";
 import { startThemeSync } from "./theme";
@@ -62,6 +65,7 @@ export default function App() {
       if (useBoardStore.getState().pdfRangeRequest) return;
       const dialogs = useDialogStore.getState();
       if (dialogs.confirm || dialogs.prompt) return;
+      if (useShortcutsStore.getState().open) return;
       const target = event.target;
       const typing =
         target instanceof HTMLElement &&
@@ -78,8 +82,13 @@ export default function App() {
         return;
       }
       if (typing) return;
+      if (matchCombo(event, COMBOS.shortcuts) && !event.ctrlKey && !event.metaKey) {
+        event.preventDefault();
+        useShortcutsStore.getState().setOpen(true);
+        return;
+      }
       if (useBoardStore.getState().exporting) return;
-      if (event.key === "Delete") {
+      if (matchCombo(event, COMBOS.deleteSelection)) {
         const state = useBoardStore.getState();
         if (state.selection) {
           event.preventDefault();
@@ -87,22 +96,17 @@ export default function App() {
         }
         return;
       }
-      if (!(event.metaKey || event.ctrlKey)) return;
-      const key = event.key.toLowerCase();
       const state = useBoardStore.getState();
-      if (key === "z" && event.shiftKey) {
-        event.preventDefault();
-        state.redo();
-      } else if (key === "z") {
+      if (matchCombo(event, COMBOS.undo)) {
         event.preventDefault();
         state.undo();
-      } else if (key === "y") {
+      } else if (COMBOS.redo.some((combo) => matchCombo(event, combo))) {
         event.preventDefault();
         state.redo();
-      } else if (key === "x" && state.selection) {
+      } else if (matchCombo(event, COMBOS.cut) && state.selection) {
         event.preventDefault();
         state.cutSelection();
-      } else if (key === "c" && state.selection) {
+      } else if (matchCombo(event, COMBOS.copy) && state.selection) {
         event.preventDefault();
         state.copySelection();
       }
@@ -248,6 +252,7 @@ export default function App() {
       <PageRangeDialog />
       <ConfirmDialog />
       <PromptDialog />
+      <ShortcutsDialog />
       <Toasts />
       <ErrorBanner />
       <UpdateBanner />

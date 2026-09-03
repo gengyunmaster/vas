@@ -18,6 +18,7 @@ import { importPdfIntoNotebook, reRasterizePdfBase } from "../persistence/import
 import { insertFile } from "../persistence/insertFile";
 import { requestInstall, useInstallStore } from "../pwa/installPrompt";
 import { askConfirm } from "../store/dialogs";
+import { useShortcutsStore } from "../store/shortcuts";
 import { toast } from "../store/toasts";
 import { COLORS, PAPER_COLORS, SIZES, useBoardStore } from "../store/useBoardStore";
 import { THEME_PREFERENCES, type ThemePreference } from "../theme";
@@ -28,6 +29,7 @@ import {
   GeometryIcon,
   ImageIcon,
   ImportPdfIcon,
+  KeyboardIcon,
   PasteIcon,
   PresentIcon,
   RedoIcon,
@@ -505,6 +507,13 @@ export function SettingsPanel({ closing = false }: { closing?: boolean }) {
             onClick={() => useBoardStore.getState().openGeometry()}
           >
             <GeometryIcon />
+          </button>
+          <button
+            type="button"
+            title="Keyboard shortcuts"
+            onClick={() => useShortcutsStore.getState().setOpen(true)}
+          >
+            <KeyboardIcon />
           </button>
           <button
             type="button"
