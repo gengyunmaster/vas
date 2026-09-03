@@ -258,16 +258,18 @@ async function rasterizePage(
   const canvas = document.createElement("canvas");
   canvas.width = Math.max(1, Math.ceil(viewport.width));
   canvas.height = Math.max(1, Math.ceil(viewport.height));
-  // pdf.js paints an opaque white backdrop and grabs the 2d context as
-  // alpha: false; claim it first on the transparent path, or the keyed-out
-  // backdrop stays opaque and even survives PNG encoding as solid white.
+  // pdf.js grabs the 2d context as alpha: false; claim it first on the
+  // transparent path so the page can stay transparent where nothing is painted.
   if (transparent) canvas.getContext("2d", { willReadFrequently: true });
   await pdfPage.render({
     canvas,
     viewport,
-    background: "#ffffff",
+    // pdf.js always fills a backdrop (white by default); an alpha-0 fill is a
+    // no-op, so pages without their own painted background stay transparent
+    // while real content — including white pixels inside embedded images — is
+    // preserved, matching the vector embed used by PDF export.
+    background: transparent ? "rgba(255,255,255,0)" : "#ffffff",
   }).promise;
-  if (transparent) applyBackgroundKeying(canvas);
   const alpha = transparent && canvasHasTransparency(canvas);
   const mimeType = alpha ? "image/png" : "image/jpeg";
   const blob = await new Promise<Blob | null>((resolve) =>
@@ -294,30 +296,6 @@ function canvasHasTransparency(canvas: HTMLCanvasElement): boolean {
     if ((data[i] ?? 255) < 255) return true;
   }
   return false;
-}
-
-// pdf.js composites every page onto an opaque white canvas, so a PDF page
-// inserted as an image gets its backdrop keyed out here: near-white pixels
-// become transparent, which removes both the implicit white and any explicitly
-// painted white background. The trade-off is that genuinely white content is
-// indistinguishable from white paper and goes transparent along with it.
-const KEYED_WHITE = 248;
-
-function applyBackgroundKeying(canvas: HTMLCanvasElement): void {
-  const context = canvas.getContext("2d");
-  if (!context) return;
-  const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
-  const data = imageData.data;
-  for (let i = 0; i < data.length; i += 4) {
-    if (
-      (data[i] ?? 0) >= KEYED_WHITE &&
-      (data[i + 1] ?? 0) >= KEYED_WHITE &&
-      (data[i + 2] ?? 0) >= KEYED_WHITE
-    ) {
-      data[i + 3] = 0;
-    }
-  }
-  context.putImageData(imageData, 0, 0);
 }
 
 // After a page resize the stored JPEG may no longer cover the larger placement at
