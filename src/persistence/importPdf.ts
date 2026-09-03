@@ -2,11 +2,11 @@ import { decodeBlob, primeImage } from "../engine/imageCache";
 import { placeImageCentered } from "../model/image";
 import { PDF_PAGE_SCALE, pdfPageSize } from "../model/pageSize";
 import { buildPdfPages, pdfInsertIndex } from "../model/pdfPage";
-import { newId } from "../model/stroke";
 import { askPrompt } from "../store/dialogs";
 import { askPageRange } from "../store/pdfRangePrompt";
 import { useBoardStore } from "../store/useBoardStore";
 import { decryptPdf } from "./decryptPdf";
+import { hashBlob } from "./hash";
 import { deleteImages, retainImages, saveImages } from "./images";
 import { createNotebook, deleteNotebook, loadNotebook, replacePages } from "./notebooks";
 import { deletePdfs, getPdf, retainPdfs, savePdf } from "./pdfs";
@@ -53,17 +53,21 @@ function loadPdfJs(): Promise<PdfJs> {
   return pdfjsPromise;
 }
 
-export async function saveRasterizedImages(rasterized: RasterizedPdfPage[]): Promise<void> {
-  await saveImages(rasterized.map((raster) => ({ ...raster, id: raster.imageId })));
+export async function saveRasterizedImages(rasterized: RasterizedPdfPage[]): Promise<string[]> {
+  return saveImages(rasterized.map((raster) => ({ ...raster, id: raster.imageId })));
 }
 
-export async function saveSourcePdf(sourceBytes: Uint8Array): Promise<string> {
-  const docId = newId();
-  await savePdf({
-    id: docId,
-    blob: new Blob([sourceBytes.slice()], { type: "application/pdf" }),
-  });
-  return docId;
+// Returns whether this call actually wrote the record: identical imports share
+// the content-hashed docId, and failure rollbacks must not delete a
+// pre-existing record shared with other notebooks.
+export async function saveSourcePdf(sourceBytes: Uint8Array): Promise<{
+  docId: string;
+  created: boolean;
+}> {
+  const blob = new Blob([sourceBytes.slice()], { type: "application/pdf" });
+  const docId = await hashBlob(blob);
+  const created = await savePdf({ id: docId, blob });
+  return { docId, created };
 }
 
 export async function rasterizePdf(
@@ -137,10 +141,12 @@ export async function insertPdfImageFile(file: File): Promise<void> {
   const releaseImage = retainImages([raster.imageId]);
   let releasePdf: (() => void) | undefined;
   let docId: string | undefined;
+  let pdfCreated = false;
+  let imageCreated: string[] = [];
   try {
-    docId = await saveSourcePdf(sourceBytes);
+    ({ docId, created: pdfCreated } = await saveSourcePdf(sourceBytes));
     releasePdf = retainPdfs([docId]);
-    await saveRasterizedImages([raster]);
+    imageCreated = await saveRasterizedImages([raster]);
     primeImage(raster.imageId, await decodeBlob(raster.blob));
     useBoardStore
       .getState()
@@ -157,8 +163,8 @@ export async function insertPdfImageFile(file: File): Promise<void> {
         },
       );
   } catch (error) {
-    await deleteImages([raster.imageId]).catch(() => {});
-    if (docId) await deletePdfs([docId]).catch(() => {});
+    await deleteImages(imageCreated).catch(() => {});
+    if (docId && pdfCreated) await deletePdfs([docId]).catch(() => {});
     throw error;
   } finally {
     releaseImage();
@@ -175,11 +181,12 @@ export async function importPdfFile(
   const releaseImages = retainImages(rasterizedPages.map((raster) => raster.imageId));
   let releasePdf: (() => void) | undefined;
   try {
-    const docId = await saveSourcePdf(sourceBytes);
+    const { docId, created: pdfCreated } = await saveSourcePdf(sourceBytes);
     releasePdf = retainPdfs([docId]);
     const meta = await createNotebook(title);
+    const createdIds = new Set<string>();
     try {
-      await saveRasterizedImages(rasterizedPages);
+      for (const id of await saveRasterizedImages(rasterizedPages)) createdIds.add(id);
       await replacePages(
         meta.id,
         buildPdfPages(
@@ -192,8 +199,10 @@ export async function importPdfFile(
       );
     } catch (error) {
       await deleteNotebook(meta.id);
-      await deleteImages(rasterizedPages.map((raster) => raster.imageId));
-      await deletePdfs([docId]);
+      await deleteImages(
+        rasterizedPages.map((raster) => raster.imageId).filter((id) => createdIds.has(id)),
+      );
+      if (pdfCreated) await deletePdfs([docId]);
       throw error;
     }
     return meta.id;
@@ -211,11 +220,13 @@ export async function importPdfIntoNotebook(
   const { pages, sourceBytes } = await rasterizePdf(file, onProgress);
   const releaseImages = retainImages(pages.map((page) => page.imageId));
   let docId: string | undefined;
+  let pdfCreated = false;
   let releasePdf: (() => void) | undefined;
+  const createdIds = new Set<string>();
   try {
-    docId = await saveSourcePdf(sourceBytes);
+    ({ docId, created: pdfCreated } = await saveSourcePdf(sourceBytes));
     releasePdf = retainPdfs([docId]);
-    await saveRasterizedImages(pages);
+    for (const id of await saveRasterizedImages(pages)) createdIds.add(id);
     const state = useBoardStore.getState();
     if (state.notebookId === notebookId) {
       state.insertPdfPages(pages, { docId });
@@ -244,8 +255,8 @@ export async function importPdfIntoNotebook(
     }
     await replacePages(notebookId, next);
   } catch (error) {
-    await deleteImages(pages.map((page) => page.imageId)).catch(() => {});
-    if (docId) await deletePdfs([docId]).catch(() => {});
+    await deleteImages([...createdIds]).catch(() => {});
+    if (docId && pdfCreated) await deletePdfs([docId]).catch(() => {});
     throw error;
   } finally {
     releaseImages();
@@ -263,7 +274,7 @@ async function rasterizePage(
   const scale = cappedRenderScale(BASE_RASTER_SCALE, base.width, base.height);
   const { blob, mimeType } = await renderPdfPage(pdfPage, scale, transparent);
   return {
-    imageId: newId(),
+    imageId: await hashBlob(blob),
     mimeType,
     blob,
     naturalWidth: base.width,
@@ -356,7 +367,7 @@ export async function reRasterizePdfBase(pageId: string): Promise<void> {
     ) {
       return;
     }
-    const imageId = newId();
+    const imageId = await hashBlob(blob);
     await saveImages([{ id: imageId, mimeType, blob }]);
     useBoardStore.getState().replacePdfBaseImage(pageId, imageId);
   } catch {

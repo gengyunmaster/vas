@@ -1,5 +1,6 @@
 import { useBoardStore } from "../store/useBoardStore";
 import { db, type GeometryRecord } from "./db";
+import { sweepUnreferenced } from "./gc";
 
 export async function saveGeometry(record: GeometryRecord): Promise<void> {
   await (await db()).put("geometries", record);
@@ -35,10 +36,5 @@ export async function gcUnreferencedGeometries(): Promise<void> {
   const state = useBoardStore.getState();
   for (const page of state.pages) collect(page.images);
   collect(state.clipboard.images);
-  const tx = database.transaction("geometries", "readwrite");
-  const keys = await tx.store.getAllKeys();
-  for (const key of keys) {
-    if (!keep.has(key)) await tx.store.delete(key);
-  }
-  await tx.done;
+  await sweepUnreferenced("geometries", keep);
 }

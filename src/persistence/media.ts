@@ -1,15 +1,26 @@
 import { useBoardStore } from "../store/useBoardStore";
 import { db, type MediaRecord } from "./db";
+import { sweepUnreferenced } from "./gc";
 
-export async function saveMedia(record: MediaRecord): Promise<void> {
-  await (await db()).put("media", record);
+// Same content-addressable write contract as images.ts.
+export async function saveMedia(record: MediaRecord): Promise<boolean> {
+  const created = await saveMedias([record]);
+  return created.length > 0;
 }
 
-export async function saveMedias(records: MediaRecord[]): Promise<void> {
-  if (records.length === 0) return;
+export async function saveMedias(records: MediaRecord[]): Promise<string[]> {
+  if (records.length === 0) return [];
   const tx = (await db()).transaction("media", "readwrite");
-  for (const record of records) await tx.store.put(record);
+  const existing = new Set(await tx.store.getAllKeys());
+  const created: string[] = [];
+  for (const record of records) {
+    if (existing.has(record.id)) continue;
+    await tx.store.put(record);
+    existing.add(record.id);
+    created.push(record.id);
+  }
   await tx.done;
+  return created;
 }
 
 export async function getMedia(id: string): Promise<MediaRecord | undefined> {
@@ -57,10 +68,5 @@ export async function gcUnreferencedMedia(): Promise<void> {
     { images: state.clipboard.images, audios: state.clipboard.audios },
   ]);
   for (const id of retained) keep.add(id);
-  const tx = database.transaction("media", "readwrite");
-  const keys = await tx.store.getAllKeys();
-  for (const key of keys) {
-    if (!keep.has(key)) await tx.store.delete(key);
-  }
-  await tx.done;
+  await sweepUnreferenced("media", keep);
 }

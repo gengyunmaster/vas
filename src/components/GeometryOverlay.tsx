@@ -5,6 +5,7 @@ import { ErrorBoundary } from "../geo/ui/ErrorBoundary";
 import { rescaledImageRect } from "../model/image";
 import { newId } from "../model/stroke";
 import { getGeometry, saveGeometry } from "../persistence/geometries";
+import { hashBlob } from "../persistence/hash";
 import { saveImage } from "../persistence/images";
 import { insertImageFile } from "../persistence/insertImage";
 import { toast } from "../store/toasts";
@@ -68,7 +69,7 @@ export function GeometryOverlay() {
       const file = new File([payload.svg], "figure.svg", { type: "image/svg+xml" });
       if (editor.mode === "edit") {
         const geometryId = newId();
-        const imageId = newId();
+        const imageId = await hashBlob(file);
         await saveGeometry({ id: geometryId, document: payload.document });
         const decoded = await decodeBlob(file);
         await saveImage({ id: imageId, mimeType: "image/svg+xml", blob: file });

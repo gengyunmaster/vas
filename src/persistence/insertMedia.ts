@@ -1,6 +1,6 @@
 import { decodeBlob, primeImage } from "../engine/imageCache";
-import { newId } from "../model/stroke";
 import { useBoardStore } from "../store/useBoardStore";
+import { hashBlob } from "./hash";
 import { saveImage } from "./images";
 import { deleteMedias, saveMedia } from "./media";
 
@@ -14,13 +14,18 @@ export async function insertMediaFile(file: File): Promise<void> {
 
 async function insertVideoFile(file: File): Promise<void> {
   const poster = await capturePoster(file);
-  const posterId = newId();
-  const videoId = newId();
-  await saveMedia({ id: videoId, kind: "video", mimeType: file.type, blob: file });
+  const posterId = await hashBlob(poster.blob);
+  const videoId = await hashBlob(file);
+  const videoCreated = await saveMedia({
+    id: videoId,
+    kind: "video",
+    mimeType: file.type,
+    blob: file,
+  });
   try {
     await saveImage({ id: posterId, mimeType: "image/png", blob: poster.blob });
   } catch (error) {
-    await deleteMedias([videoId]).catch(() => {});
+    if (videoCreated) await deleteMedias([videoId]).catch(() => {});
     throw error;
   }
   primeImage(posterId, poster.image, poster.blob);
@@ -29,7 +34,7 @@ async function insertVideoFile(file: File): Promise<void> {
 
 async function insertAudioFile(file: File): Promise<void> {
   await probeAudio(file);
-  const audioId = newId();
+  const audioId = await hashBlob(file);
   await saveMedia({ id: audioId, kind: "audio", mimeType: file.type, blob: file });
   useBoardStore.getState().insertAudio(audioId);
 }

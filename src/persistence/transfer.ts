@@ -31,6 +31,7 @@ import {
 import type { ViewState } from "../model/viewState";
 import type { GeometryRecord, ImageRecord, MediaRecord, PdfRecord } from "./db";
 import { deleteGeometries, getGeometry, saveGeometries } from "./geometries";
+import { hashBlob } from "./hash";
 import { deleteImages, getImage, retainImages, saveImages } from "./images";
 import { deleteMedias, getMedia, retainMedias, saveMedias } from "./media";
 import {
@@ -447,7 +448,12 @@ export async function importNotebookFile(file: File): Promise<string> {
     return importNotebookZip(bytes);
   }
   const parsed = parseNotebookFile(strFromU8(bytes));
-  if (parsed.images.length > 0 || parsed.pdfs.length > 0 || parsed.media.length > 0) {
+  if (
+    parsed.images.length > 0 ||
+    parsed.pdfs.length > 0 ||
+    parsed.geometries.length > 0 ||
+    parsed.media.length > 0
+  ) {
     throw new Error(
       "This file references binary assets; import the original .vas.zip archive instead",
     );
@@ -474,7 +480,7 @@ async function importNotebookZip(bytes: Uint8Array): Promise<string> {
   if (!jsonEntry) throw new Error("Archive contains no notebook.json");
   const parsed = parseNotebookFile(strFromU8(jsonEntry));
   const imageData = resolveImageEntries(entries, parsed.images);
-  const records: ImageRecord[] = parsed.images.map((entry, index) => ({
+  const imageRecords: ImageRecord[] = parsed.images.map((entry, index) => ({
     id: entry.imageId,
     mimeType: entry.mimeType,
     blob: new Blob([imageData[index].slice()], { type: entry.mimeType }),
@@ -496,24 +502,38 @@ async function importNotebookZip(bytes: Uint8Array): Promise<string> {
     mimeType: entry.mimeType,
     blob: new Blob([mediaData[index].slice()], { type: entry.mimeType }),
   }));
-  const releaseImages = retainImages(parsed.images.map((entry) => entry.imageId));
-  const releasePdfs = retainPdfs(parsed.pdfs.map((entry) => entry.docId));
-  const releaseMedias = retainMedias(parsed.media.map((entry) => entry.mediaId));
+  // Re-key blobs to their content hashes so re-importing an already-stored
+  // file reuses the existing record instead of duplicating it.
+  const imageIds = await contentIdMap(imageRecords);
+  const pdfIds = await contentIdMap(pdfRecords);
+  const mediaIds = await contentIdMap(mediaRecords);
+  remapPageAssetIds(parsed.pages, { images: imageIds, pdfs: pdfIds, media: mediaIds });
+  const images = dedupeRecords(imageRecords, imageIds);
+  const pdfs = dedupeRecords(pdfRecords, pdfIds);
+  const media = dedupeRecords(mediaRecords, mediaIds);
+  const releaseImages = retainImages(images.map((record) => record.id));
+  const releasePdfs = retainPdfs(pdfs.map((record) => record.id));
+  const releaseMedias = retainMedias(media.map((record) => record.id));
   try {
     const meta = await createNotebook(parsed.title);
+    const createdImages: string[] = [];
+    const createdPdfs: string[] = [];
+    let createdMedia: string[] = [];
     try {
-      await saveImages(records);
-      for (const record of pdfRecords) await savePdf(record);
+      createdImages.push(...(await saveImages(images)));
+      for (const record of pdfs) {
+        if (await savePdf(record)) createdPdfs.push(record.id);
+      }
       await saveGeometries(geometryRecords);
-      await saveMedias(mediaRecords);
+      createdMedia = await saveMedias(media);
       await replacePages(meta.id, parsed.pages);
       if (parsed.viewState) await saveViewState(meta.id, parsed.viewState);
     } catch (error) {
       await deleteNotebook(meta.id);
-      await deleteImages(records.map((record) => record.id)).catch(() => {});
-      await deletePdfs(pdfRecords.map((record) => record.id)).catch(() => {});
+      await deleteImages(createdImages).catch(() => {});
+      await deletePdfs(createdPdfs).catch(() => {});
       await deleteGeometries(geometryRecords.map((record) => record.id)).catch(() => {});
-      await deleteMedias(mediaRecords.map((record) => record.id)).catch(() => {});
+      await deleteMedias(createdMedia).catch(() => {});
       throw error;
     }
     return meta.id;
@@ -521,6 +541,50 @@ async function importNotebookZip(bytes: Uint8Array): Promise<string> {
     releaseImages();
     releasePdfs();
     releaseMedias();
+  }
+}
+
+async function contentIdMap(records: { id: string; blob: Blob }[]): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+  for (const record of records) {
+    if (!map.has(record.id)) map.set(record.id, await hashBlob(record.blob));
+  }
+  return map;
+}
+
+function dedupeRecords<T extends { id: string }>(records: T[], ids: Map<string, string>): T[] {
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const record of records) {
+    const id = ids.get(record.id) ?? record.id;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push({ ...record, id });
+  }
+  return out;
+}
+
+export function remapPageAssetIds(
+  pages: Page[],
+  maps: { images: Map<string, string>; pdfs: Map<string, string>; media: Map<string, string> },
+): void {
+  const remapDoc = (source: PdfSource): PdfSource => ({
+    ...source,
+    docId: maps.pdfs.get(source.docId) ?? source.docId,
+  });
+  for (const page of pages) {
+    for (const image of page.images) {
+      image.imageId = maps.images.get(image.imageId) ?? image.imageId;
+      if (image.videoId) image.videoId = maps.media.get(image.videoId) ?? image.videoId;
+      if (image.pdfSource) image.pdfSource = remapDoc(image.pdfSource);
+    }
+    for (const text of page.texts) {
+      text.markdown = remapTextImageRefs(text.markdown, maps.images);
+    }
+    for (const audio of page.audios) {
+      audio.audioId = maps.media.get(audio.audioId) ?? audio.audioId;
+    }
+    if (page.pdfSource) page.pdfSource = remapDoc(page.pdfSource);
   }
 }
 

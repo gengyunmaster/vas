@@ -9,6 +9,7 @@ import {
   NOTEBOOK_JSON_ENTRY,
   parseNotebookFile,
   pdfEntryPath,
+  remapPageAssetIds,
   resolveGeometryEntries,
   resolveImageEntries,
   resolveMediaEntries,
@@ -767,5 +768,92 @@ describe("sanitizeFileName", () => {
 
   it("keeps safe names untouched", () => {
     expect(sanitizeFileName("My notes-page-1.png")).toBe("My notes-page-1.png");
+  });
+});
+
+describe("remapPageAssetIds", () => {
+  it("remaps image, video, audio, pdf and text references", () => {
+    const page: Page = {
+      id: "p1",
+      width: 794,
+      height: 1123,
+      paperColor: "#ffffff",
+      pattern: "blank",
+      strokes: [],
+      images: [
+        { id: "i1", imageId: "img-old", x: 0, y: 0, width: 10, height: 10 },
+        {
+          id: "i2",
+          imageId: "img-old-2",
+          x: 0,
+          y: 0,
+          width: 10,
+          height: 10,
+          videoId: "vid-old",
+        },
+        {
+          id: "i3",
+          imageId: "img-old-3",
+          x: 0,
+          y: 0,
+          width: 10,
+          height: 10,
+          pdfSource: { docId: "doc-old", pageIndex: 2 },
+        },
+      ],
+      texts: [
+        {
+          id: "t1",
+          x: 0,
+          y: 0,
+          width: 100,
+          fontSize: 20,
+          color: "#000000",
+          markdown: "see ![](image:img-old)",
+        },
+      ],
+      audios: [{ id: "a1", audioId: "aud-old", x: 0, y: 0, width: 10, height: 10 }],
+      pdfSource: { docId: "doc-old", pageIndex: 0 },
+    };
+    remapPageAssetIds([page], {
+      images: new Map([
+        ["img-old", "img-new"],
+        ["img-old-2", "img-new-2"],
+        ["img-old-3", "img-new-3"],
+      ]),
+      pdfs: new Map([["doc-old", "doc-new"]]),
+      media: new Map([
+        ["vid-old", "vid-new"],
+        ["aud-old", "aud-new"],
+      ]),
+    });
+    expect(page.images[0].imageId).toBe("img-new");
+    expect(page.images[1].videoId).toBe("vid-new");
+    expect(page.images[2].pdfSource?.docId).toBe("doc-new");
+    expect(page.images[2].pdfSource?.pageIndex).toBe(2);
+    expect(page.texts[0].markdown).toBe("see ![](image:img-new)");
+    expect(page.audios[0].audioId).toBe("aud-new");
+    expect(page.pdfSource?.docId).toBe("doc-new");
+    expect(page.pdfSource?.pageIndex).toBe(0);
+  });
+
+  it("keeps references without a mapping untouched", () => {
+    const page: Page = {
+      id: "p1",
+      width: 794,
+      height: 1123,
+      paperColor: "#ffffff",
+      pattern: "blank",
+      strokes: [],
+      images: [{ id: "i1", imageId: "img-old", x: 0, y: 0, width: 10, height: 10 }],
+      texts: [],
+      audios: [{ id: "a1", audioId: "aud-old", x: 0, y: 0, width: 10, height: 10 }],
+      pdfSource: { docId: "doc-old", pageIndex: 1, whiteBackground: true },
+    };
+    remapPageAssetIds([page], { images: new Map(), pdfs: new Map(), media: new Map() });
+    expect(page.images[0].imageId).toBe("img-old");
+    expect(page.audios[0].audioId).toBe("aud-old");
+    expect(page.pdfSource?.docId).toBe("doc-old");
+    expect(page.pdfSource?.whiteBackground).toBe(true);
   });
 });
