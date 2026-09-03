@@ -1,10 +1,12 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import "./fonts";
 import { loadToolPrefs } from "./persistence/prefs";
 import { watchInstallPrompt } from "./pwa/installPrompt";
 import { registerServiceWorker } from "./pwa/registerSW";
+import { showErrorBanner } from "./store/errorBanner";
 import "./styles.css";
 import { applyTheme } from "./theme";
 
@@ -19,8 +21,17 @@ registerServiceWorker();
 // Must run early: beforeinstallprompt can fire before React mounts.
 watchInstallPrompt();
 
+window.addEventListener("error", (event) => {
+  showErrorBanner(event.error ?? event.message);
+});
+window.addEventListener("unhandledrejection", (event) => {
+  showErrorBanner(event.reason);
+});
+
 createRoot(rootElement).render(
   <StrictMode>
-    <App />
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
   </StrictMode>,
 );

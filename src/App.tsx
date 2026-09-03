@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { BoardCanvas } from "./components/BoardCanvas";
 import { ConfirmDialog, PromptDialog } from "./components/Dialogs";
+import { ErrorBanner } from "./components/ErrorBanner";
 import { GeometryOverlay } from "./components/GeometryOverlay";
 import { Home } from "./components/Home";
 import { PageIndicator } from "./components/PageIndicator";
@@ -247,6 +248,7 @@ export default function App() {
       <ConfirmDialog />
       <PromptDialog />
       <Toasts />
+      <ErrorBanner />
     </>
   );
 }

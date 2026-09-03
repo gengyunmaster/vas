@@ -1568,6 +1568,102 @@ body {
   color: var(--text);
 }
 
+.error-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--desktop);
+  color: var(--text);
+}
+
+.error-card {
+  max-width: 560px;
+  padding: 28px;
+  background: var(--panel-solid);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: var(--shadow-modal);
+}
+
+.error-card h1 {
+  margin: 0 0 12px;
+  font-size: 20px;
+}
+
+.error-card p {
+  margin: 0 0 12px;
+  font-size: 14px;
+  color: var(--text-3);
+  line-height: 1.6;
+}
+
+.error-message {
+  font-family: monospace;
+  color: var(--danger);
+  word-break: break-all;
+}
+
+.error-actions {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.error-actions .primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #ffffff;
+}
+
+.error-details summary {
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-5);
+}
+
+.error-details pre {
+  max-height: 220px;
+  overflow: auto;
+  padding: 10px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+  user-select: text;
+}
+
+.error-banner {
+  position: fixed;
+  bottom: max(16px, env(safe-area-inset-bottom));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 41;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: calc(100vw - 48px);
+  padding: 8px 12px 8px 16px;
+  background: var(--panel-strong);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--danger);
+  border-radius: 12px;
+  box-shadow: var(--shadow-pop);
+  font-size: 13px;
+  color: var(--text);
+}
+
+.error-banner button {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
 .dialog-input {
   width: 100%;
   box-sizing: border-box;

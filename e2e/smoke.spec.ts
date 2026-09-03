@@ -86,6 +86,16 @@ test("exports whole notebook as PDF", async ({ page }) => {
   expect(bytes.subarray(0, 5).toString("latin1")).toBe("%PDF-");
 });
 
+test("shows an error banner for unhandled errors", async ({ page }) => {
+  await page.evaluate(() => {
+    window.dispatchEvent(new ErrorEvent("error", { error: new Error("boom"), message: "boom" }));
+  });
+  const banner = page.locator(".error-banner");
+  await expect(banner).toContainText("Something went wrong");
+  await banner.getByRole("button", { name: "Dismiss" }).click();
+  await expect(page.locator(".error-banner")).toHaveCount(0);
+});
+
 test("back to notebooks lists the notebook", async ({ page }) => {
   await page.getByRole("button", { name: "Back to notebooks" }).click();
   await expect(page.getByText("My Notebook")).toBeVisible();
