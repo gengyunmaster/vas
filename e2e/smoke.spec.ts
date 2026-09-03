@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { darkPixelCount, downloadExport, drawStroke, openBoard, openSettings, selectPenSize } from "./helpers";
+import { darkPixelCount, downloadExport, drawStroke, openBoard, openSettings, pageStrokes, selectPenSize } from "./helpers";
 
 const STROKE = [
   { x: 300, y: 300 },
@@ -94,6 +94,37 @@ test("shows an error banner for unhandled errors", async ({ page }) => {
   await expect(banner).toContainText("Something went wrong");
   await banner.getByRole("button", { name: "Dismiss" }).click();
   await expect(page.locator(".error-banner")).toHaveCount(0);
+});
+
+test("draw-and-hold snaps a rough rectangle into a shape", async ({ page }) => {
+  const rect: { x: number; y: number }[] = [];
+  const corners = [
+    { x: 250, y: 200 },
+    { x: 500, y: 205 },
+    { x: 495, y: 400 },
+    { x: 255, y: 395 },
+    { x: 250, y: 200 },
+  ];
+  for (let e = 0; e < corners.length - 1; e++) {
+    const a = corners[e];
+    const b = corners[e + 1];
+    for (let i = 0; i <= 12; i++) {
+      const t = i / 12;
+      const wobble = Math.sin((e * 13 + i) * 2.3) * 4;
+      rect.push({ x: a.x + (b.x - a.x) * t + wobble, y: a.y + (b.y - a.y) * t - wobble });
+    }
+  }
+  await page.mouse.move(rect[0].x, rect[0].y);
+  await page.mouse.down();
+  for (const p of rect.slice(1)) await page.mouse.move(p.x, p.y, { steps: 2 });
+  await page.waitForTimeout(500);
+  await page.mouse.up();
+  await expect.poll(async () => (await pageStrokes(page))[0]?.shape).toBe("rect");
+});
+
+test("a quick stroke stays freehand", async ({ page }) => {
+  await drawStroke(page, STROKE);
+  await expect.poll(async () => (await pageStrokes(page))[0]?.shape).toBeUndefined();
 });
 
 test("back to notebooks lists the notebook", async ({ page }) => {

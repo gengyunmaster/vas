@@ -23,6 +23,7 @@ import {
   type StrokePoint,
   type ToolKind,
 } from "../model/stroke";
+import { recognizeShape } from "../model/shapeRecognize";
 import type { TextItem } from "../model/textItem";
 import {
   clampMoveDelta,
@@ -169,6 +170,7 @@ const MAX_QUEUED_TURNS = 8;
 const SWIPE_PAGE_THRESHOLD = 80;
 const HANDLE_SIZE = 10;
 const HANDLE_HIT_RADIUS = 12;
+const SHAPE_HOLD_MS = 350;
 const MIN_SELECTION_SCALE = 0.05;
 const SELECTION_ACCENT = "#2f6fdd";
 
@@ -217,6 +219,7 @@ export class Board {
   private pageTurn: { from: Viewport; to: Viewport; fromPage: number; start: number } | null = null;
   private wheelAccum = 0;
   private wheelAccumTimer: number | undefined;
+  private shapeHoldTimer: number | undefined;
   private pendingTurns = 0;
   private touchpadFlipped = false;
   private lastWheelAt = 0;
@@ -421,6 +424,7 @@ export class Board {
     window.clearTimeout(this.gifTimer);
     window.clearTimeout(this.wheelTimer);
     window.clearTimeout(this.wheelAccumTimer);
+    window.clearTimeout(this.shapeHoldTimer);
     this.observer.disconnect();
     this.stopImageListener();
     this.activeCanvas.removeEventListener("pointerdown", this.handlePointerDown);
@@ -1362,6 +1366,7 @@ export class Board {
               stroke.points.push(this.toPagePoint(e, pageIndex));
             }
             stroke.predicted = predicted(event).map((e) => this.toPagePoint(e, pageIndex));
+            this.armShapeHold();
           }
         }
       }
@@ -1548,6 +1553,7 @@ export class Board {
     if (!page) return;
     const tool = this.callbacks.getTool();
     if (tool.tool !== "pen" && tool.tool !== "highlighter" && !isShapeTool(tool.tool)) return;
+    window.clearTimeout(this.shapeHoldTimer);
     const clamped = clampToPage(page, x, y);
     this.stroke = {
       pointerId: event.pointerId,
@@ -1567,6 +1573,7 @@ export class Board {
   private commitStroke(): void {
     const stroke = this.stroke;
     this.stroke = null;
+    window.clearTimeout(this.shapeHoldTimer);
     this.scheduleComposite();
     if (!stroke || stroke.points.length === 0) return;
     if (stroke.shape) {
@@ -1588,6 +1595,30 @@ export class Board {
 
   private cancelStroke(): void {
     this.stroke = null;
+    window.clearTimeout(this.shapeHoldTimer);
+    this.scheduleComposite();
+  }
+
+  // Draw-and-hold shape snapping: while the pointer rests at the end of a
+  // pen/highlighter stroke, try to morph the trace into a perfect shape.
+  private armShapeHold(): void {
+    window.clearTimeout(this.shapeHoldTimer);
+    this.shapeHoldTimer = window.setTimeout(() => this.snapStrokeShape(), SHAPE_HOLD_MS);
+  }
+
+  private snapStrokeShape(): void {
+    const stroke = this.stroke;
+    if (!stroke || stroke.shape || stroke.points.length < 2) return;
+    const hit = recognizeShape(stroke.points, { lineOnly: stroke.pen === "highlighter" });
+    if (!hit) return;
+    const first = stroke.points[0];
+    const last = stroke.points[stroke.points.length - 1];
+    stroke.shape = hit.kind;
+    stroke.points = [
+      { x: hit.start.x, y: hit.start.y, pressure: first.pressure },
+      { x: hit.end.x, y: hit.end.y, pressure: last.pressure },
+    ];
+    stroke.predicted = [];
     this.scheduleComposite();
   }
 

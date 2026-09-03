@@ -55,6 +55,24 @@ export async function selectPenSize(page: Page, size: string) {
   await page.getByRole("button", { name: "Settings" }).click();
 }
 
+export async function pageStrokes(page: Page): Promise<{ shape?: string; points: unknown[] }[]> {
+  return page.evaluate(async () => {
+    const req = indexedDB.open("vas");
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    const tx = db.transaction("pages", "readonly");
+    const pages = await new Promise<{ strokes?: { shape?: string; points: unknown[] }[] }[]>((resolve, reject) => {
+      const q = tx.objectStore("pages").getAll();
+      q.onsuccess = () => resolve(q.result);
+      q.onerror = () => reject(q.error);
+    });
+    db.close();
+    return pages.flatMap((p) => p.strokes ?? []);
+  });
+}
+
 export async function downloadExport(page: Page, scope: "This page" | "Notebook", format: "PDF" | "SVG" | "PNG") {
   await openSettings(page);
   await page.getByRole("button", { name: scope, exact: true }).click();
