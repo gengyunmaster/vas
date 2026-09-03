@@ -324,6 +324,30 @@ describe("notebook pdf sources", () => {
     expect(() => parseNotebookFile(text)).toThrow("Invalid pdf source page index");
   });
 
+  it("round-trips the white background choice", () => {
+    const page: Page = {
+      ...samplePage(),
+      pdfSource: { docId: "pdf-1", pageIndex: 2, whiteBackground: false },
+    };
+    const text = serializeNotebook("Transparent pdf", [page], [], undefined, [{ docId: "pdf-1" }]);
+    const parsed = parseNotebookFile(text);
+    expect(parsed.pages[0].pdfSource).toEqual({
+      docId: parsed.pdfs[0].docId,
+      pageIndex: 2,
+      whiteBackground: false,
+    });
+  });
+
+  it("rejects a non-boolean pdf source background flag", () => {
+    const text = JSON.stringify({
+      format: "vas-notebook",
+      version: 3,
+      pdfs: [{ docId: "pdf-1" }],
+      pages: [{ strokes: [], pdfSource: { docId: "pdf-1", pageIndex: 0, whiteBackground: "y" } }],
+    });
+    expect(() => parseNotebookFile(text)).toThrow("Invalid pdf source background flag");
+  });
+
   it("resolves pdf bytes from the zip archive", () => {
     const json = serializeNotebook("Zip", [sourcedPage()], [], undefined, [{ docId: "pdf-1" }]);
     const zip = buildNotebookZip(json, [

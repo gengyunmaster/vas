@@ -592,7 +592,14 @@ function parsePdfSource(raw: unknown, pdfRemap: Map<string, string>): PdfSource 
   if (typeof raw.pageIndex !== "number" || !Number.isInteger(raw.pageIndex) || raw.pageIndex < 0) {
     throw new Error("Invalid pdf source page index");
   }
-  return { docId, pageIndex: raw.pageIndex };
+  if (raw.whiteBackground !== undefined && typeof raw.whiteBackground !== "boolean") {
+    throw new Error("Invalid pdf source background flag");
+  }
+  return {
+    docId,
+    pageIndex: raw.pageIndex,
+    ...(raw.whiteBackground !== undefined ? { whiteBackground: raw.whiteBackground } : {}),
+  };
 }
 
 function parsePage(

@@ -26,6 +26,9 @@ export const DEFAULT_PAGE_SIZE: PageSize = { width: PAGE_WIDTH, height: PAGE_HEI
 export interface PdfSource {
   docId: string;
   pageIndex: number;
+  // Import-time choice: paint an opaque white backdrop under the page content.
+  // Absent on legacy records: base pages behaved white, PDF images transparent.
+  whiteBackground?: boolean;
 }
 
 export interface Page {

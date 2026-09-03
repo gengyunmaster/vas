@@ -25,6 +25,8 @@ export interface RasterizedPdfPage {
   naturalHeight: number;
   // 0-based page index into the source PDF, kept for the export-time vector embedding.
   pageIndex: number;
+  // whether the raster was rendered onto an opaque white backdrop
+  whiteBackground: boolean;
 }
 
 export interface RasterizedPdf {
@@ -67,7 +69,7 @@ export async function saveSourcePdf(sourceBytes: Uint8Array): Promise<string> {
 export async function rasterizePdf(
   file: File,
   onProgress?: (done: number, total: number) => void,
-  options: { promptMode?: "range" | "single"; transparent?: boolean } = {},
+  options: { promptMode?: "range" | "single" } = {},
 ): Promise<RasterizedPdf> {
   const pdfjs = await loadPdfJs();
   const data = new Uint8Array(await file.arrayBuffer());
@@ -107,10 +109,11 @@ export async function rasterizePdf(
     if (doc.numPages < 1) throw new Error("This PDF contains no pages");
     const range = await askPageRange(doc.numPages, options.promptMode ?? "range");
     if (!range) throw new Error("Import cancelled");
+    const transparent = !(range.whiteBackground ?? false);
     const pages: RasterizedPdfPage[] = [];
     const total = range.to - range.from + 1;
     for (let index = range.from; index <= range.to; index++) {
-      pages.push(await rasterizePage(doc, index, options.transparent ?? false));
+      pages.push(await rasterizePage(doc, index, transparent));
       onProgress?.(pages.length, total);
     }
     let sourceBytes: Uint8Array = data;
@@ -128,7 +131,6 @@ export async function rasterizePdf(
 export async function insertPdfImageFile(file: File): Promise<void> {
   const { pages, sourceBytes } = await rasterizePdf(file, undefined, {
     promptMode: "single",
-    transparent: true,
   });
   const raster = pages[0];
   if (!raster) throw new Error("This PDF contains no pages");
@@ -146,7 +148,13 @@ export async function insertPdfImageFile(file: File): Promise<void> {
         raster.imageId,
         raster.naturalWidth * PDF_PAGE_SCALE,
         raster.naturalHeight * PDF_PAGE_SCALE,
-        { pdfSource: { docId, pageIndex: raster.pageIndex } },
+        {
+          pdfSource: {
+            docId,
+            pageIndex: raster.pageIndex,
+            whiteBackground: raster.whiteBackground,
+          },
+        },
       );
   } catch (error) {
     await deleteImages([raster.imageId]).catch(() => {});
@@ -252,9 +260,25 @@ async function rasterizePage(
 ): Promise<RasterizedPdfPage> {
   const pdfPage = await doc.getPage(index);
   const base = pdfPage.getViewport({ scale: 1 });
-  const viewport = pdfPage.getViewport({
-    scale: cappedRenderScale(BASE_RASTER_SCALE, base.width, base.height),
-  });
+  const scale = cappedRenderScale(BASE_RASTER_SCALE, base.width, base.height);
+  const { blob, mimeType } = await renderPdfPage(pdfPage, scale, transparent);
+  return {
+    imageId: newId(),
+    mimeType,
+    blob,
+    naturalWidth: base.width,
+    naturalHeight: base.height,
+    pageIndex: index - 1,
+    whiteBackground: !transparent,
+  };
+}
+
+async function renderPdfPage(
+  pdfPage: import("pdfjs-dist").PDFPageProxy,
+  scale: number,
+  transparent: boolean,
+): Promise<{ blob: Blob; mimeType: string }> {
+  const viewport = pdfPage.getViewport({ scale });
   const canvas = document.createElement("canvas");
   canvas.width = Math.max(1, Math.ceil(viewport.width));
   canvas.height = Math.max(1, Math.ceil(viewport.height));
@@ -275,17 +299,10 @@ async function rasterizePage(
   const blob = await new Promise<Blob | null>((resolve) =>
     canvas.toBlob(resolve, mimeType, JPEG_QUALITY),
   );
-  if (!blob) throw new Error(`Failed to rasterize page ${index}`);
   canvas.width = 0;
   canvas.height = 0;
-  return {
-    imageId: newId(),
-    mimeType,
-    blob,
-    naturalWidth: base.width,
-    naturalHeight: base.height,
-    pageIndex: index - 1,
-  };
+  if (!blob) throw new Error("Failed to rasterize PDF page");
+  return { blob, mimeType };
 }
 
 function canvasHasTransparency(canvas: HTMLCanvasElement): boolean {
@@ -298,8 +315,8 @@ function canvasHasTransparency(canvas: HTMLCanvasElement): boolean {
   return false;
 }
 
-// After a page resize the stored JPEG may no longer cover the larger placement at
-// 3x sharpness; re-render from the original PDF and swap the base image blob.
+// After a page resize the stored base image may no longer cover the larger
+// placement at 3x sharpness; re-render from the original PDF and swap the blob.
 export async function reRasterizePdfBase(pageId: string): Promise<void> {
   const state = useBoardStore.getState();
   const page = state.pages.find((p) => p.id === pageId);
@@ -328,17 +345,9 @@ export async function reRasterizePdfBase(pageId: string): Promise<void> {
       base.height,
     );
     if (scale <= BASE_RASTER_SCALE) return;
-    const viewport = pdfPage.getViewport({ scale });
-    const canvas = document.createElement("canvas");
-    canvas.width = Math.max(1, Math.ceil(viewport.width));
-    canvas.height = Math.max(1, Math.ceil(viewport.height));
-    await pdfPage.render({ canvas, viewport, background: "#ffffff" }).promise;
-    const blob = await new Promise<Blob | null>((resolve) =>
-      canvas.toBlob(resolve, "image/jpeg", JPEG_QUALITY),
-    );
-    canvas.width = 0;
-    canvas.height = 0;
-    if (!blob) return;
+    // legacy base pages predate the background choice and rendered opaque white
+    const transparent = !(source.whiteBackground ?? true);
+    const { blob, mimeType } = await renderPdfPage(pdfPage, scale, transparent);
     const fresh = useBoardStore.getState().pages.find((p) => p.id === pageId);
     if (
       !fresh ||
@@ -348,7 +357,7 @@ export async function reRasterizePdfBase(pageId: string): Promise<void> {
       return;
     }
     const imageId = newId();
-    await saveImages([{ id: imageId, mimeType: "image/jpeg", blob }]);
+    await saveImages([{ id: imageId, mimeType, blob }]);
     useBoardStore.getState().replacePdfBaseImage(pageId, imageId);
   } catch {
     // a failed re-render keeps the previous base image

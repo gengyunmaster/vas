@@ -8,6 +8,7 @@ export function PageRangeDialog() {
   const request = useBoardStore((state) => state.pdfRangeRequest);
   const [first, setFirst] = useState("1");
   const [last, setLast] = useState("1");
+  const [whiteBackground, setWhiteBackground] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const presence = usePresence(request !== null, 140);
   const lastRequest = useRef(request);
@@ -17,6 +18,7 @@ export function PageRangeDialog() {
     if (!request) return;
     setFirst("1");
     setLast(String(request.numPages));
+    setWhiteBackground(false);
     setError(null);
   }, [request]);
 
@@ -43,7 +45,7 @@ export function PageRangeDialog() {
       setError(`Enter whole page numbers between 1 and ${numPages}.`);
       return;
     }
-    settlePageRange(range);
+    settlePageRange({ ...range, whiteBackground });
   };
 
   const field = (label: string, value: string, setValue: (value: string) => void) => (
@@ -65,8 +67,8 @@ export function PageRangeDialog() {
 
   return (
     <div className={presence.closing ? "dialog-overlay closing" : "dialog-overlay"}>
-      <div className="dialog" role="dialog" aria-modal="true" aria-label="Import PDF">
-        <div className="dialog-title">{single ? "Insert PDF page" : "Import PDF"}</div>
+      <div className="dialog" role="dialog" aria-modal="true" aria-label="PDF page settings">
+        <div className="dialog-title">PDF page settings</div>
         <p className="dialog-text">
           {single
             ? `This PDF has ${numPages} ${numPages === 1 ? "page" : "pages"}. Choose the page to insert.`
@@ -83,6 +85,14 @@ export function PageRangeDialog() {
             {field(single ? "Page" : "From", first, setFirst)}
             {!single && field("To", last, setLast)}
           </div>
+          <label className="dialog-check">
+            <input
+              type="checkbox"
+              checked={whiteBackground}
+              onChange={(event) => setWhiteBackground(event.target.checked)}
+            />
+            White background
+          </label>
           {error && <div className="dialog-error">{error}</div>}
           <div className="dialog-actions">
             <button type="button" onClick={() => settlePageRange(null)}>

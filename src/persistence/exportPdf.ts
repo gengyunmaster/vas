@@ -294,9 +294,10 @@ async function exportLayeredPdf(title: string, pages: Page[]): Promise<void> {
   downloadBlob(new Blob([bytes.slice()], { type: "application/pdf" }), `${title}.pdf`);
 }
 
-// A PDF-backed image embeds its original page as a vector Form XObject. Unlike
-// the locked base, no white backing is drawn: source pages that paint no
-// background stay transparent, matching the raster preview.
+// A PDF-backed image embeds its original page as a vector Form XObject. The
+// white backing follows the import-time choice: with a white background the
+// raster preview is opaque, so the vector embed gets the same backing; without
+// it, source pages that paint no background stay transparent.
 async function drawPdfImage(
   pdflib: PdfLib,
   finalDoc: PDFDocument,
@@ -318,6 +319,9 @@ async function drawPdfImage(
   };
   const embedded = await embedSourcePage(pdflib, finalDoc, source, caches);
   if (embedded) {
+    if (source.whiteBackground ?? false) {
+      pdfPage.drawRectangle({ ...rect, color: pdflib.rgb(1, 1, 1) });
+    }
     pdfPage.drawPage(embedded, rect);
     return;
   }
@@ -345,7 +349,11 @@ async function drawSourceLayer(
   };
   const embedded = await embedSourcePage(pdflib, finalDoc, source, caches);
   if (embedded) {
-    pdfPage.drawRectangle({ ...rect, color: pdflib.rgb(1, 1, 1) });
+    // the white backing matches the raster: legacy base pages (flag absent)
+    // rendered opaque white, transparent imports skip it
+    if (source.whiteBackground ?? true) {
+      pdfPage.drawRectangle({ ...rect, color: pdflib.rgb(1, 1, 1) });
+    }
     pdfPage.drawPage(embedded, rect);
     return;
   }

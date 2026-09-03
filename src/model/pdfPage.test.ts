@@ -66,6 +66,29 @@ describe("buildPdfPages", () => {
     expect(pages[0].pdfSource).toEqual({ docId: "doc-1", pageIndex: 2 });
     expect(pages[1].pdfSource).toEqual({ docId: "doc-1", pageIndex: 3 });
   });
+
+  it("carries the white background choice into the pdf source", () => {
+    const transparent = buildPdfPages(
+      rasters.map((raster) => ({ ...raster, whiteBackground: false })),
+      "#ffffff",
+      "blank",
+      a4,
+      "doc-1",
+    );
+    expect(transparent[0].pdfSource).toEqual({
+      docId: "doc-1",
+      pageIndex: 0,
+      whiteBackground: false,
+    });
+    const white = buildPdfPages(
+      rasters.map((raster) => ({ ...raster, whiteBackground: true })),
+      "#ffffff",
+      "blank",
+      a4,
+      "doc-1",
+    );
+    expect(white[0].pdfSource).toEqual({ docId: "doc-1", pageIndex: 0, whiteBackground: true });
+  });
 });
 
 describe("normalizePageRange", () => {
