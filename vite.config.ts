@@ -33,6 +33,18 @@ export default defineConfig(({ mode }) => {
             },
             { src: "icon.svg", sizes: "any", type: "image/svg+xml", purpose: "any" },
           ],
+          // Launches the installed PWA when the OS opens a .json/.zip/.pdf
+          // file with it; handled by pwa/fileHandling.ts. Chromium-only.
+          file_handlers: [
+            {
+              action: base,
+              accept: {
+                "application/json": [".json"],
+                "application/zip": [".zip"],
+                "application/pdf": [".pdf"],
+              },
+            },
+          ],
         },
         workbox: {
           globPatterns: ["**/*.{js,mjs,css,html,svg,png,webmanifest,wasm,ttf,woff,woff2}"],

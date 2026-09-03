@@ -14,11 +14,14 @@ import { Toasts } from "./components/Toasts";
 import { Toolbar } from "./components/Toolbar";
 import { UpdateBanner } from "./components/UpdateBanner";
 import { parseClipboardPayload } from "./model/clipboard";
+import { importPdfFile } from "./persistence/importPdf";
 import { insertFile, isInsertableFile } from "./persistence/insertFile";
 import { createNotebook, listNotebooks } from "./persistence/notebooks";
 import { pastePlainText } from "./persistence/pasteText";
 import { loadToolPrefs, startPrefsSync } from "./persistence/prefs";
 import { flushViewStateSave, openNotebook, readLastNotebookId } from "./persistence/session";
+import { importNotebookFile } from "./persistence/transfer";
+import { watchLaunchFiles } from "./pwa/fileHandling";
 import { COMBOS, matchCombo } from "./shortcuts";
 import { useDialogStore } from "./store/dialogs";
 import { useShortcutsStore } from "./store/shortcuts";
@@ -28,6 +31,28 @@ import { startThemeSync } from "./theme";
 
 // StrictMode mounts effects twice in dev; the module-level guard keeps app init idempotent.
 let initStarted = false;
+
+// Files launched via the OS (File Handling API) always create new notebooks.
+async function importLaunchFiles(files: File[]): Promise<void> {
+  for (const file of files) {
+    try {
+      if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
+        await openNotebook(await importPdfFile(file));
+      } else {
+        const result = await importNotebookFile(file);
+        const last = result.ids[result.ids.length - 1];
+        if (last) await openNotebook(last);
+        if (result.failed > 0) {
+          toast(`Imported ${result.ids.length} of ${result.ids.length + result.failed} notebooks.`);
+        }
+      }
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("Import cancelled")) return;
+      console.error("Failed to open launched file", error);
+      toast(error instanceof Error ? error.message : "Failed to open the file.");
+    }
+  }
+}
 
 export default function App() {
   const notebookId = useBoardStore((state) => state.notebookId);
@@ -50,6 +75,7 @@ export default function App() {
           const last = notebooks.find((n) => n.id === readLastNotebookId());
           if (last) await openNotebook(last.id);
         }
+        watchLaunchFiles((files) => void importLaunchFiles(files));
       } catch (error) {
         console.error("Failed to initialize vas storage", error);
         toast("Local storage is unavailable. Your notes will not be saved in this session.");
