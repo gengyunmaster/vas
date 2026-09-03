@@ -21,6 +21,7 @@ import { toast } from "../store/toasts";
 import { COLORS, PAPER_COLORS, SIZES, useBoardStore } from "../store/useBoardStore";
 import { THEME_PREFERENCES, type ThemePreference } from "../theme";
 import { ColorField } from "./ColorField";
+import { StorageSection } from "./StorageMeter";
 import {
   AddPageIcon,
   DeletePageIcon,
@@ -526,6 +527,7 @@ export function SettingsPanel({ closing = false }: { closing?: boolean }) {
           </div>
         </section>
       )}
+      <StorageSection />
       <section className="settings-section">
         <div className="settings-label">Export</div>
         <div className="settings-row">

@@ -11,6 +11,7 @@ import { SelectionBar } from "./components/SelectionBar";
 import { TextEditor } from "./components/TextEditor";
 import { Toasts } from "./components/Toasts";
 import { Toolbar } from "./components/Toolbar";
+import { UpdateBanner } from "./components/UpdateBanner";
 import { parseClipboardPayload } from "./model/clipboard";
 import { insertFile, isInsertableFile } from "./persistence/insertFile";
 import { createNotebook, listNotebooks } from "./persistence/notebooks";
@@ -249,6 +250,7 @@ export default function App() {
       <PromptDialog />
       <Toasts />
       <ErrorBanner />
+      <UpdateBanner />
     </>
   );
 }
