@@ -12,6 +12,7 @@ import {
 } from "../model/page";
 import { resizePage } from "../model/pageSize";
 import { buildPdfPages, type PdfPageImage } from "../model/pdfPage";
+import type { PressureCurve } from "../model/pressureCurve";
 import { newId, type PenKind, type Stroke, type ToolKind } from "../model/stroke";
 import { createTextItem, DEFAULT_TEXT_FONT_SIZE, type TextItem } from "../model/textItem";
 import {
@@ -127,6 +128,10 @@ interface BoardState {
   pattern: PagePattern;
   theme: ThemePreference;
   setTheme: (theme: ThemePreference) => void;
+  pressureCurve: PressureCurve;
+  setPressureCurve: (curve: PressureCurve) => void;
+  dash: boolean;
+  setDash: (dash: boolean) => void;
   selection: SelectionTarget | null;
   selectionAnchor: { x: number; y: number } | null;
   clipboard: ClipboardContent;
@@ -446,6 +451,8 @@ export const useBoardStore = create<BoardState>()((set) => ({
   paperColor: PAPER_COLORS[0],
   pattern: "blank",
   theme: "system",
+  pressureCurve: "standard",
+  dash: false,
   selection: null,
   selectionAnchor: null,
   clipboard: { strokes: [], images: [], texts: [], audios: [] },
@@ -779,6 +786,8 @@ export const useBoardStore = create<BoardState>()((set) => ({
   requestScrollToPage: (index) => set({ pendingScrollToPage: index }),
   setColor: (color) => set({ color }),
   setTheme: (theme) => set({ theme }),
+  setPressureCurve: (pressureCurve) => set({ pressureCurve }),
+  setDash: (dash) => set({ dash }),
   setSize: (size) => set({ size }),
   setPaperColor: (paperColor) =>
     set((state) => ({

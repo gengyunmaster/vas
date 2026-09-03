@@ -1,5 +1,6 @@
 import { normalizeHex } from "../model/color";
 import { PAGE_PATTERNS, type PagePattern } from "../model/page";
+import { PRESSURE_CURVES, type PressureCurve } from "../model/pressureCurve";
 import { TOOL_KINDS, type ToolKind } from "../model/stroke";
 import { useBoardStore } from "../store/useBoardStore";
 import { THEME_PREFERENCES, type ThemePreference } from "../theme";
@@ -14,6 +15,8 @@ interface ToolPrefs {
   pattern?: PagePattern;
   sidebarOpen?: boolean;
   theme?: ThemePreference;
+  pressureCurve?: PressureCurve;
+  dash?: boolean;
 }
 
 export function loadToolPrefs(): ToolPrefs {
@@ -53,6 +56,10 @@ export function parseToolPrefs(raw: unknown): ToolPrefs {
   if (THEME_PREFERENCES.includes(prefs.theme as ThemePreference)) {
     out.theme = prefs.theme as ThemePreference;
   }
+  if (PRESSURE_CURVES.includes(prefs.pressureCurve as PressureCurve)) {
+    out.pressureCurve = prefs.pressureCurve as PressureCurve;
+  }
+  if (typeof prefs.dash === "boolean") out.dash = prefs.dash;
   return out;
 }
 
@@ -66,18 +73,30 @@ export function startPrefsSync(): () => void {
       state.paperColor === prev.paperColor &&
       state.pattern === prev.pattern &&
       state.sidebarOpen === prev.sidebarOpen &&
-      state.theme === prev.theme
+      state.theme === prev.theme &&
+      state.pressureCurve === prev.pressureCurve &&
+      state.dash === prev.dash
     ) {
       return;
     }
     window.clearTimeout(timer);
     timer = window.setTimeout(() => {
-      const { tool, color, size, paperColor, pattern, sidebarOpen, theme } =
+      const { tool, color, size, paperColor, pattern, sidebarOpen, theme, pressureCurve, dash } =
         useBoardStore.getState();
       try {
         localStorage.setItem(
           PREFS_KEY,
-          JSON.stringify({ tool, color, size, paperColor, pattern, sidebarOpen, theme }),
+          JSON.stringify({
+            tool,
+            color,
+            size,
+            paperColor,
+            pattern,
+            sidebarOpen,
+            theme,
+            pressureCurve,
+            dash,
+          }),
         );
       } catch {
         // storage may be unavailable

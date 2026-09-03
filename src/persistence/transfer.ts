@@ -103,6 +103,7 @@ export function serializeNotebook(
           size: stroke.size,
           simulatePressure: stroke.simulatePressure,
           shape: stroke.shape,
+          ...(stroke.dash ? { dash: true } : {}),
           points: stroke.points,
         })),
         images: page.images.map((image) => ({
@@ -808,6 +809,7 @@ function parseStroke(raw: unknown): Stroke {
         : FALLBACK_SIZE,
     simulatePressure: raw.simulatePressure === true,
     shape,
+    ...(raw.dash === true ? { dash: true } : {}),
     points,
   };
 }
@@ -826,7 +828,12 @@ function parsePoint(raw: unknown): StrokePoint {
     x: raw.x,
     y: raw.y,
     pressure:
-      typeof raw.pressure === "number" && Number.isFinite(raw.pressure) ? raw.pressure : 0.5,
+      typeof raw.pressure === "number" && Number.isFinite(raw.pressure)
+        ? Math.min(1, Math.max(0, raw.pressure))
+        : 0.5,
+    ...(typeof raw.tilt === "number" && Number.isFinite(raw.tilt)
+      ? { tilt: Math.min(1, Math.max(0, raw.tilt)) }
+      : {}),
   };
 }
 

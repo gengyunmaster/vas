@@ -12,6 +12,7 @@ import {
   pageTops,
   pageTopY,
 } from "../model/page";
+import { applyPressureCurve, type PressureCurve } from "../model/pressureCurve";
 import { audiosInLasso, imagesInLasso, strokesInLasso, textsInLasso } from "../model/selection";
 import { recognizeShape } from "../model/shapeRecognize";
 import {
@@ -23,6 +24,7 @@ import {
   type Stroke,
   type StrokePoint,
   type ToolKind,
+  tiltMagnitude,
 } from "../model/stroke";
 import { tapAction } from "../model/tapGesture";
 import type { TextItem } from "../model/textItem";
@@ -68,6 +70,8 @@ export interface ToolSettings {
   tool: ToolKind;
   color: string;
   size: number;
+  dash: boolean;
+  pressureCurve: PressureCurve;
   exporting: boolean;
 }
 
@@ -112,6 +116,7 @@ interface ActiveStroke {
   color: string;
   size: number;
   shape?: ShapeKind;
+  dash?: boolean;
   simulatePressure: boolean;
   points: StrokePoint[];
   predicted: StrokePoint[];
@@ -1597,8 +1602,16 @@ export class Board {
       color: tool.color,
       size: tool.size,
       shape: isShapeTool(tool.tool) ? tool.tool : undefined,
+      dash: tool.dash || undefined,
       simulatePressure: event.pointerType !== "pen",
-      points: [{ x: clamped.x, y: clamped.y, pressure: pressureOf(event) }],
+      points: [
+        {
+          x: clamped.x,
+          y: clamped.y,
+          pressure: applyPressureCurve(pressureOf(event), tool.pressureCurve),
+          ...(tiltOf(event) ? { tilt: tiltOf(event) } : {}),
+        },
+      ],
       predicted: [],
     };
     this.scheduleComposite();
@@ -1621,6 +1634,7 @@ export class Board {
         color: stroke.color,
         size: stroke.size,
         shape: stroke.shape,
+        dash: stroke.dash,
         simulatePressure: stroke.simulatePressure,
         points: stroke.points,
       }),
@@ -1894,7 +1908,12 @@ export class Board {
     const pos = this.eventPos(event);
     const world = screenToWorld(this.viewport, pos.x, pos.y);
     const local = clampToPage(page, world.x - left, world.y - pageTopY(this.pages, pageIndex));
-    return { x: local.x, y: local.y, pressure: pressureOf(event) };
+    return {
+      x: local.x,
+      y: local.y,
+      pressure: applyPressureCurve(pressureOf(event), this.callbacks.getTool().pressureCurve),
+      ...(tiltOf(event) ? { tilt: tiltOf(event) } : {}),
+    };
   }
 
   private toWorldPoint(event: PointerEvent): { x: number; y: number; t: number } {
@@ -1945,6 +1964,12 @@ function createLayer(className = "board-layer"): HTMLCanvasElement {
 
 function pressureOf(event: PointerEvent): number {
   return event.pressure > 0 ? event.pressure : 0.5;
+}
+
+function tiltOf(event: PointerEvent): number | undefined {
+  if (event.pointerType !== "pen") return undefined;
+  const tilt = tiltMagnitude(event.tiltX, event.tiltY);
+  return tilt > 0.05 ? tilt : undefined;
 }
 
 function midpoint(a: Point, b: Point): Point {

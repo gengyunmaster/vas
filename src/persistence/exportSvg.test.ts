@@ -99,6 +99,23 @@ describe("pageToSvg", () => {
     expect(arrow?.match(/M/g)?.length).toBe(2);
   });
 
+  it("renders a dashed pen stroke as a dashed centerline", async () => {
+    const svg = await pageToSvg(makePage({ strokes: [penStroke({ dash: true })] }), new Map());
+    expect(svg).toContain('stroke-dasharray="18 12"');
+    expect(svg).toContain('fill="none"');
+    expect(svg).toContain('stroke="#1a1a1a"');
+  });
+
+  it("renders a dashed shape with stroke-dasharray", async () => {
+    const svg = await pageToSvg(makePage({ strokes: [shapeStroke("rect")] }), new Map());
+    expect(svg).not.toContain("dasharray");
+    const dashed = await pageToSvg(
+      makePage({ strokes: [{ ...shapeStroke("rect"), dash: true }] }),
+      new Map(),
+    );
+    expect(dashed).toContain('stroke-dasharray="18 12"');
+  });
+
   it("renders no guides for a blank pattern", async () => {
     const svg = await pageToSvg(makePage({ pattern: "blank" }), new Map());
     expect(svg).not.toContain("<line");

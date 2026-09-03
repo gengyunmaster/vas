@@ -80,6 +80,35 @@ describe("serializeNotebook / parseNotebookFile", () => {
     expect(shape.points).toHaveLength(2);
   });
 
+  it("round-trips dashed strokes", () => {
+    const page = samplePage();
+    page.strokes[0] = { ...page.strokes[0], dash: true };
+    const parsed = parseNotebookFile(serializeNotebook("My notes", [page]));
+    expect(parsed.pages[0].strokes[0].dash).toBe(true);
+    expect(parsed.pages[0].strokes[1].dash).toBeUndefined();
+  });
+
+  it("round-trips point tilt and clamps out-of-range values", () => {
+    const page = samplePage();
+    page.strokes[0] = {
+      ...page.strokes[0],
+      points: [
+        { x: 1, y: 2, pressure: 0.4, tilt: 0.6 },
+        { x: 30, y: 40, pressure: 0.8 },
+      ],
+    };
+    const text = serializeNotebook("My notes", [page]);
+    const parsed = parseNotebookFile(text);
+    expect(parsed.pages[0].strokes[0].points).toEqual([
+      { x: 1, y: 2, pressure: 0.4, tilt: 0.6 },
+      { x: 30, y: 40, pressure: 0.8 },
+    ]);
+    const tampered = JSON.parse(text);
+    tampered.pages[0].strokes[0].points[0].tilt = 7;
+    const clamped = parseNotebookFile(JSON.stringify(tampered));
+    expect(clamped.pages[0].strokes[0].points[0].tilt).toBe(1);
+  });
+
   it("regenerates ids on import", () => {
     const text = serializeNotebook("My notes", [samplePage()]);
     const parsed = parseNotebookFile(text);

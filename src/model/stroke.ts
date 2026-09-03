@@ -22,6 +22,7 @@ export interface StrokePoint {
   x: number;
   y: number;
   pressure: number;
+  tilt?: number;
 }
 
 export interface Stroke {
@@ -32,6 +33,7 @@ export interface Stroke {
   simulatePressure: boolean;
   points: StrokePoint[];
   shape?: ShapeKind;
+  dash?: boolean;
 }
 
 export function createStroke(input: Omit<Stroke, "id">): Stroke {
@@ -40,6 +42,26 @@ export function createStroke(input: Omit<Stroke, "id">): Stroke {
 
 export function effectiveStrokeSize(stroke: Stroke): number {
   return stroke.pen === "highlighter" ? stroke.size * HIGHLIGHTER_SIZE_FACTOR : stroke.size;
+}
+
+// Dashed strokes render their centerline instead of a filled outline.
+export function strokeDashArray(stroke: Stroke): [number, number] {
+  const width = stroke.shape ? stroke.size : effectiveStrokeSize(stroke);
+  return [width * 3, width * 2];
+}
+
+// Combined stylus tilt as a 0..1 magnitude (0 = perpendicular to the screen).
+export function tiltMagnitude(tiltX: number, tiltY: number): number {
+  const combined = (Math.abs(tiltX) + Math.abs(tiltY)) / 2;
+  return Math.min(1, combined / 60);
+}
+
+// A tilted highlighter lays ink with its side nib: widen by boosting the
+// effective pressure. perfect-freehand only accepts per-point pressure, so
+// tilt travels through it.
+export function tiltBoostedPressure(point: StrokePoint): number {
+  if (!point.tilt) return point.pressure;
+  return Math.min(1, point.pressure * (1 + point.tilt * 0.8));
 }
 
 let idCounter = 0;

@@ -8,6 +8,7 @@ import {
   PAGE_WIDTH,
   type PagePattern,
 } from "../model/page";
+import { PRESSURE_CURVE_LABELS, PRESSURE_CURVES } from "../model/pressureCurve";
 import { pickElements } from "../model/selection";
 import { SHAPE_KINDS, type ShapeKind } from "../model/stroke";
 import { exportNotebookPng, exportPagePng, exportSelectionPng } from "../persistence/exportImage";
@@ -61,6 +62,10 @@ export function SettingsPanel({ closing = false }: { closing?: boolean }) {
   const tool = useBoardStore((state) => state.tool);
   const inkColor = useBoardStore((state) => state.color);
   const size = useBoardStore((state) => state.size);
+  const pressureCurve = useBoardStore((state) => state.pressureCurve);
+  const setPressureCurve = useBoardStore((state) => state.setPressureCurve);
+  const dash = useBoardStore((state) => state.dash);
+  const setDash = useBoardStore((state) => state.setDash);
   const paperColor = useBoardStore(
     (state) => state.pages[state.viewPageIndex]?.paperColor ?? state.paperColor,
   );
@@ -334,6 +339,43 @@ export function SettingsPanel({ closing = false }: { closing?: boolean }) {
             onChange={(e) => setSize(Number(e.target.value))}
           />
           <span className="size-value">{size}</span>
+        </div>
+      </section>
+      <section className="settings-section">
+        <div className="settings-label">Pressure</div>
+        <div className="settings-row">
+          {PRESSURE_CURVES.map((curve) => (
+            <button
+              key={curve}
+              type="button"
+              aria-pressed={pressureCurve === curve}
+              className={pressureCurve === curve ? "text-option active" : "text-option"}
+              onClick={() => setPressureCurve(curve)}
+            >
+              {PRESSURE_CURVE_LABELS[curve]}
+            </button>
+          ))}
+        </div>
+      </section>
+      <section className="settings-section">
+        <div className="settings-label">Style</div>
+        <div className="settings-row">
+          <button
+            type="button"
+            aria-pressed={!dash}
+            className={dash ? "text-option" : "text-option active"}
+            onClick={() => setDash(false)}
+          >
+            Solid
+          </button>
+          <button
+            type="button"
+            aria-pressed={dash}
+            className={dash ? "text-option active" : "text-option"}
+            onClick={() => setDash(true)}
+          >
+            Dashed
+          </button>
         </div>
       </section>
       <section className="settings-section">
