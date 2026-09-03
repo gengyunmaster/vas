@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { Page } from "../model/page";
 import {
   buildNotebookZip,
+  bundleEntryPaths,
   geometryEntryPath,
   imageEntryPath,
   mediaEntryPath,
@@ -797,6 +798,34 @@ describe("sanitizeFileName", () => {
 
   it("keeps safe names untouched", () => {
     expect(sanitizeFileName("My notes-page-1.png")).toBe("My notes-page-1.png");
+  });
+});
+
+describe("bundleEntryPaths", () => {
+  const entry = new Uint8Array([1]);
+
+  it("treats archives with a root notebook.json as single notebooks", () => {
+    expect(bundleEntryPaths({ "notebook.json": entry, "images/a.png": entry })).toEqual([]);
+  });
+
+  it("picks top-level json and zip entries in sorted order", () => {
+    expect(
+      bundleEntryPaths({
+        "b.vas.zip": entry,
+        "a.vas.json": entry,
+        "c.zip": entry,
+      }),
+    ).toEqual(["a.vas.json", "b.vas.zip", "c.zip"]);
+  });
+
+  it("skips nested paths, directories and foreign files", () => {
+    expect(
+      bundleEntryPaths({
+        "notes/a.vas.json": entry,
+        "README.md": entry,
+        "b.vas.json": entry,
+      }),
+    ).toEqual(["b.vas.json"]);
   });
 });
 

@@ -8,7 +8,7 @@ import {
   mergeNotebooks,
   renameNotebook,
 } from "../persistence/notebooks";
-import { downloadNotebook, importNotebookFile } from "../persistence/transfer";
+import { downloadNotebook, downloadNotebooks, importNotebookFile } from "../persistence/transfer";
 import { askConfirm, askPrompt } from "../store/dialogs";
 import { toast } from "../store/toasts";
 import { formatRelativeTime } from "./formatTime";
@@ -87,7 +87,10 @@ export function Home({ onOpen }: HomeProps) {
   const importFile = async (file: File | undefined) => {
     if (!file) return;
     try {
-      await importNotebookFile(file);
+      const result = await importNotebookFile(file);
+      if (result.failed > 0) {
+        toast(`Imported ${result.ids.length} of ${result.ids.length + result.failed} notebooks.`);
+      }
       await refresh();
     } catch (error) {
       toast(error instanceof Error ? error.message : "Import failed");
@@ -109,8 +112,52 @@ export function Home({ onOpen }: HomeProps) {
     }
   };
 
+  const isPdfFile = async (file: File) =>
+    file.type === "application/pdf" ||
+    file.name.toLowerCase().endsWith(".pdf") ||
+    (await file.slice(0, 5).text()) === "%PDF-";
+
+  const importDropped = async (files: File[]) => {
+    let attempted = 0;
+    let failedNotebooks = 0;
+    let importedNotebooks = 0;
+    for (const file of files) {
+      if (await isPdfFile(file)) {
+        attempted += 1;
+        await importPdf(file);
+        continue;
+      }
+      try {
+        const result = await importNotebookFile(file);
+        attempted += 1;
+        importedNotebooks += result.ids.length;
+        failedNotebooks += result.failed;
+      } catch (error) {
+        console.warn("Dropped file is not a vas notebook", file.name, error);
+      }
+    }
+    if (attempted > 0) await refresh();
+    else if (files.length > 0) toast("Drop a vas notebook (.json/.zip) or a PDF file to import.");
+    if (failedNotebooks > 0) {
+      toast(`Imported ${importedNotebooks} of ${importedNotebooks + failedNotebooks} notebooks.`);
+    }
+  };
+
+  const dragDepth = useRef(0);
+  const [dragging, setDragging] = useState(false);
+
   const toggleSelect = (id: string) => {
     setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
+
+  const exportSelected = async () => {
+    if (selected.length === 0) return;
+    try {
+      await downloadNotebooks(selected);
+    } catch (error) {
+      console.error("Export failed", error);
+      toast("Export failed.");
+    }
   };
 
   const merge = async () => {
@@ -135,7 +182,35 @@ export function Home({ onOpen }: HomeProps) {
   };
 
   return (
-    <div className="home">
+    // biome-ignore lint/a11y/noStaticElementInteractions: full-page drop target for file imports; the Import button remains the keyboard-accessible path
+    <div
+      className={dragging ? "home dragging" : "home"}
+      onDragEnter={(e) => {
+        e.preventDefault();
+        dragDepth.current += 1;
+        if (e.dataTransfer.types.includes("Files")) setDragging(true);
+      }}
+      onDragOver={(e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "copy";
+      }}
+      onDragLeave={(e) => {
+        e.preventDefault();
+        dragDepth.current = Math.max(0, dragDepth.current - 1);
+        if (dragDepth.current === 0) setDragging(false);
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        dragDepth.current = 0;
+        setDragging(false);
+        void importDropped(Array.from(e.dataTransfer.files));
+      }}
+    >
+      {dragging && (
+        <div className="home-drop-overlay" aria-hidden="true">
+          <div className="home-drop-card">Drop notebooks (.json/.zip) or PDF files to import</div>
+        </div>
+      )}
       <header className="home-header">
         <h1>vas</h1>
         <div className="home-actions">
@@ -176,6 +251,14 @@ export function Home({ onOpen }: HomeProps) {
               e.target.value = "";
             }}
           />
+          <button
+            type="button"
+            disabled={selected.length === 0}
+            title="Export selected notebooks"
+            onClick={() => void exportSelected()}
+          >
+            {selected.length > 0 ? `Export (${selected.length})` : "Export"}
+          </button>
           <button
             type="button"
             disabled={selected.length === 0}

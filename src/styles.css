@@ -536,6 +536,28 @@ body {
   color: var(--text-6);
 }
 
+.home-drop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent-softer);
+  backdrop-filter: blur(2px);
+  pointer-events: none;
+}
+
+.home-drop-card {
+  padding: 20px 32px;
+  border-radius: 14px;
+  border: 2px dashed var(--accent-outline);
+  background: var(--panel-solid);
+  color: var(--accent);
+  font-size: 15px;
+  font-weight: 600;
+}
+
 .install-hint {
   max-width: 880px;
   margin: -16px auto 24px;
