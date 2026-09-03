@@ -162,7 +162,10 @@ const PEN_SEEN_KEY = "vas.penSeen";
 const WHEEL_ZOOM_SETTLE_MS = 150;
 const PAGE_TURN_MS = 280;
 const WHEEL_PAGE_THRESHOLD = 120;
+const WHEEL_NOTCH_PX = 100;
+const WHEEL_STREAM_MS = 40;
 const WHEEL_ACCUM_RESET_MS = 250;
+const MAX_QUEUED_TURNS = 8;
 const SWIPE_PAGE_THRESHOLD = 80;
 const HANDLE_SIZE = 10;
 const HANDLE_HIT_RADIUS = 12;
@@ -213,6 +216,9 @@ export class Board {
   private pageTurn: { from: Viewport; to: Viewport; fromPage: number; start: number } | null = null;
   private wheelAccum = 0;
   private wheelAccumTimer: number | undefined;
+  private pendingTurns = 0;
+  private touchpadFlipped = false;
+  private lastWheelAt = 0;
   private swipeStartY = 0;
   private swipeUsed = false;
   private rafId = 0;
@@ -278,6 +284,7 @@ export class Board {
     }
     if (this.presenting) {
       this.pageTurn = null;
+      this.pendingTurns = 0;
       this.lockPresentation();
     } else {
       const board = boardWidth(next);
@@ -369,6 +376,7 @@ export class Board {
   scrollToPage(index: number): void {
     if (this.presenting) {
       this.pageTurn = null;
+      this.pendingTurns = 0;
       this.presentationPage = Math.min(Math.max(0, index), Math.max(0, this.pages.length - 1));
       this.lockPresentation();
       this.scheduleComposite();
@@ -435,6 +443,7 @@ export class Board {
     if (this.presenting === on) return;
     this.presenting = on;
     this.pageTurn = null;
+    this.pendingTurns = 0;
     this.wheelAccum = 0;
     this.panPointerId = null;
     this.lasso = null;
@@ -493,6 +502,28 @@ export class Board {
     this.scheduleComposite();
   }
 
+  // Deliberate flips are never swallowed by a running animation: they queue and
+  // apply when it settles, so one wheel notch always lands as one page turn.
+  private requestTurn(delta: number): void {
+    if (!this.pageTurn) {
+      this.turnPage(delta);
+      return;
+    }
+    this.pendingTurns = Math.max(
+      -MAX_QUEUED_TURNS,
+      Math.min(MAX_QUEUED_TURNS, this.pendingTurns + delta),
+    );
+  }
+
+  private settlePageTurn(): void {
+    this.pageTurn = null;
+    if (this.pendingTurns === 0) return;
+    const delta = this.pendingTurns > 0 ? 1 : -1;
+    this.pendingTurns -= delta;
+    this.turnPage(delta);
+    if (!this.pageTurn) this.pendingTurns = 0;
+  }
+
   private handleKeyDown = (event: KeyboardEvent): void => {
     if (!this.presenting) return;
     const target = event.target;
@@ -504,10 +535,10 @@ export class Board {
     }
     if (["ArrowDown", "ArrowRight", "PageDown", " "].includes(event.key)) {
       event.preventDefault();
-      this.turnPage(1);
+      this.requestTurn(1);
     } else if (["ArrowUp", "ArrowLeft", "PageUp"].includes(event.key)) {
       event.preventDefault();
-      this.turnPage(-1);
+      this.requestTurn(-1);
     }
   };
 
@@ -528,6 +559,7 @@ export class Board {
     const dpr = window.devicePixelRatio || 1;
     this.lastDpr = dpr;
     this.pageTurn = null;
+    this.pendingTurns = 0;
     this.screen = { width: this.container.clientWidth, height: this.container.clientHeight };
     for (const canvas of [this.baseCanvas, this.activeCanvas]) {
       canvas.width = Math.round(this.screen.width * dpr);
@@ -570,7 +602,7 @@ export class Board {
         y: from.y + (to.y - from.y) * k,
         scale: from.scale + (to.scale - from.scale) * k,
       };
-      if (t >= 1) this.pageTurn = null;
+      if (t >= 1) this.settlePageTurn();
       else this.scheduleComposite();
     }
     const vp = this.viewport;
@@ -1386,15 +1418,31 @@ export class Board {
     event.preventDefault();
     const unit = event.deltaMode === 2 ? this.screen.height : event.deltaMode === 1 ? 16 : 1;
     if (this.presenting) {
-      this.wheelAccum += event.deltaY * unit;
+      const delta = event.deltaY * unit;
+      if (delta === 0) return;
+      const now = performance.now();
+      const inStream = now - this.lastWheelAt < WHEEL_STREAM_MS;
+      this.lastWheelAt = now;
+      // A mouse notch arrives as a big discrete delta (or line/page units); a
+      // trackpad flick is a fast stream of small decaying ones.
+      const discrete = event.deltaMode !== 0 || (!inStream && Math.abs(delta) >= WHEEL_NOTCH_PX);
       window.clearTimeout(this.wheelAccumTimer);
       this.wheelAccumTimer = window.setTimeout(() => {
         this.wheelAccum = 0;
+        this.touchpadFlipped = false;
       }, WHEEL_ACCUM_RESET_MS);
-      if (!this.pageTurn && Math.abs(this.wheelAccum) >= WHEEL_PAGE_THRESHOLD) {
-        const delta = this.wheelAccum > 0 ? 1 : -1;
+      if (discrete) {
         this.wheelAccum = 0;
-        this.turnPage(delta);
+        this.touchpadFlipped = false;
+        this.requestTurn(delta > 0 ? 1 : -1);
+        return;
+      }
+      if (this.touchpadFlipped) return;
+      this.wheelAccum += delta;
+      if (Math.abs(this.wheelAccum) >= WHEEL_PAGE_THRESHOLD) {
+        this.wheelAccum = 0;
+        this.touchpadFlipped = true;
+        this.requestTurn(delta > 0 ? 1 : -1);
       }
       return;
     }
@@ -1437,7 +1485,7 @@ export class Board {
     const dy = midY - this.swipeStartY;
     if (Math.abs(dy) < SWIPE_PAGE_THRESHOLD) return;
     this.swipeUsed = true;
-    this.turnPage(dy < 0 ? 1 : -1);
+    this.requestTurn(dy < 0 ? 1 : -1);
   }
 
   private applyPinch(pointerId: number, prev: TrackedPointer, pos: Point): void {
