@@ -47,6 +47,8 @@ export const PAPER_COLORS = [
 ] as const;
 export const SIZES = [1.5, 2.5, 4.5] as const;
 
+const MAX_HISTORY = 200;
+
 export type Edit =
   | { kind: "add-stroke"; pageId: string; stroke: Stroke }
   | { kind: "remove-stroke"; pageId: string; index: number; stroke: Stroke }
@@ -413,6 +415,16 @@ function selectedElements(state: BoardState): ElementEntries | null {
   return { pageId: page.id, strokes, images, texts, audios };
 }
 
+function pushHistory(past: Edit[], edit: Edit): Edit[] {
+  const next = [...past, edit];
+  return next.length > MAX_HISTORY ? next.slice(-MAX_HISTORY) : next;
+}
+
+function finalizeTextEditing(): void {
+  const state = useBoardStore.getState();
+  if (state.editingText) state.setEditingText(null);
+}
+
 export const useBoardStore = create<BoardState>()((set) => ({
   notebookId: null,
   notebookTitle: "",
@@ -477,7 +489,7 @@ export const useBoardStore = create<BoardState>()((set) => ({
       const pages = withContinuationPage(withStroke(state.pages, pageId, stroke), pageId);
       return {
         pages,
-        past: [...state.past, { kind: "add-stroke", pageId, stroke }],
+        past: pushHistory(state.past, { kind: "add-stroke", pageId, stroke }),
         future: [],
       };
     }),
@@ -489,10 +501,12 @@ export const useBoardStore = create<BoardState>()((set) => ({
       if (index < 0) return state;
       return {
         pages: withoutStroke(state.pages, pageId, strokeId),
-        past: [
-          ...state.past,
-          { kind: "remove-stroke", pageId, index, stroke: page.strokes[index] },
-        ],
+        past: pushHistory(state.past, {
+          kind: "remove-stroke",
+          pageId,
+          index,
+          stroke: page.strokes[index],
+        }),
         future: [],
       };
     }),
@@ -547,19 +561,19 @@ export const useBoardStore = create<BoardState>()((set) => ({
             ? { ...p, strokes: [], images: p.images.filter((i) => i.locked), texts: [], audios: [] }
             : p,
         ),
-        past: [
-          ...state.past,
-          {
-            kind: "clear-page",
-            pageId,
-            strokes: page.strokes,
-            images: page.images,
-            texts: page.texts,
-            audios: page.audios,
-          },
-        ],
+        past: pushHistory(state.past, {
+          kind: "clear-page",
+          pageId,
+          strokes: page.strokes,
+          images: page.images,
+          texts: page.texts,
+          audios: page.audios,
+        }),
         future: [],
         ...(state.selection?.pageId === pageId ? { selection: null, selectionAnchor: null } : {}),
+        ...(state.editingText?.pageId === pageId
+          ? { editingText: null, textEditOrigin: null }
+          : {}),
       };
     }),
   clearPendingScroll: () => set({ pendingScrollToPage: null }),
@@ -579,15 +593,13 @@ export const useBoardStore = create<BoardState>()((set) => ({
       if (!edit) return state;
       return {
         pages: applyEdit(state.pages, edit, "do"),
-        past: [...state.past, edit],
+        past: pushHistory(state.past, edit),
         future: state.future.slice(0, -1),
       };
     }),
   setViewPageIndex: (index) => set({ viewPageIndex: index }),
   setTool: (tool) => {
-    if (tool !== "text" && useBoardStore.getState().editingText) {
-      useBoardStore.getState().setEditingText(null);
-    }
+    if (tool !== "text") finalizeTextEditing();
     set((state) => ({
       tool,
       lastPenKind: tool === "pen" || tool === "highlighter" ? tool : state.lastPenKind,
@@ -617,17 +629,14 @@ export const useBoardStore = create<BoardState>()((set) => ({
     if (!origin) return;
     if (!origin.markdown.trim()) {
       set((s) => ({
-        past: [
-          ...s.past,
-          {
-            kind: "add-elements",
-            pageId: page.id,
-            strokes: [],
-            images: [],
-            texts: [item],
-            audios: [],
-          },
-        ],
+        past: pushHistory(s.past, {
+          kind: "add-elements",
+          pageId: page.id,
+          strokes: [],
+          images: [],
+          texts: [item],
+          audios: [],
+        }),
         future: [],
       }));
       return;
@@ -664,21 +673,18 @@ export const useBoardStore = create<BoardState>()((set) => ({
             ? { ...p, images: p.images.map((image) => (image.id === itemId ? after : image)) }
             : p,
         ),
-        past: [
-          ...state.past,
-          {
-            kind: "replace-elements",
-            pageId,
-            strokesBefore: [],
-            strokesAfter: [],
-            imagesBefore: [before],
-            imagesAfter: [after],
-            textsBefore: [],
-            textsAfter: [],
-            audiosBefore: [],
-            audiosAfter: [],
-          },
-        ],
+        past: pushHistory(state.past, {
+          kind: "replace-elements",
+          pageId,
+          strokesBefore: [],
+          strokesAfter: [],
+          imagesBefore: [before],
+          imagesAfter: [after],
+          textsBefore: [],
+          textsAfter: [],
+          audiosBefore: [],
+          audiosAfter: [],
+        }),
         future: [],
       };
     }),
@@ -705,7 +711,8 @@ export const useBoardStore = create<BoardState>()((set) => ({
     });
     return item.id;
   },
-  insertTextItem: (item) =>
+  insertTextItem: (item) => {
+    finalizeTextEditing();
     set((state) => {
       const page = state.pages[state.viewPageIndex] ?? state.pages[0];
       if (!page) return state;
@@ -715,17 +722,14 @@ export const useBoardStore = create<BoardState>()((set) => ({
       );
       return {
         pages,
-        past: [
-          ...state.past,
-          {
-            kind: "add-elements",
-            pageId: page.id,
-            strokes: [],
-            images: [],
-            texts: [item],
-            audios: [],
-          },
-        ],
+        past: pushHistory(state.past, {
+          kind: "add-elements",
+          pageId: page.id,
+          strokes: [],
+          images: [],
+          texts: [item],
+          audios: [],
+        }),
         future: [],
         selection: {
           pageId: page.id,
@@ -736,7 +740,8 @@ export const useBoardStore = create<BoardState>()((set) => ({
         },
         tool: "select",
       };
-    }),
+    });
+  },
   updateTextItem: (pageId, itemId, patch) =>
     set((state) => ({
       pages: state.pages.map((p) =>
@@ -755,21 +760,18 @@ export const useBoardStore = create<BoardState>()((set) => ({
     set((state) => {
       if (!state.pages.some((p) => p.id === pageId)) return state;
       return {
-        past: [
-          ...state.past,
-          {
-            kind: "replace-elements",
-            pageId,
-            strokesBefore: [],
-            strokesAfter: [],
-            imagesBefore: [],
-            imagesAfter: [],
-            textsBefore: [before],
-            textsAfter: [after],
-            audiosBefore: [],
-            audiosAfter: [],
-          },
-        ],
+        past: pushHistory(state.past, {
+          kind: "replace-elements",
+          pageId,
+          strokesBefore: [],
+          strokesAfter: [],
+          imagesBefore: [],
+          imagesAfter: [],
+          textsBefore: [before],
+          textsAfter: [after],
+          audiosBefore: [],
+          audiosAfter: [],
+        }),
         future: [],
       };
     }),
@@ -874,21 +876,18 @@ export const useBoardStore = create<BoardState>()((set) => ({
               }
             : p,
         ),
-        past: [
-          ...state.past,
-          {
-            kind: "replace-elements",
-            pageId: selection.pageId,
-            strokesBefore: before.strokes,
-            strokesAfter: after.strokes,
-            imagesBefore: before.images,
-            imagesAfter: after.images,
-            textsBefore: before.texts,
-            textsAfter: after.texts,
-            audiosBefore: before.audios,
-            audiosAfter: after.audios,
-          },
-        ],
+        past: pushHistory(state.past, {
+          kind: "replace-elements",
+          pageId: selection.pageId,
+          strokesBefore: before.strokes,
+          strokesAfter: after.strokes,
+          imagesBefore: before.images,
+          imagesAfter: after.images,
+          textsBefore: before.texts,
+          textsAfter: after.texts,
+          audiosBefore: before.audios,
+          audiosAfter: after.audios,
+        }),
         future: [],
       };
     }),
@@ -927,21 +926,18 @@ export const useBoardStore = create<BoardState>()((set) => ({
               }
             : p,
         ),
-        past: [
-          ...state.past,
-          {
-            kind: "replace-elements",
-            pageId: selected.pageId,
-            strokesBefore,
-            strokesAfter,
-            imagesBefore,
-            imagesAfter,
-            textsBefore,
-            textsAfter,
-            audiosBefore,
-            audiosAfter,
-          },
-        ],
+        past: pushHistory(state.past, {
+          kind: "replace-elements",
+          pageId: selected.pageId,
+          strokesBefore,
+          strokesAfter,
+          imagesBefore,
+          imagesAfter,
+          textsBefore,
+          textsAfter,
+          audiosBefore,
+          audiosAfter,
+        }),
         future: [],
       };
     }),
@@ -971,21 +967,18 @@ export const useBoardStore = create<BoardState>()((set) => ({
               }
             : p,
         ),
-        past: [
-          ...state.past,
-          {
-            kind: "replace-elements",
-            pageId: selected.pageId,
-            strokesBefore,
-            strokesAfter,
-            imagesBefore: [],
-            imagesAfter: [],
-            textsBefore,
-            textsAfter,
-            audiosBefore: [],
-            audiosAfter: [],
-          },
-        ],
+        past: pushHistory(state.past, {
+          kind: "replace-elements",
+          pageId: selected.pageId,
+          strokesBefore,
+          strokesAfter,
+          imagesBefore: [],
+          imagesAfter: [],
+          textsBefore,
+          textsAfter,
+          audiosBefore: [],
+          audiosAfter: [],
+        }),
         future: [],
       };
     }),
@@ -1002,17 +995,14 @@ export const useBoardStore = create<BoardState>()((set) => ({
           new Set(selected.texts.map((e) => e.text.id)),
           new Set(selected.audios.map((e) => e.audio.id)),
         ),
-        past: [
-          ...state.past,
-          {
-            kind: "remove-elements",
-            pageId: selected.pageId,
-            strokes: selected.strokes,
-            images: selected.images,
-            texts: selected.texts,
-            audios: selected.audios,
-          },
-        ],
+        past: pushHistory(state.past, {
+          kind: "remove-elements",
+          pageId: selected.pageId,
+          strokes: selected.strokes,
+          images: selected.images,
+          texts: selected.texts,
+          audios: selected.audios,
+        }),
         future: [],
         selection: null,
         selectionAnchor: null,
@@ -1050,24 +1040,22 @@ export const useBoardStore = create<BoardState>()((set) => ({
         new Set(selected.texts.map((e) => e.text.id)),
         new Set(selected.audios.map((e) => e.audio.id)),
       ),
-      past: [
-        ...state.past,
-        {
-          kind: "remove-elements",
-          pageId: selected.pageId,
-          strokes: selected.strokes,
-          images: selected.images,
-          texts: selected.texts,
-          audios: selected.audios,
-        },
-      ],
+      past: pushHistory(state.past, {
+        kind: "remove-elements",
+        pageId: selected.pageId,
+        strokes: selected.strokes,
+        images: selected.images,
+        texts: selected.texts,
+        audios: selected.audios,
+      }),
       future: [],
       selection: null,
       selectionAnchor: null,
     });
     writeSystemClipboard(clipboard);
   },
-  pasteClipboard: (content) =>
+  pasteClipboard: (content) => {
+    finalizeTextEditing();
     set((state) => {
       const clip = content ?? state.clipboard;
       if (
@@ -1128,17 +1116,14 @@ export const useBoardStore = create<BoardState>()((set) => ({
       );
       return {
         pages,
-        past: [
-          ...state.past,
-          {
-            kind: "add-elements",
-            pageId: page.id,
-            strokes: placedStrokes,
-            images: placedImages,
-            texts: placedTexts,
-            audios: placedAudios,
-          },
-        ],
+        past: pushHistory(state.past, {
+          kind: "add-elements",
+          pageId: page.id,
+          strokes: placedStrokes,
+          images: placedImages,
+          texts: placedTexts,
+          audios: placedAudios,
+        }),
         future: [],
         selection: {
           pageId: page.id,
@@ -1149,8 +1134,10 @@ export const useBoardStore = create<BoardState>()((set) => ({
         },
         tool: "select",
       };
-    }),
-  insertImage: (imageId, naturalWidth, naturalHeight, extra) =>
+    });
+  },
+  insertImage: (imageId, naturalWidth, naturalHeight, extra) => {
+    finalizeTextEditing();
     set((state) => {
       const page = state.pages[state.viewPageIndex] ?? state.pages[0];
       if (!page) return state;
@@ -1164,17 +1151,14 @@ export const useBoardStore = create<BoardState>()((set) => ({
       );
       return {
         pages,
-        past: [
-          ...state.past,
-          {
-            kind: "add-elements",
-            pageId: page.id,
-            strokes: [],
-            images: [image],
-            texts: [],
-            audios: [],
-          },
-        ],
+        past: pushHistory(state.past, {
+          kind: "add-elements",
+          pageId: page.id,
+          strokes: [],
+          images: [image],
+          texts: [],
+          audios: [],
+        }),
         future: [],
         selection: {
           pageId: page.id,
@@ -1185,8 +1169,10 @@ export const useBoardStore = create<BoardState>()((set) => ({
         },
         tool: "select",
       };
-    }),
-  insertAudio: (audioId) =>
+    });
+  },
+  insertAudio: (audioId) => {
+    finalizeTextEditing();
     set((state) => {
       const page = state.pages[state.viewPageIndex] ?? state.pages[0];
       if (!page) return state;
@@ -1197,17 +1183,14 @@ export const useBoardStore = create<BoardState>()((set) => ({
       );
       return {
         pages,
-        past: [
-          ...state.past,
-          {
-            kind: "add-elements",
-            pageId: page.id,
-            strokes: [],
-            images: [],
-            texts: [],
-            audios: [audio],
-          },
-        ],
+        past: pushHistory(state.past, {
+          kind: "add-elements",
+          pageId: page.id,
+          strokes: [],
+          images: [],
+          texts: [],
+          audios: [audio],
+        }),
         future: [],
         selection: {
           pageId: page.id,
@@ -1218,7 +1201,8 @@ export const useBoardStore = create<BoardState>()((set) => ({
         },
         tool: "select",
       };
-    }),
+    });
+  },
   insertPdfPages: (pdfPages, pdfSource) =>
     set((state) => {
       if (pdfPages.length === 0) return state;

@@ -783,8 +783,8 @@ export class Board {
     const vp = this.presenting ? this.browseViewport() : this.viewport;
     const last = this.lastReportedView;
     if (last && last.x === vp.x && last.y === vp.y && last.scale === vp.scale) return;
-    this.lastReportedView = { x: vp.x, y: vp.y, scale: vp.scale };
     if (this.screen.width === 0) return;
+    this.lastReportedView = { x: vp.x, y: vp.y, scale: vp.scale };
     this.callbacks.onViewportChange({
       x: vp.x,
       y: vp.y,
@@ -1252,7 +1252,7 @@ export class Board {
   }
 
   private handlePointerDown = (event: PointerEvent): void => {
-    if (event.button === 2) return;
+    if (event.pointerType !== "touch" && event.button !== 0) return;
     if (this.callbacks.getTool().exporting) return;
     this.activeCanvas.setPointerCapture(event.pointerId);
     const pos = this.eventPos(event);

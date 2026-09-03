@@ -115,6 +115,24 @@ describe("board store", () => {
     expect(useBoardStore.getState().pages[0].strokes).toHaveLength(0);
   });
 
+  it("history is capped at 200 entries, keeping the newest", () => {
+    const pageId = useBoardStore.getState().pages[0].id;
+    for (let i = 1; i <= 210; i++) {
+      useBoardStore.getState().addStroke(pageId, sampleStroke(`s${i}`));
+    }
+    expect(useBoardStore.getState().past).toHaveLength(200);
+    expect(useBoardStore.getState().pages[0].strokes).toHaveLength(210);
+    for (let i = 0; i < 200; i++) useBoardStore.getState().undo();
+    const after = useBoardStore.getState();
+    expect(after.past).toHaveLength(0);
+    expect(after.future).toHaveLength(200);
+    expect(after.pages[0].strokes.map((s) => s.id)).toEqual(
+      Array.from({ length: 10 }, (_, i) => `s${i + 1}`),
+    );
+    useBoardStore.getState().redo();
+    expect(useBoardStore.getState().pages[0].strokes).toHaveLength(11);
+  });
+
   it("setPaperColor recolors only the current page", () => {
     useBoardStore.getState().addPage();
     useBoardStore.getState().setPaperColor("#003423");

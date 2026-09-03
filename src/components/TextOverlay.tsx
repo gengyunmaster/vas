@@ -126,19 +126,34 @@ export function TextOverlay() {
           loaded.push([id, url] as const);
         }
       }
-      if (cancelled) return;
+      if (cancelled) {
+        for (const [, url] of loaded) {
+          URL.revokeObjectURL(url);
+          allUrls.current.delete(url);
+        }
+        return;
+      }
       setImageUrls((prev) => {
         const next = new Map(prev);
+        let changed = false;
         for (const [id, url] of prev) {
           if (!wanted.has(id)) {
             URL.revokeObjectURL(url);
+            allUrls.current.delete(url);
             next.delete(id);
+            changed = true;
           }
         }
         for (const [id, url] of loaded) {
-          if (wanted.has(id) && !next.has(id)) next.set(id, url);
+          if (wanted.has(id) && !next.has(id)) {
+            next.set(id, url);
+            changed = true;
+          } else {
+            URL.revokeObjectURL(url);
+            allUrls.current.delete(url);
+          }
         }
-        return next;
+        return changed ? next : prev;
       });
     })();
     return () => {

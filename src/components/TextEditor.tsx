@@ -1,5 +1,4 @@
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
-import { newId } from "../model/stroke";
 import {
   MAX_TEXT_MARKDOWN_LENGTH,
   MIN_TEXT_WIDTH,
@@ -7,6 +6,7 @@ import {
   TEXT_PAGE_MARGIN,
   type TextItem,
 } from "../model/textItem";
+import { hashBlob } from "../persistence/hash";
 import { getImage, saveImage } from "../persistence/images";
 import { toast } from "../store/toasts";
 import { COLORS, useBoardStore } from "../store/useBoardStore";
@@ -108,7 +108,7 @@ export function TextEditor() {
     let cancelled = false;
     void Promise.all(
       missing.map(async (id) => {
-        const record = await getImage(id);
+        const record = await getImage(id).catch(() => undefined);
         return record ? ([id, URL.createObjectURL(record.blob)] as const) : null;
       }),
     ).then((loaded) => {
@@ -133,12 +133,12 @@ export function TextEditor() {
 
   const { updateTextItem, setEditingText, setTextFontSize } = useBoardStore.getState();
 
-  const insertImageRef = (imageId: string, alt: string) => {
+  const insertImageRef = (target: TextItem, imageId: string, alt: string) => {
     const textarea = textareaRef.current;
     const snippet = `![${alt}](image:${imageId})`;
-    const start = textarea?.selectionStart ?? item.markdown.length;
+    const start = textarea?.selectionStart ?? target.markdown.length;
     const end = textarea?.selectionEnd ?? start;
-    const next = `${item.markdown.slice(0, start)}${snippet}${item.markdown.slice(end)}`;
+    const next = `${target.markdown.slice(0, start)}${snippet}${target.markdown.slice(end)}`;
     if (next.length > MAX_TEXT_MARKDOWN_LENGTH) return;
     tryPatch({ markdown: next });
     setPickerOpen(false);
@@ -151,13 +151,25 @@ export function TextEditor() {
 
   const onUpload = (file: File) => {
     if (!file.type.startsWith("image/")) return;
-    const imageId = newId();
-    void saveImage({ id: imageId, mimeType: file.type || "application/octet-stream", blob: file })
-      .then(() => insertImageRef(imageId, file.name.replace(/\.[^.]*$/, "") || "image"))
-      .catch((error: unknown) => {
-        console.error("Failed to attach image", error);
-        toast("Failed to attach image.");
+    const pageId = page.id;
+    const itemId = item.id;
+    void (async () => {
+      const imageId = await hashBlob(file);
+      await saveImage({
+        id: imageId,
+        mimeType: file.type || "application/octet-stream",
+        blob: file,
       });
+      const state = useBoardStore.getState();
+      const editing = state.editingText;
+      if (!editing || editing.pageId !== pageId || editing.itemId !== itemId) return;
+      const current = state.pages.find((p) => p.id === pageId)?.texts.find((t) => t.id === itemId);
+      if (!current) return;
+      insertImageRef(current, imageId, file.name.replace(/\.[^.]*$/, "") || "image");
+    })().catch((error: unknown) => {
+      console.error("Failed to attach image", error);
+      toast("Failed to attach image.");
+    });
   };
 
   const maxWidth = Math.max(MIN_TEXT_WIDTH, page.width - item.x - TEXT_PAGE_MARGIN);
@@ -252,7 +264,7 @@ export function TextEditor() {
                 key={id}
                 type="button"
                 className="text-editor-thumb"
-                onClick={() => insertImageRef(id, "image")}
+                onClick={() => insertImageRef(item, id, "image")}
               >
                 <img src={url} alt="notebook attachment" />
               </button>
