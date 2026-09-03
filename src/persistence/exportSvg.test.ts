@@ -39,6 +39,7 @@ function makePage(overrides: Partial<Page> = {}): Page {
     strokes: [],
     images: [],
     texts: [],
+    audios: [],
     ...overrides,
   };
 }

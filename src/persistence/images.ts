@@ -1,16 +1,30 @@
 import { textImageRefs } from "../model/textItem";
 import { useBoardStore } from "../store/useBoardStore";
 import { db, type ImageRecord } from "./db";
+import { sweepUnreferenced } from "./gc";
 
-export async function saveImage(record: ImageRecord): Promise<void> {
-  await (await db()).put("images", record);
+// Content-addressable records (see hash.ts): an existing id already holds the
+// same bytes, so writes skip it and callers learn which ids they created —
+// rollback paths must only delete records they created, never pre-existing
+// ones shared with other notebooks.
+export async function saveImage(record: ImageRecord): Promise<boolean> {
+  const created = await saveImages([record]);
+  return created.length > 0;
 }
 
-export async function saveImages(records: ImageRecord[]): Promise<void> {
-  if (records.length === 0) return;
+export async function saveImages(records: ImageRecord[]): Promise<string[]> {
+  if (records.length === 0) return [];
   const tx = (await db()).transaction("images", "readwrite");
-  for (const record of records) await tx.store.put(record);
+  const existing = new Set(await tx.store.getAllKeys());
+  const created: string[] = [];
+  for (const record of records) {
+    if (existing.has(record.id)) continue;
+    await tx.store.put(record);
+    existing.add(record.id);
+    created.push(record.id);
+  }
   await tx.done;
+  return created;
 }
 
 export async function getImage(id: string): Promise<ImageRecord | undefined> {
@@ -54,10 +68,5 @@ export async function gcUnreferencedImages(): Promise<void> {
     for (const id of textImageRefs(text.markdown)) keep.add(id);
   }
   for (const id of retained) keep.add(id);
-  const tx = database.transaction("images", "readwrite");
-  const keys = await tx.store.getAllKeys();
-  for (const key of keys) {
-    if (!keep.has(key)) await tx.store.delete(key);
-  }
-  await tx.done;
+  await sweepUnreferenced("images", keep);
 }

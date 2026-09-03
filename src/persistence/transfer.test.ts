@@ -5,11 +5,14 @@ import {
   buildNotebookZip,
   geometryEntryPath,
   imageEntryPath,
+  mediaEntryPath,
   NOTEBOOK_JSON_ENTRY,
   parseNotebookFile,
   pdfEntryPath,
+  remapPageAssetIds,
   resolveGeometryEntries,
   resolveImageEntries,
+  resolveMediaEntries,
   resolvePdfEntries,
   sanitizeFileName,
   serializeNotebook,
@@ -24,6 +27,7 @@ function samplePage(): Page {
     pattern: "grid",
     images: [],
     texts: [],
+    audios: [],
     strokes: [
       {
         id: "stroke-1",
@@ -321,6 +325,30 @@ describe("notebook pdf sources", () => {
     expect(() => parseNotebookFile(text)).toThrow("Invalid pdf source page index");
   });
 
+  it("round-trips the white background choice", () => {
+    const page: Page = {
+      ...samplePage(),
+      pdfSource: { docId: "pdf-1", pageIndex: 2, whiteBackground: false },
+    };
+    const text = serializeNotebook("Transparent pdf", [page], [], undefined, [{ docId: "pdf-1" }]);
+    const parsed = parseNotebookFile(text);
+    expect(parsed.pages[0].pdfSource).toEqual({
+      docId: parsed.pdfs[0].docId,
+      pageIndex: 2,
+      whiteBackground: false,
+    });
+  });
+
+  it("rejects a non-boolean pdf source background flag", () => {
+    const text = JSON.stringify({
+      format: "vas-notebook",
+      version: 3,
+      pdfs: [{ docId: "pdf-1" }],
+      pages: [{ strokes: [], pdfSource: { docId: "pdf-1", pageIndex: 0, whiteBackground: "y" } }],
+    });
+    expect(() => parseNotebookFile(text)).toThrow("Invalid pdf source background flag");
+  });
+
   it("resolves pdf bytes from the zip archive", () => {
     const json = serializeNotebook("Zip", [sourcedPage()], [], undefined, [{ docId: "pdf-1" }]);
     const zip = buildNotebookZip(json, [
@@ -605,6 +633,134 @@ describe("notebook text items", () => {
   });
 });
 
+describe("notebook media", () => {
+  function mediaPage(): Page {
+    return {
+      ...samplePage(),
+      images: [
+        {
+          id: "item-1",
+          imageId: "blob-1",
+          x: 40,
+          y: 40,
+          width: 320,
+          height: 180,
+          videoId: "vid-1",
+        },
+      ],
+      audios: [{ id: "audio-1", audioId: "aud-1", x: 40, y: 300, width: 240, height: 44 }],
+    };
+  }
+
+  const mediaImages = [{ imageId: "blob-1", mimeType: "image/png" }];
+  const mediaManifest = [
+    { mediaId: "vid-1", kind: "video" as const, mimeType: "video/webm" },
+    { mediaId: "aud-1", kind: "audio" as const, mimeType: "audio/webm" },
+  ];
+
+  function serializeMedia(): string {
+    return serializeNotebook("Media", [mediaPage()], mediaImages, undefined, [], [], mediaManifest);
+  }
+
+  it("round-trips video and audio items and remaps the media ids", () => {
+    const parsed = parseNotebookFile(serializeMedia());
+    expect(parsed.media).toHaveLength(2);
+    const video = parsed.media.find((e) => e.kind === "video");
+    const audio = parsed.media.find((e) => e.kind === "audio");
+    expect(video?.sourceId).toBe("vid-1");
+    expect(audio?.sourceId).toBe("aud-1");
+    expect(video?.mediaId).not.toBe("vid-1");
+    const item = parsed.pages[0].images[0];
+    expect(item.videoId).toBe(video?.mediaId);
+    expect(item.imageId).toBe(parsed.images[0].imageId);
+    const badge = parsed.pages[0].audios[0];
+    expect(badge.id).not.toBe("audio-1");
+    expect(badge.audioId).toBe(audio?.mediaId);
+    expect(badge).toMatchObject({ x: 40, y: 300, width: 240, height: 44 });
+  });
+
+  it("omits the media manifest when nothing references media", () => {
+    const text = serializeNotebook("Plain", [samplePage()]);
+    expect(parseNotebookFile(text).media).toEqual([]);
+    expect(text).not.toContain("media");
+  });
+
+  it("reads v5 files without audios as empty audio lists", () => {
+    const text = JSON.stringify({
+      format: "vas-notebook",
+      version: 5,
+      pages: [{ strokes: [] }],
+    });
+    const parsed = parseNotebookFile(text);
+    expect(parsed.pages[0].audios).toEqual([]);
+    expect(parsed.media).toEqual([]);
+  });
+
+  it("rejects a page referencing media missing from the manifest", () => {
+    const audioRef = JSON.stringify({
+      format: "vas-notebook",
+      version: 6,
+      pages: [{ strokes: [], audios: [{ audioId: "ghost", x: 0, y: 0, width: 240, height: 44 }] }],
+    });
+    expect(() => parseNotebookFile(audioRef)).toThrow("unknown media");
+    const videoRef = JSON.stringify({
+      format: "vas-notebook",
+      version: 6,
+      images: [{ imageId: "blob-1", mimeType: "image/png" }],
+      pages: [
+        {
+          strokes: [],
+          images: [{ imageId: "blob-1", x: 0, y: 0, width: 10, height: 10, videoId: "ghost" }],
+        },
+      ],
+    });
+    expect(() => parseNotebookFile(videoRef)).toThrow("unknown media");
+  });
+
+  it("rejects invalid media manifest entries and audio geometry", () => {
+    const badKind = JSON.stringify({
+      format: "vas-notebook",
+      version: 6,
+      media: [
+        { mediaId: "m1", kind: "video", mimeType: "video/webm" },
+        { mediaId: "m2", kind: "midi", mimeType: "audio/midi" },
+      ],
+      pages: [{ strokes: [] }],
+    });
+    expect(() => parseNotebookFile(badKind)).toThrow("Invalid media kind");
+    const badRect = JSON.stringify({
+      format: "vas-notebook",
+      version: 6,
+      media: [{ mediaId: "m1", kind: "audio", mimeType: "audio/webm" }],
+      pages: [{ strokes: [], audios: [{ audioId: "m1", x: 0, y: 0, width: 0, height: 44 }] }],
+    });
+    expect(() => parseNotebookFile(badRect)).toThrow("Invalid audio width");
+  });
+
+  it("resolves media bytes from the zip archive", () => {
+    const zip = buildNotebookZip(serializeMedia(), [
+      { path: imageEntryPath("blob-1", "image/png"), data: new Uint8Array([1]) },
+      { path: mediaEntryPath("vid-1", "video/webm"), data: new Uint8Array([5, 6, 7]) },
+      { path: mediaEntryPath("aud-1", "audio/webm"), data: new Uint8Array([8, 9]) },
+    ]);
+    const entries = unzipSync(zip);
+    const parsed = parseNotebookFile(strFromU8(entries[NOTEBOOK_JSON_ENTRY]));
+    const resolved = resolveMediaEntries(entries, parsed.media);
+    expect([...resolved[0]]).toEqual([5, 6, 7]);
+    expect([...resolved[1]]).toEqual([8, 9]);
+  });
+
+  it("resolveMediaEntries throws when a media file is missing", () => {
+    const entries = unzipSync(
+      buildNotebookZip(serializeMedia(), [
+        { path: imageEntryPath("blob-1", "image/png"), data: new Uint8Array([1]) },
+      ]),
+    );
+    const parsed = parseNotebookFile(strFromU8(entries[NOTEBOOK_JSON_ENTRY]));
+    expect(() => resolveMediaEntries(entries, parsed.media)).toThrow("Missing media data");
+  });
+});
+
 describe("sanitizeFileName", () => {
   it("replaces characters that are unsafe in file names", () => {
     expect(sanitizeFileName('a/b\\c:d*e?f"g<h>i|j')).toBe("a_b_c_d_e_f_g_h_i_j");
@@ -612,5 +768,92 @@ describe("sanitizeFileName", () => {
 
   it("keeps safe names untouched", () => {
     expect(sanitizeFileName("My notes-page-1.png")).toBe("My notes-page-1.png");
+  });
+});
+
+describe("remapPageAssetIds", () => {
+  it("remaps image, video, audio, pdf and text references", () => {
+    const page: Page = {
+      id: "p1",
+      width: 794,
+      height: 1123,
+      paperColor: "#ffffff",
+      pattern: "blank",
+      strokes: [],
+      images: [
+        { id: "i1", imageId: "img-old", x: 0, y: 0, width: 10, height: 10 },
+        {
+          id: "i2",
+          imageId: "img-old-2",
+          x: 0,
+          y: 0,
+          width: 10,
+          height: 10,
+          videoId: "vid-old",
+        },
+        {
+          id: "i3",
+          imageId: "img-old-3",
+          x: 0,
+          y: 0,
+          width: 10,
+          height: 10,
+          pdfSource: { docId: "doc-old", pageIndex: 2 },
+        },
+      ],
+      texts: [
+        {
+          id: "t1",
+          x: 0,
+          y: 0,
+          width: 100,
+          fontSize: 20,
+          color: "#000000",
+          markdown: "see ![](image:img-old)",
+        },
+      ],
+      audios: [{ id: "a1", audioId: "aud-old", x: 0, y: 0, width: 10, height: 10 }],
+      pdfSource: { docId: "doc-old", pageIndex: 0 },
+    };
+    remapPageAssetIds([page], {
+      images: new Map([
+        ["img-old", "img-new"],
+        ["img-old-2", "img-new-2"],
+        ["img-old-3", "img-new-3"],
+      ]),
+      pdfs: new Map([["doc-old", "doc-new"]]),
+      media: new Map([
+        ["vid-old", "vid-new"],
+        ["aud-old", "aud-new"],
+      ]),
+    });
+    expect(page.images[0].imageId).toBe("img-new");
+    expect(page.images[1].videoId).toBe("vid-new");
+    expect(page.images[2].pdfSource?.docId).toBe("doc-new");
+    expect(page.images[2].pdfSource?.pageIndex).toBe(2);
+    expect(page.texts[0].markdown).toBe("see ![](image:img-new)");
+    expect(page.audios[0].audioId).toBe("aud-new");
+    expect(page.pdfSource?.docId).toBe("doc-new");
+    expect(page.pdfSource?.pageIndex).toBe(0);
+  });
+
+  it("keeps references without a mapping untouched", () => {
+    const page: Page = {
+      id: "p1",
+      width: 794,
+      height: 1123,
+      paperColor: "#ffffff",
+      pattern: "blank",
+      strokes: [],
+      images: [{ id: "i1", imageId: "img-old", x: 0, y: 0, width: 10, height: 10 }],
+      texts: [],
+      audios: [{ id: "a1", audioId: "aud-old", x: 0, y: 0, width: 10, height: 10 }],
+      pdfSource: { docId: "doc-old", pageIndex: 1, whiteBackground: true },
+    };
+    remapPageAssetIds([page], { images: new Map(), pdfs: new Map(), media: new Map() });
+    expect(page.images[0].imageId).toBe("img-old");
+    expect(page.audios[0].audioId).toBe("aud-old");
+    expect(page.pdfSource?.docId).toBe("doc-old");
+    expect(page.pdfSource?.whiteBackground).toBe(true);
   });
 });

@@ -2,6 +2,7 @@
 // the export layout engine. Nesting (quotes, list depth) is flattened into
 // flags so both consumers stay simple.
 import type { Token } from "markdown-it";
+import { COLOR_SPAN_OPEN, findClosingBrace } from "./mathColor";
 import { markdownIt } from "./md";
 
 export interface InlineStyle {
@@ -15,15 +16,22 @@ export interface InlineStyle {
 
 export type Inline =
   | { kind: "text"; text: string; style: InlineStyle }
-  | { kind: "math"; latex: string }
+  | { kind: "math"; latex: string; color?: string }
   | { kind: "image"; imageId: string; alt: string }
   | { kind: "break" };
+
+// A code block's text in colored pieces. Colorless segments may still be
+// syntax-highlighted later (highlight.ts); a set color is final ({#hex|...}).
+export interface CodeSegment {
+  text: string;
+  color?: string;
+}
 
 export type Block =
   | { kind: "paragraph"; quote: boolean; inlines: Inline[] }
   | { kind: "heading"; level: number; inlines: Inline[] }
   | { kind: "listItem"; ordered: boolean; index: number; depth: number; inlines: Inline[] }
-  | { kind: "codeBlock"; text: string }
+  | { kind: "codeBlock"; lang?: string; segments: CodeSegment[] }
   | { kind: "mathBlock"; latex: string }
   | { kind: "rule" };
 
@@ -75,7 +83,7 @@ function collectInlines(children: Token[]): Inline[] {
         out.push({ kind: "break" });
         break;
       case "math_inline":
-        out.push({ kind: "math", latex: token.content });
+        out.push({ kind: "math", latex: token.content, color: top().color });
         break;
       case "image": {
         const imageId = token.meta?.imageId;
@@ -100,13 +108,44 @@ interface ListFrame {
   index: number;
 }
 
+// Code block content skips inline rules, so {#rrggbb|...} spans are split
+// out here instead. Span content is literal text (no nested color spans);
+// unclosed or empty spans stay literal.
+function codeColorSegments(text: string): CodeSegment[] {
+  const segments: CodeSegment[] = [];
+  let plain = "";
+  let pos = 0;
+  while (pos < text.length) {
+    const match = COLOR_SPAN_OPEN.exec(text.slice(pos, pos + 10));
+    const contentStart = match ? pos + match[0].length : -1;
+    const end = match ? findClosingBrace(text, contentStart) : -1;
+    if (!match || end === -1 || end === contentStart) {
+      plain += text[pos];
+      pos++;
+      continue;
+    }
+    if (plain) {
+      segments.push({ text: plain });
+      plain = "";
+    }
+    segments.push({ text: text.slice(contentStart, end), color: `#${match[1].toLowerCase()}` });
+    pos = end + 1;
+  }
+  if (plain) segments.push({ text: plain });
+  if (segments.length === 0) segments.push({ text: "" });
+  return segments;
+}
+
 export function parseMarkdown(source: string): Block[] {
   const tokens = markdownIt().parse(source, {});
   const blocks: Block[] = [];
   const listStack: ListFrame[] = [];
+  const lastItem: (Block & { kind: "listItem" })[] = [];
   let quoteDepth = 0;
   let pendingHeading = 0;
   let paragraph = false;
+  // Set by list_item_open: only an item's first paragraph gets a marker.
+  let freshItem = false;
 
   const pushInlines = (inlines: Inline[]) => {
     if (pendingHeading > 0) {
@@ -115,14 +154,28 @@ export function parseMarkdown(source: string): Block[] {
       return;
     }
     if (listStack.length > 0) {
-      const frame = listStack[listStack.length - 1];
-      blocks.push({
+      const depth = listStack.length - 1;
+      if (!freshItem) {
+        // Loose-list continuation paragraph: part of the open item, so it
+        // must not consume an ordered index.
+        const item = lastItem[depth];
+        if (item) {
+          if (item.inlines.length > 0 && inlines.length > 0) item.inlines.push({ kind: "break" });
+          item.inlines.push(...inlines);
+          return;
+        }
+      }
+      freshItem = false;
+      const frame = listStack[depth];
+      const item: Block & { kind: "listItem" } = {
         kind: "listItem",
         ordered: frame.ordered,
         index: frame.ordered ? frame.index++ : 0,
-        depth: listStack.length - 1,
+        depth,
         inlines,
-      });
+      };
+      lastItem[depth] = item;
+      blocks.push(item);
       return;
     }
     blocks.push({ kind: "paragraph", quote: quoteDepth > 0, inlines });
@@ -151,9 +204,16 @@ export function parseMarkdown(source: string): Block[] {
       case "ordered_list_open":
         listStack.push({ ordered: true, index: Number(token.attrGet("start") ?? 1) || 1 });
         break;
+      case "list_item_open":
+        freshItem = true;
+        break;
+      case "list_item_close":
+        freshItem = false;
+        break;
       case "bullet_list_close":
       case "ordered_list_close":
         listStack.pop();
+        lastItem.length = listStack.length;
         break;
       case "blockquote_open":
         quoteDepth++;
@@ -162,9 +222,15 @@ export function parseMarkdown(source: string): Block[] {
         quoteDepth = Math.max(0, quoteDepth - 1);
         break;
       case "fence":
-      case "code_block":
-        blocks.push({ kind: "codeBlock", text: token.content.replace(/\n$/, "") });
+      case "code_block": {
+        const lang = token.type === "fence" ? token.info.trim().split(/\s+/)[0] : "";
+        blocks.push({
+          kind: "codeBlock",
+          ...(lang ? { lang } : {}),
+          segments: codeColorSegments(token.content.replace(/\n$/, "")),
+        });
         break;
+      }
       case "math_block":
         blocks.push({ kind: "mathBlock", latex: token.content });
         break;

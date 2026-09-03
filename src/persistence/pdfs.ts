@@ -1,8 +1,13 @@
 import { useBoardStore } from "../store/useBoardStore";
 import { db, type PdfRecord } from "./db";
+import { sweepUnreferenced } from "./gc";
 
-export async function savePdf(record: PdfRecord): Promise<void> {
-  await (await db()).put("pdfs", record);
+// Same content-addressable write contract as images.ts.
+export async function savePdf(record: PdfRecord): Promise<boolean> {
+  const database = await db();
+  if (await database.get("pdfs", record.id)) return false;
+  await database.put("pdfs", record);
+  return true;
 }
 
 export async function getPdf(id: string): Promise<PdfRecord | undefined> {
@@ -43,10 +48,5 @@ export async function gcUnreferencedPdfs(): Promise<void> {
     if (image.pdfSource) keep.add(image.pdfSource.docId);
   }
   for (const id of retained) keep.add(id);
-  const tx = database.transaction("pdfs", "readwrite");
-  const keys = await tx.store.getAllKeys();
-  for (const key of keys) {
-    if (!keep.has(key)) await tx.store.delete(key);
-  }
-  await tx.done;
+  await sweepUnreferenced("pdfs", keep);
 }

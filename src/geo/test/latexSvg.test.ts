@@ -1,4 +1,4 @@
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { renderLatex } from "../latexSvg";
 import { placeGlyph } from "../ui/export";
 
@@ -25,6 +25,19 @@ test("renderLatex caches results per source string", async () => {
 test("renderLatex returns null for unparseable input", async () => {
   expect(await renderLatex("\\frac{1")).toBeNull();
 });
+
+test("renderLatex retries after a transient MathJax load failure", async () => {
+  vi.resetModules();
+  vi.doMock("@mathjax/src/js/mathjax.js", () => {
+    throw new Error("chunk failed");
+  });
+  const failed = await import("../latexSvg");
+  expect(await failed.renderLatex("x_retry")).toBeNull();
+  vi.doUnmock("@mathjax/src/js/mathjax.js");
+  vi.resetModules();
+  const fresh = await import("../latexSvg");
+  expect(await fresh.renderLatex("x_retry")).not.toBeNull();
+}, 30000);
 
 test("placeGlyph centers the scaled glyph run on the label footprint", () => {
   const glyph = {

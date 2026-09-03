@@ -38,10 +38,78 @@ describe("parseMarkdown", () => {
     expect(multi[0]).toEqual({ kind: "mathBlock", latex: "\\int_0^1 x\\,dx" });
   });
 
+  it("keeps trailing text after same-line display math", () => {
+    const blocks = parseMarkdown("$$E=mc^2$$ see above");
+    expect(blocks[0]).toEqual({ kind: "mathBlock", latex: "E=mc^2" });
+    expect(blocks[1]).toMatchObject({ kind: "paragraph" });
+    const inlines = (blocks[1] as { inlines: unknown[] }).inlines;
+    expect(inlines).toEqual([{ kind: "text", text: "see above", style: {} }]);
+  });
+
+  it("parses trailing text after display math as inline content", () => {
+    const blocks = parseMarkdown("\\[x^2\\] tail with $y$ math");
+    expect(blocks[0]).toEqual({ kind: "mathBlock", latex: "x^2" });
+    const inlines = (blocks[1] as { inlines: unknown[] }).inlines;
+    expect(inlines).toContainEqual({ kind: "math", latex: "y" });
+    expect(inlines).toContainEqual({ kind: "text", text: "tail with ", style: {} });
+  });
+
+  it("keeps trailing text after the closer of multi-line display math", () => {
+    const blocks = parseMarkdown("$$\nx^2\n$$ done");
+    expect(blocks[0]).toEqual({ kind: "mathBlock", latex: "x^2" });
+    expect(blocks[1]).toMatchObject({ kind: "paragraph" });
+    const inlines = (blocks[1] as { inlines: unknown[] }).inlines;
+    expect(inlines).toEqual([{ kind: "text", text: "done", style: {} }]);
+  });
+
+  it("keeps text around an inline display math line", () => {
+    const blocks = parseMarkdown("before\n$$x^2$$ after\nend");
+    expect(blocks.map((b) => b.kind)).toEqual(["paragraph", "mathBlock", "paragraph", "paragraph"]);
+    const last = (blocks[3] as { inlines: { text?: string }[] }).inlines;
+    expect(last[0].text).toBe("end");
+  });
+
+  it("parses \\(...\\) as inline math", () => {
+    const blocks = parseMarkdown("energy \\(E=mc^2\\) here");
+    const inlines = (blocks[0] as { inlines: unknown[] }).inlines;
+    expect(inlines).toContainEqual({ kind: "math", latex: "E=mc^2" });
+  });
+
+  it("parses \\[...\\] as block math, single-line and multi-line", () => {
+    const single = parseMarkdown("\\[x^2+y^2=1\\]");
+    expect(single[0]).toEqual({ kind: "mathBlock", latex: "x^2+y^2=1" });
+    const multi = parseMarkdown("\\[\n\\int_0^1 x\\,dx\n\\]");
+    expect(multi[0]).toEqual({ kind: "mathBlock", latex: "\\int_0^1 x\\,dx" });
+  });
+
+  it("does not close \\(...\\) or \\[...\\] on an escaped delimiter", () => {
+    const blocks = parseMarkdown("\\(a\\\\)b\\)");
+    const inlines = (blocks[0] as { inlines: unknown[] }).inlines;
+    expect(inlines).toContainEqual({ kind: "math", latex: "a\\\\)b" });
+    const single = parseMarkdown("\\[a\\\\]b\\]");
+    expect(single[0]).toEqual({ kind: "mathBlock", latex: "a\\\\]b" });
+  });
+
+  it("does not treat an escaped \\( as math", () => {
+    const blocks = parseMarkdown("literal \\\\(x\\)");
+    const inlines = (blocks[0] as { inlines: { kind: string }[] }).inlines;
+    expect(inlines.every((i) => i.kind !== "math")).toBe(true);
+  });
+
   it("does not treat currency-ish dollars as math", () => {
     const blocks = parseMarkdown("price is $ 5 and $ 6 total");
     const inlines = (blocks[0] as { inlines: { kind: string }[] }).inlines;
     expect(inlines.every((i) => i.kind === "text")).toBe(true);
+  });
+
+  it("keeps math with nested braces inside a color span", () => {
+    const blocks = parseMarkdown("{#2f6fdd|$\\frac{abc}{def}$}");
+    const inlines = (blocks[0] as { inlines: unknown[] }).inlines;
+    expect(inlines).toContainEqual({
+      kind: "math",
+      latex: "\\frac{abc}{def}",
+      color: "#2f6fdd",
+    });
   });
 
   it("parses color spans and nests emphasis inside", () => {
@@ -89,10 +157,55 @@ describe("parseMarkdown", () => {
     expect(items[3]).toMatchObject({ ordered: true, index: 2 });
   });
 
+  it("folds loose-list continuation paragraphs into the item without an index", () => {
+    const blocks = parseMarkdown("1. first para\n\n   continuation\n\n2. next");
+    expect(blocks).toHaveLength(2);
+    expect(blocks[0]).toMatchObject({ kind: "listItem", ordered: true, index: 1 });
+    expect(blocks[1]).toMatchObject({ kind: "listItem", ordered: true, index: 2 });
+    const inlines = (blocks[0] as { inlines: { kind: string; text?: string }[] }).inlines;
+    expect(inlines.map((i) => (i.kind === "text" ? i.text : "|")).join("")).toBe(
+      "first para|continuation",
+    );
+  });
+
   it("parses blockquotes, code fences and rules", () => {
     const blocks = parseMarkdown("> quoted\n\n```\ncode\n```\n\n---");
     expect(blocks[0]).toMatchObject({ kind: "paragraph", quote: true });
-    expect(blocks[1]).toEqual({ kind: "codeBlock", text: "code" });
+    expect(blocks[1]).toEqual({ kind: "codeBlock", segments: [{ text: "code" }] });
     expect(blocks[2]).toEqual({ kind: "rule" });
+  });
+
+  it("extracts the fence language from the first info word", () => {
+    const blocks = parseMarkdown("```js extra words\ncode\n```");
+    expect(blocks[0]).toEqual({ kind: "codeBlock", lang: "js", segments: [{ text: "code" }] });
+  });
+
+  it("parses indented code blocks without a language", () => {
+    const blocks = parseMarkdown("    indented code");
+    expect(blocks[0]).toEqual({ kind: "codeBlock", segments: [{ text: "indented code" }] });
+  });
+
+  it("splits {#hex|...} color spans inside code blocks", () => {
+    const blocks = parseMarkdown("```\nlet {#FF0000|x} = 1\n```");
+    expect(blocks[0]).toEqual({
+      kind: "codeBlock",
+      segments: [{ text: "let " }, { text: "x", color: "#ff0000" }, { text: " = 1" }],
+    });
+  });
+
+  it("honors nested braces inside code color spans", () => {
+    const blocks = parseMarkdown("```\n{#00ff00|function() { return 1; }}\n```");
+    expect(blocks[0]).toEqual({
+      kind: "codeBlock",
+      segments: [{ text: "function() { return 1; }", color: "#00ff00" }],
+    });
+  });
+
+  it("keeps unclosed or empty code color spans literal", () => {
+    const blocks = parseMarkdown("```\n{#ff0000|oops {#ff0000|}\n```");
+    expect(blocks[0]).toEqual({
+      kind: "codeBlock",
+      segments: [{ text: "{#ff0000|oops {#ff0000|}" }],
+    });
   });
 });

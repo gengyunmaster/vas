@@ -5,6 +5,7 @@
 
 import type { LatexGlyph } from "../geo/latexSvg";
 import type { Block, Inline, InlineStyle } from "../markdown/blocks";
+import { ensureHighlight, highlightCodeSegments, highlightReady } from "../markdown/highlight";
 
 export interface FontSpec {
   size: number;
@@ -18,14 +19,34 @@ export type MathResolver = (latex: string, display: boolean) => Promise<LatexGly
 export type ImageSizeResolver = (imageId: string) => { width: number; height: number } | null;
 
 export type LaidRun =
-  | { kind: "text"; x: number; y: number; text: string; font: FontSpec; color: string }
-  | { kind: "math"; x: number; y: number; width: number; height: number; glyph: LatexGlyph }
+  | {
+      kind: "text";
+      x: number;
+      y: number;
+      text: string;
+      font: FontSpec;
+      color: string;
+      link?: string;
+      strike?: boolean;
+    }
+  | {
+      kind: "math";
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      glyph: LatexGlyph;
+      color: string;
+    }
   | { kind: "image"; x: number; y: number; width: number; height: number; imageId: string };
 
 export type Decoration =
   | { kind: "quoteBar"; x: number; y: number; height: number }
   | { kind: "codeBg"; x: number; y: number; width: number; height: number }
-  | { kind: "rule"; x: number; y: number; width: number };
+  | { kind: "rule"; x: number; y: number; width: number }
+  // y is the line's vertical center; color follows the run's ink.
+  | { kind: "underline"; x: number; y: number; width: number; color: string; thickness: number }
+  | { kind: "strikeLine"; x: number; y: number; width: number; color: string; thickness: number };
 
 export interface TextLayout {
   runs: LaidRun[];
@@ -40,6 +61,8 @@ export interface LayoutOptions {
   measure: MeasureFn;
   resolveMath: MathResolver;
   resolveImageSize: ImageSizeResolver;
+  // Picks the light/dark syntax palette for highlighted code blocks.
+  darkPaper?: boolean;
 }
 
 const LINE_HEIGHT = 1.5;
@@ -48,6 +71,8 @@ const HEADING_SCALE = [1.6, 1.45, 1.3, 1.15, 1.05, 1];
 const QUOTE_INDENT = 14;
 const QUOTE_BAR_WIDTH = 3;
 const CODE_PADDING = 8;
+// Screen CSS renders code at 0.86em; exports must measure at the same size.
+const CODE_SIZE_FACTOR = 0.86;
 // MathJax viewBox units are 1000 per em (see geo/ui/export.ts).
 const MATH_EM_UNITS = 1000;
 
@@ -93,8 +118,22 @@ export function splitAtoms(text: string): string[] {
 }
 
 type AtomRun =
-  | { kind: "text"; text: string; font: FontSpec; color: string }
-  | { kind: "math"; glyph: LatexGlyph; width: number; height: number; ascent: number }
+  | {
+      kind: "text";
+      text: string;
+      font: FontSpec;
+      color: string;
+      link?: string;
+      strike?: boolean;
+    }
+  | {
+      kind: "math";
+      glyph: LatexGlyph;
+      width: number;
+      height: number;
+      ascent: number;
+      color: string;
+    }
   | { kind: "image"; imageId: string; width: number; height: number };
 
 interface Atom {
@@ -106,11 +145,14 @@ interface Context {
   runs: LaidRun[];
   decorations: Decoration[];
   y: number;
+  // Descent of the most recent flow line; the final height trims it away as
+  // dead space below the last baseline.
+  lastDescent: number;
 }
 
 function fontFor(base: FontSpec, style: InlineStyle): FontSpec {
   return {
-    size: base.size,
+    size: style.code ? base.size * CODE_SIZE_FACTOR : base.size,
     bold: base.bold || !!style.bold,
     italic: !!style.italic,
     code: !!style.code,
@@ -123,21 +165,42 @@ async function buildAtoms(
   opts: LayoutOptions,
 ): Promise<Atom[]> {
   const atoms: Atom[] = [];
+  // splitAtoms glues a space onto the atom that follows it, but drops one that
+  // trails an inline's text; carry it across inline (style) boundaries so
+  // "a **b**" does not collapse into "ab".
+  let pendingSpace = false;
+  const pushSpace = () => {
+    if (!pendingSpace) return;
+    atoms.push({
+      run: { kind: "text", text: " ", font: baseFont, color: opts.color },
+    });
+    pendingSpace = false;
+  };
   for (const inline of inlines) {
     switch (inline.kind) {
-      case "text":
-        for (const piece of splitAtoms(inline.text)) {
+      case "text": {
+        const pieces = splitAtoms(inline.text);
+        if (pendingSpace && pieces.length > 0) {
+          if (!pieces[0].startsWith(" ")) pieces[0] = ` ${pieces[0]}`;
+          pendingSpace = false;
+        }
+        pendingSpace = pendingSpace || /[ \t]$/.test(inline.text);
+        for (const piece of pieces) {
           atoms.push({
             run: {
               kind: "text",
               text: piece,
               font: fontFor(baseFont, inline.style),
               color: inline.style.color ?? opts.color,
+              link: inline.style.link,
+              strike: !!inline.style.strike,
             },
           });
         }
         break;
+      }
       case "math": {
+        pushSpace();
         const glyph = await opts.resolveMath(inline.latex, false);
         if (!glyph) {
           for (const piece of splitAtoms(inline.latex)) {
@@ -145,8 +208,8 @@ async function buildAtoms(
               run: {
                 kind: "text",
                 text: piece,
-                font: { ...baseFont, code: true },
-                color: opts.color,
+                font: fontFor(baseFont, { code: true }),
+                color: inline.color ?? opts.color,
               },
             });
           }
@@ -161,6 +224,7 @@ async function buildAtoms(
             width: vbW * scale,
             height: vbH * scale,
             ascent: -vbY * scale,
+            color: inline.color ?? opts.color,
           },
         });
         break;
@@ -168,6 +232,7 @@ async function buildAtoms(
       case "image": {
         const natural = opts.resolveImageSize(inline.imageId);
         if (!natural || natural.width <= 0 || natural.height <= 0) break;
+        pushSpace();
         const width = Math.min(natural.width, opts.width);
         atoms.push({
           run: {
@@ -184,6 +249,23 @@ async function buildAtoms(
     }
   }
   return atoms;
+}
+
+// A word wider than a whole line would overflow the box; the screen wraps it
+// (overflow-wrap: break-word), so exports break it at character level too.
+function hardBreak(text: string, font: FontSpec, width: number, measure: MeasureFn): string[] {
+  const chunks: string[] = [];
+  let current = "";
+  for (const ch of text) {
+    if (current && measure(current + ch, font) > width) {
+      chunks.push(current);
+      current = ch;
+    } else {
+      current += ch;
+    }
+  }
+  if (current) chunks.push(current);
+  return chunks;
 }
 
 function layoutAtoms(ctx: Context, atoms: Atom[], indent: number) {
@@ -220,6 +302,17 @@ function layoutAtoms(ctx: Context, atoms: Atom[], indent: number) {
     // Whitespace collapses at the start of a wrapped line.
     if (x === 0 && atom.run.kind === "text" && atom.run.text.trim() === "") continue;
     if (x > 0 && x + atomWidth > contentWidth) freshFlowLine();
+    if (atom.run.kind === "text" && atomWidth > contentWidth) {
+      const chunks = hardBreak(atom.run.text, atom.run.font, contentWidth, measure);
+      for (let i = 0; i < chunks.length - 1; i++) {
+        flowLine()?.atoms.push({ run: { ...atom.run, text: chunks[i] } });
+        freshFlowLine();
+      }
+      const last = chunks[chunks.length - 1];
+      flowLine()?.atoms.push({ run: { ...atom.run, text: last } });
+      x = measure(last, atom.run.font);
+      continue;
+    }
     flowLine()?.atoms.push(atom);
     x += atomWidth;
   }
@@ -235,19 +328,29 @@ function layoutAtoms(ctx: Context, atoms: Atom[], indent: number) {
         imageId: line.atom.run.imageId,
       });
       ctx.y += line.atom.run.height + fontSize * 0.6;
+      ctx.lastDescent = lineHeight - fontSize * 1.15;
       continue;
     }
+    // Line metrics follow the largest runs actually present: a heading run
+    // must not overflow a box sized for the item's base font. Math glyph
+    // extents participate the same way.
     let ascent = fontSize * 1.15;
     let descent = lineHeight - ascent;
     for (const atom of line.atoms) {
-      if (atom.run.kind !== "math") continue;
-      ascent = Math.max(ascent, atom.run.ascent);
-      descent = Math.max(descent, atom.run.height - atom.run.ascent);
+      if (atom.run.kind === "math") {
+        ascent = Math.max(ascent, atom.run.ascent);
+        descent = Math.max(descent, atom.run.height - atom.run.ascent);
+      } else if (atom.run.kind === "text") {
+        const size = atom.run.font.size;
+        ascent = Math.max(ascent, size * 1.15);
+        descent = Math.max(descent, size * (LINE_HEIGHT - 1.15));
+      }
     }
     const baseline = ctx.y + ascent;
     let lineX = 0;
     for (const atom of line.atoms) {
       if (atom.run.kind === "text") {
+        const atomWidth = measure(atom.run.text, atom.run.font);
         ctx.runs.push({
           kind: "text",
           x: indent + lineX,
@@ -255,8 +358,32 @@ function layoutAtoms(ctx: Context, atoms: Atom[], indent: number) {
           text: atom.run.text,
           font: atom.run.font,
           color: atom.run.color,
+          link: atom.run.link,
+          strike: atom.run.strike,
         });
-        lineX += measure(atom.run.text, atom.run.font);
+        const size = atom.run.font.size;
+        const thickness = Math.max(1, size * 0.055);
+        if (atom.run.link) {
+          ctx.decorations.push({
+            kind: "underline",
+            x: indent + lineX,
+            y: baseline + size * 0.13,
+            width: atomWidth,
+            color: atom.run.color,
+            thickness,
+          });
+        }
+        if (atom.run.strike) {
+          ctx.decorations.push({
+            kind: "strikeLine",
+            x: indent + lineX,
+            y: baseline - size * 0.28,
+            width: atomWidth,
+            color: atom.run.color,
+            thickness,
+          });
+        }
+        lineX += atomWidth;
       } else if (atom.run.kind === "math") {
         ctx.runs.push({
           kind: "math",
@@ -265,11 +392,13 @@ function layoutAtoms(ctx: Context, atoms: Atom[], indent: number) {
           width: atom.run.width,
           height: atom.run.height,
           glyph: atom.run.glyph,
+          color: atom.run.color,
         });
         lineX += atom.run.width;
       }
     }
     ctx.y += ascent + descent;
+    ctx.lastDescent = descent;
   }
 }
 
@@ -294,8 +423,67 @@ async function layoutInlineFlow(
   }
 }
 
+// Segments (manual colors + hljs highlighting) may span newlines; split them
+// into per-line chunks so each line's runs share a baseline and advance x.
+function codeLines(
+  block: Block & { kind: "codeBlock" },
+  dark: boolean,
+): { text: string; color?: string }[][] {
+  const lines: { text: string; color?: string }[][] = [[]];
+  for (const segment of highlightCodeSegments(block.segments, block.lang, dark)) {
+    const parts = segment.text.split("\n");
+    for (const [index, part] of parts.entries()) {
+      if (index > 0) lines.push([]);
+      if (part) lines[lines.length - 1].push({ text: part, color: segment.color });
+    }
+  }
+  return lines;
+}
+
+// Screen code blocks use pre-wrap; wrap at character level so long lines
+// stay inside the background instead of overflowing the box.
+function wrapCodeLine(
+  line: { text: string; color?: string }[],
+  maxWidth: number,
+  font: FontSpec,
+  measure: MeasureFn,
+): { text: string; color?: string }[][] {
+  const out: { text: string; color?: string }[][] = [[]];
+  let x = 0;
+  for (const chunk of line) {
+    let piece = "";
+    const flush = () => {
+      if (!piece) return;
+      out[out.length - 1].push({ text: piece, color: chunk.color });
+      piece = "";
+    };
+    for (const ch of chunk.text) {
+      const w = measure(ch, font);
+      if (x > 0 && x + w > maxWidth) {
+        flush();
+        out.push([]);
+        x = 0;
+      }
+      piece += ch;
+      x += w;
+    }
+    flush();
+  }
+  return out;
+}
+
 export async function layoutBlocks(blocks: Block[], opts: LayoutOptions): Promise<TextLayout> {
-  const ctx: Context = { opts, runs: [], decorations: [], y: 0 };
+  // Highlight must finish loading before layout so exports always get colors.
+  if (blocks.some((block) => block.kind === "codeBlock" && block.lang) && !highlightReady()) {
+    await ensureHighlight();
+  }
+  const ctx: Context = {
+    opts,
+    runs: [],
+    decorations: [],
+    y: 0,
+    lastDescent: opts.fontSize * (LINE_HEIGHT - 1.15),
+  };
   const baseFont: FontSpec = { size: opts.fontSize, bold: false, italic: false, code: false };
 
   for (let i = 0; i < blocks.length; i++) {
@@ -343,21 +531,33 @@ export async function layoutBlocks(blocks: Block[], opts: LayoutOptions): Promis
         break;
       }
       case "codeBlock": {
-        const codeFont: FontSpec = { ...baseFont, code: true };
+        const codeFont: FontSpec = {
+          ...baseFont,
+          code: true,
+          size: opts.fontSize * CODE_SIZE_FACTOR,
+        };
         const start = ctx.y;
         ctx.y += CODE_PADDING;
-        for (const line of block.text.split("\n")) {
-          ctx.runs.push({
-            kind: "text",
-            x: CODE_PADDING,
-            y: ctx.y + opts.fontSize * 1.15,
-            text: line,
-            font: codeFont,
-            color: opts.color,
-          });
-          ctx.y += opts.fontSize * LINE_HEIGHT;
+        const wrapWidth = opts.width - CODE_PADDING * 2;
+        for (const line of codeLines(block, opts.darkPaper ?? false)) {
+          for (const visual of wrapCodeLine(line, wrapWidth, codeFont, ctx.opts.measure)) {
+            let x = CODE_PADDING;
+            for (const chunk of visual) {
+              ctx.runs.push({
+                kind: "text",
+                x,
+                y: ctx.y + codeFont.size * 1.15,
+                text: chunk.text,
+                font: codeFont,
+                color: chunk.color ?? opts.color,
+              });
+              x += ctx.opts.measure(chunk.text, codeFont);
+            }
+            ctx.y += codeFont.size * LINE_HEIGHT;
+          }
         }
         ctx.y += CODE_PADDING - opts.fontSize * 0.35;
+        ctx.lastDescent = opts.fontSize * (LINE_HEIGHT - 1.15);
         ctx.decorations.push({
           kind: "codeBg",
           x: 0,
@@ -382,19 +582,23 @@ export async function layoutBlocks(blocks: Block[], opts: LayoutOptions): Promis
           width: pxW,
           height: pxH,
           glyph,
+          color: opts.color,
         });
         ctx.y += pxH + opts.fontSize * 0.6;
+        ctx.lastDescent = opts.fontSize * (LINE_HEIGHT - 1.15);
         break;
       }
       case "rule":
         ctx.y += opts.fontSize * 0.5;
         ctx.decorations.push({ kind: "rule", x: 0, y: ctx.y, width: opts.width });
         ctx.y += opts.fontSize * 0.5;
+        ctx.lastDescent = opts.fontSize * (LINE_HEIGHT - 1.15);
         break;
     }
   }
-  // The last line's text descent below the baseline is dead space and trims
-  // away, but a tall math/image run occupies real pixels down there — keep it.
+  // The last line's descent below its baseline is dead space and trims away
+  // (scaled to the runs actually in that line), but a tall math/image run
+  // occupies real pixels down there — keep it.
   const contentBottom = ctx.runs.reduce(
     (bottom, run) => (run.kind === "text" ? bottom : Math.max(bottom, run.y + run.height)),
     0,
@@ -402,6 +606,6 @@ export async function layoutBlocks(blocks: Block[], opts: LayoutOptions): Promis
   return {
     runs: ctx.runs,
     decorations: ctx.decorations,
-    height: Math.max(0, ctx.y - opts.fontSize * 0.35, contentBottom),
+    height: Math.max(0, ctx.y - ctx.lastDescent, contentBottom),
   };
 }

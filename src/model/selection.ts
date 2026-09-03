@@ -1,3 +1,4 @@
+import type { AudioItem } from "./audioItem";
 import { ERASER_TOLERANCE, hitTestStroke } from "./hitTest";
 import type { ImageItem } from "./image";
 import type { Page } from "./page";
@@ -145,19 +146,29 @@ export function textsInLasso(
   );
 }
 
+export function audiosInLasso(audios: AudioItem[], lasso: Point[]): AudioItem[] {
+  if (lasso.length < 2) return [];
+  return audios.filter((audio) =>
+    rectInLasso({ x: audio.x, y: audio.y, width: audio.width, height: audio.height }, lasso),
+  );
+}
+
 export function pickElements(
   page: Page,
   strokeIds: string[],
   imageIds: string[],
   textIds: string[] = [],
-): { strokes: Stroke[]; images: ImageItem[]; texts: TextItem[] } {
+  audioIds: string[] = [],
+): { strokes: Stroke[]; images: ImageItem[]; texts: TextItem[]; audios: AudioItem[] } {
   const strokeIdSet = new Set(strokeIds);
   const imageIdSet = new Set(imageIds);
   const textIdSet = new Set(textIds);
+  const audioIdSet = new Set(audioIds);
   return {
     strokes: page.strokes.filter((stroke) => strokeIdSet.has(stroke.id)),
     images: page.images.filter((image) => imageIdSet.has(image.id)),
     texts: page.texts.filter((text) => textIdSet.has(text.id)),
+    audios: page.audios.filter((audio) => audioIdSet.has(audio.id)),
   };
 }
 

@@ -1,12 +1,35 @@
 # vas
 
-A local-first handwriting notebook and whiteboard that runs entirely in the browser.
-Open a page and start writing — no download, no account, no backend. Your notes stay on
-your device.
+**The handwriting notebook that lives in your browser.** Open a tab and start writing —
+no install, no account, no server. Pen, finger, or mouse; desktop, tablet, or phone.
+Your notes never leave your device.
 
-**[Online demo](https://gengyunmaster.github.io/vas/)** — works on desktop, tablet, and
-phone. Notebooks are stored per origin in the browser's IndexedDB, so the demo site and a
+**[Try it now](https://gengyunmaster.github.io/vas/)** — the demo is the full app.
+Notebooks are stored per origin in the browser's IndexedDB, so the demo site and a
 self-hosted instance keep separate data; use export / import to move notebooks around.
+
+## Why vas?
+
+- **Ink that feels real** — pressure-sensitive strokes with Apple Pencil & friends,
+  velocity-simulated pressure for finger and mouse, and a rendering pipeline that never
+  touches React on the draw path. Writing stays butter-smooth because ink never waits
+  for the UI.
+- **Vector, everywhere it matters** — zoom to 20x and your strokes stay razor-sharp.
+  PDF and SVG exports keep strokes, shapes, guides, geometry figures and embedded PDF
+  pages as true vectors; text exports as real, selectable PDF text.
+- **A geometry board built in** — construct points, circles, perpendiculars, angle
+  bisectors, function plots, sliders and animations with LaTeX labels, then embed the
+  figure into your notes as a resolution-independent SVG — and reopen it for editing
+  at any time. Perfect for math notes and teaching.
+- **Markdown + LaTeX text boxes** — type math-heavy notes with `$...$` / `$$...$$`
+  (and `\(...\)` / `\[...\]`), colored spans, syntax-highlighted code blocks, images
+  and links — typeset with the same fonts on screen and in every export.
+- **Truly local-first** — autosave to IndexedDB, works 100% offline as an installable
+  PWA, and backs up to a single JSON/zip file you fully own. No cloud, no tracking,
+  no lock-in.
+- **Smart about storage** — images, videos and PDFs are content-addressed: insert the
+  same file twice, paste it across notebooks, or merge notebooks that share files —
+  it's always stored exactly once.
 
 ## Features
 
@@ -19,19 +42,36 @@ self-hosted instance keep separate data; use export / import to move notebooks a
   (line / arrow / rectangle / ellipse)
 - **Text** — click anywhere with the text tool to place a markdown text box (source
   textarea + live preview): headings, lists, quotes, code, bold/italic/strikethrough,
-  links, dividers, inline/block LaTeX math (KaTeX on screen, MathJax glyphs in exports),
-  colored spans via `{#hex|text}`, and embedded notebook images via `![](image:<id>)`;
+  links (ink-colored and underlined everywhere; clickable in SVG and PDF exports, and
+  in the app itself by tapping them with the select tool),
+  dividers, inline/block LaTeX math (KaTeX on screen, MathJax glyphs in exports),
+  colored spans via `{#hex|text}` (also inside math, where it maps to scoped `\textcolor`;
+  LaTeX `\color` / `\textcolor` work too, in exports via MathJax's color extension), and embedded notebook images via `![](image:<id>)`;
+  fenced code blocks accept the same `{#hex|text}` coloring and get syntax highlighting
+  when tagged with a language (```` ```js ````; highlight.js, lazy-loaded, with light/dark
+  palettes that follow the paper color) — typeset with a bundled monospace subset, so
+  screen and exports agree down to the pixel;
   boxes layer between images and ink, join lasso / recolor / cut-copy-paste, and refuse
-  input at the page bottom (no cross-page overflow)
+  input at the page bottom (no cross-page overflow); pasting plain text from the system
+  clipboard creates a text box (rejected with a hint when it doesn't fit the page)
 - **Lasso selection** — circle content to select it, then move, scale / stretch (staying
-  vector), recolor, delete, and cut / copy / paste — across pages and notebooks
+  vector), recolor, center horizontally / vertically on the page, delete, and cut / copy /
+  paste — across pages and notebooks; cut / copy
+  also mirrors the selection to the system clipboard, so pasting back works across tabs
 - **Images** — insert images (button or paste from the system clipboard) and annotate
   over them; images move / scale / copy along with the selection; oversized images are
   auto-fit to the page and stored at original quality. The picker also accepts **PDF
   files**: after the same password/decrypt flow you pick a single page, which is
   inserted as a regular (selectable, movable, scalable) image — rendered on screen as
-  a 4x transparent-background preview (the white backdrop is keyed out), stored with
+  a 4x preview (transparent background by default, with an optional white backdrop in
+  the page dialog), stored with
   the full original PDF, and re-embedded as a true vector page on PDF export
+- **Video & audio** — insert video or audio from the same picker or straight from the
+  clipboard; videos appear as a
+  poster frame with an inline player (play / seek / volume / fullscreen) and audio as a
+  paper-adaptive badge, both in a DOM overlay that keeps playing while you scroll or
+  turn pages; they participate in lasso selection (move / scale / copy / paste), and
+  exports carry the poster frame or a vector badge — never playable media
 - **PDF import** — import a PDF from the home screen to create a notebook, or into the
   open notebook (pages inserted after the current one, inheriting its style); every page
   is rendered at 4x point resolution, scaled to fill the sheet, and locked in place
@@ -42,6 +82,10 @@ self-hosted instance keep separate data; use export / import to move notebooks a
 - **Per-page paper** — paper colors (presets incl. blackboard green and calligraphy tan,
   plus custom hex) and background templates (blank / lined / grid / dots / rice grid),
   with contrast-aware guide lines
+- **Polished UI** — light / dark / follow-system theme (paper colors are document content
+  and stay untouched), animated panels, dialogs and selection bars with reduced-motion
+  support, in-app toasts and styled confirm/prompt dialogs replacing native popups,
+  an eraser size ring cursor, and a themed launch splash
 - **Page management** — insert / delete / clear pages, automatic page continuation,
   thumbnail sidebar with aspect-accurate previews and long-press drag to reorder
 - **Presentation mode** — full-screen slideshow: one page fitted to the screen on a
@@ -49,7 +93,7 @@ self-hosted instance keep separate data; use export / import to move notebooks a
   stays enabled
 - **Multiple notebooks** — home screen with create / rename / delete, plus merging:
   select notebooks to combine their pages into a new one (selection order preserved;
-  a single selection duplicates a notebook; shared images stay stored once)
+  a single selection duplicates a notebook; files shared between notebooks stay stored once)
 - **Geometry board** — a full-screen geometry editor (points, segments, circles,
   perpendiculars, angle bisectors, axes, function plots, sliders, animations, LaTeX
   labels) embedded into the page as a transparent-background SVG figure, cropped to its
@@ -59,7 +103,9 @@ self-hosted instance keep separate data; use export / import to move notebooks a
 - **Local-first storage** — IndexedDB autosave, per-notebook view state (scroll position
   and zoom restored on reopen, also carried in exports), JSON export for image-less
   notebooks and zip export (JSON + image files + original PDFs + geometry documents)
-  for notebooks with images, PDF pages, or geometry figures, both re-importable
+  for notebooks with images, PDF pages, or geometry figures, both re-importable;
+  binary assets are content-addressed (SHA-256), so duplicates never cost extra space —
+  across inserts, pastes, imports, and notebook merges alike
 - **Vector PDF export** — strokes stay sharp at any zoom level, inserted SVG images stay
   vector too, raster images embedded from the original bytes (JPEG/PNG); imported PDF
   pages (both locked base pages and PDFs inserted as images) keep their original bytes,
@@ -73,20 +119,23 @@ self-hosted instance keep separate data; use export / import to move notebooks a
   page, or the whole notebook (trailing blank pages trimmed); pick PDF, vector SVG, or
   2x PNG, and multi-page SVG/PNG exports download as a zip
 - **PWA** — installable and fully offline; all assets (including the on-demand PDF
-  engine) are precached
+  engine) are precached. A one-time, platform-aware install hint on the home screen
+  triggers the native install prompt where supported (Chrome/Edge) or shows
+  Add-to-Home-Screen steps on iOS, and never nags again once dismissed
 
 ## Screenshots
 
-| Calligraphy practice (tan paper preset)           | Annotating an imported PDF                |
-| ------------------------------------------------- | ----------------------------------------- |
-| ![Calligraphy practice](docs/calligraphy.png)     | ![PDF annotation](docs/pdf-annotation.png) |
+| Calligraphy practice (tan paper preset)           | Annotating an imported PDF                 | Markdown text with LaTeX math and an embedded geometry figure |
+| ------------------------------------------------- | ------------------------------------------ | ------------------------------------------------------------- |
+| ![Calligraphy practice](docs/calligraphy.png)     | ![PDF annotation](docs/pdf-annotation.png) | ![Math notes with geometry figure](docs/math-geometry.png)    |
 
 ## Tech stack
 
 React 19 · TypeScript · Vite · zustand · perfect-freehand · idb · jsPDF + svg2pdf.js
 (lazy-loaded) · pdfjs-dist (lazy-loaded) · pdf-lib + @pdf-lib/fontkit (lazy-loaded) ·
 @neslinesli93/qpdf-wasm (lazy-loaded) · fflate · markdown-it (text tool, with custom
-math / color / image-sanitizing rules) · subsetted Noto Sans SC fonts (shared by screen
+math / color / image-sanitizing rules) · highlight.js (code-block highlighting,
+lazy-loaded) · subsetted Noto Sans SC / Noto Sans Mono fonts (shared by screen
 layout and PDF text) · JSXGraph + mathlive + @cortex-js/compute-engine + KaTeX +
 MathJax (geometry editor, lazy-loaded) ·
 vite-plugin-pwa · Biome · Vitest — no UI component library, no backend.
@@ -106,17 +155,20 @@ src/
                  viewState, hitTest, patternLayout, shapeGeometry, selection, transform,
                  pdfPage, textItem
   markdown/      markdown-it wrapper with custom rules (math, colored spans, image
-                 sanitizing), block parsing, safe HTML rendering, KaTeX lazy-loading
+                 sanitizing), block parsing, safe HTML rendering, KaTeX lazy-loading,
+                 highlight.js code-block highlighting (lazy-loaded, hex palettes)
   text/          text layout engine (shared by all exports), metrics, height cache,
                  frame bus, PNG/SVG paint backends
   store/         zustand stores
-  persistence/   IndexedDB (db, notebooks, images, pdfs, geometries, transfer, autosave,
-                 prefs, session), insertImage, importPdf, decryptPdf, rasterize,
+  persistence/   IndexedDB (db, notebooks, images, pdfs, geometries, media, transfer,
+                 autosave, prefs, session), hash (content-addressed storage),
+                 gc (shared blob sweep), insertImage, insertMedia, insertFile,
+                 importPdf, decryptPdf, rasterize,
                  exportPdf, exportImage, exportSvg, exportZip, pdfTextLayer, svgPath,
                  imageDataUri
   pwa/           service worker registration
 public/          PWA icons (generated by scripts/generate-icons.mjs) and fonts/
-                 (subsetted Noto Sans SC, scripts/subset-fonts.mjs)
+                 (subsetted Noto Sans SC / Noto Sans Mono, scripts/subset-fonts.mjs)
 scripts/         one-off utility scripts
 deploy/          nginx config for the Docker runtime stage
 ```
@@ -183,9 +235,10 @@ Then open `http://<host>:8080` in a browser.
 
 ## Data & privacy
 
-All notes live in the browser's IndexedDB on the device they were written on — nothing
-leaves your device. Use the JSON/zip export on the home screen to back up or move a
-notebook between devices (zip when the notebook contains images or PDF pages).
+Your notes are yours, period. Everything lives in the browser's IndexedDB on the device
+it was written on — no accounts, no analytics, no servers, nothing leaves your device.
+Use the JSON/zip export on the home screen to back up or move a notebook between
+devices (zip when the notebook contains images, media, or PDF pages).
 
 ## Contributing
 

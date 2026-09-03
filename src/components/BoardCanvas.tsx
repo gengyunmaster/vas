@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Board } from "../engine/board";
 import { clearImageCache } from "../engine/imageCache";
@@ -7,20 +7,43 @@ import { startAutosave } from "../persistence/autosave";
 import { scheduleViewStateSave } from "../persistence/session";
 import { useBoardStore } from "../store/useBoardStore";
 import { textItemHeight } from "../text/textHeight";
+import { MediaOverlay } from "./MediaOverlay";
 import { TextOverlay } from "./TextOverlay";
 
 function cursorForTool(tool: ToolKind): string {
-  if (tool === "eraser") return "cell";
+  // The eraser hides the native cursor; the engine draws a size ring instead.
+  if (tool === "eraser") return "none";
   if (tool === "laser") return "none";
   if (tool === "select") return "default";
   if (tool === "text") return "text";
   return "crosshair";
 }
 
+// Per-line boxes via getClientRects: a wrapped link's union bounding rect would
+// also cover the non-link text between its segments.
+function linkUrlAt(clientX: number, clientY: number): string | null {
+  for (const anchor of document.querySelectorAll<HTMLAnchorElement>(".text-layer a[href]")) {
+    for (const rect of anchor.getClientRects()) {
+      if (
+        clientX >= rect.left &&
+        clientX <= rect.right &&
+        clientY >= rect.top &&
+        clientY <= rect.bottom
+      ) {
+        return anchor.href;
+      }
+    }
+  }
+  return null;
+}
+
+const LINK_TAP_SLOP = 6;
+
 export function BoardCanvas() {
   const [container, setContainer] = useState<HTMLDivElement | null>(null);
   const sidebarOpen = useBoardStore((state) => state.sidebarOpen);
   const presentation = useBoardStore((state) => state.presentation);
+  const linkPress = useRef<{ url: string; x: number; y: number } | null>(null);
 
   useEffect(() => {
     if (!container) return;
@@ -71,6 +94,7 @@ export function BoardCanvas() {
       if (state.presentation !== prev.presentation) board.setPresentation(state.presentation);
       if (state.tool !== prev.tool) {
         container.style.cursor = cursorForTool(state.tool);
+        board.notifyToolChanged();
         if (state.tool !== "select" && state.selection) {
           useBoardStore.getState().setSelection(null);
         }
@@ -98,10 +122,33 @@ export function BoardCanvas() {
   ]
     .filter(Boolean)
     .join(" ");
-  // The text overlay must sit between the base and active canvases; portaling
-  // it into the board container puts all three in one stacking context.
+  // The overlays must sit between the base and active canvases (media below
+  // text); portaling them into the board container shares one stacking context.
   return (
-    <div ref={setContainer} className={className}>
+    // biome-ignore lint/a11y/noStaticElementInteractions lint/a11y/useKeyWithClickEvents: pointer-only link shortcut on the canvas surface; links stay real keyboard-focusable anchors in the overlay
+    <div
+      ref={setContainer}
+      className={className}
+      onPointerDownCapture={(event) => {
+        linkPress.current = null;
+        if (useBoardStore.getState().tool !== "select") return;
+        if (!event.isPrimary) return;
+        const url = linkUrlAt(event.clientX, event.clientY);
+        if (!url) return;
+        // Swallow the press so the engine never starts an (empty) lasso and a
+        // live selection survives the click.
+        event.stopPropagation();
+        linkPress.current = { url, x: event.clientX, y: event.clientY };
+      }}
+      onClick={(event) => {
+        const press = linkPress.current;
+        linkPress.current = null;
+        if (!press) return;
+        if (Math.hypot(event.clientX - press.x, event.clientY - press.y) > LINK_TAP_SLOP) return;
+        window.open(press.url, "_blank", "noopener,noreferrer");
+      }}
+    >
+      {container ? createPortal(<MediaOverlay />, container) : null}
       {container ? createPortal(<TextOverlay />, container) : null}
     </div>
   );

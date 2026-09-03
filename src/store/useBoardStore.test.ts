@@ -32,7 +32,7 @@ function reset(): void {
     paperColor: "#ffffff",
     selection: null,
     selectionAnchor: null,
-    clipboard: { strokes: [], images: [], texts: [] },
+    clipboard: { strokes: [], images: [], texts: [], audios: [] },
   });
 }
 
@@ -113,6 +113,24 @@ describe("board store", () => {
     useBoardStore.getState().undo();
     useBoardStore.getState().redo();
     expect(useBoardStore.getState().pages[0].strokes).toHaveLength(0);
+  });
+
+  it("history is capped at 200 entries, keeping the newest", () => {
+    const pageId = useBoardStore.getState().pages[0].id;
+    for (let i = 1; i <= 210; i++) {
+      useBoardStore.getState().addStroke(pageId, sampleStroke(`s${i}`));
+    }
+    expect(useBoardStore.getState().past).toHaveLength(200);
+    expect(useBoardStore.getState().pages[0].strokes).toHaveLength(210);
+    for (let i = 0; i < 200; i++) useBoardStore.getState().undo();
+    const after = useBoardStore.getState();
+    expect(after.past).toHaveLength(0);
+    expect(after.future).toHaveLength(200);
+    expect(after.pages[0].strokes.map((s) => s.id)).toEqual(
+      Array.from({ length: 10 }, (_, i) => `s${i + 1}`),
+    );
+    useBoardStore.getState().redo();
+    expect(useBoardStore.getState().pages[0].strokes).toHaveLength(11);
   });
 
   it("setPaperColor recolors only the current page", () => {
@@ -315,7 +333,9 @@ describe("selection and clipboard", () => {
     const pageId = useBoardStore.getState().pages[0].id;
     useBoardStore.getState().addStroke(pageId, sampleStroke("s1"));
     useBoardStore.getState().addStroke(pageId, sampleStroke("s2"));
-    useBoardStore.getState().setSelection({ pageId, strokeIds: ids, imageIds: [], textIds: [] });
+    useBoardStore
+      .getState()
+      .setSelection({ pageId, strokeIds: ids, imageIds: [], textIds: [], audioIds: [] });
     return pageId;
   }
 
@@ -329,8 +349,8 @@ describe("selection and clipboard", () => {
     useBoardStore
       .getState()
       .transformSelection(
-        { strokes: [...before], images: [], texts: [] },
-        { strokes: after, images: [], texts: [] },
+        { strokes: [...before], images: [], texts: [], audios: [] },
+        { strokes: after, images: [], texts: [], audios: [] },
       );
     expect(useBoardStore.getState().pages[0].strokes[0].points[0].x).toBe(100);
     expect(useBoardStore.getState().past).toHaveLength(3);
@@ -347,10 +367,38 @@ describe("selection and clipboard", () => {
     useBoardStore
       .getState()
       .transformSelection(
-        { strokes: [], images: [], texts: [] },
-        { strokes: [], images: [], texts: [] },
+        { strokes: [], images: [], texts: [], audios: [] },
+        { strokes: [], images: [], texts: [], audios: [] },
       );
     expect(useBoardStore.getState().past).toHaveLength(before);
+  });
+
+  it("centerSelection horizontally centers the selection bounds as one undoable edit", () => {
+    setupSelection(["s1"]);
+    useBoardStore.getState().centerSelection("horizontal");
+    const stroke = useBoardStore.getState().pages[0].strokes[0];
+    expect(stroke.points[0].x).toBeCloseTo(391);
+    expect(stroke.points[0].y).toBe(0);
+    expect(useBoardStore.getState().past).toHaveLength(3);
+    useBoardStore.getState().undo();
+    expect(useBoardStore.getState().pages[0].strokes[0].points[0].x).toBe(0);
+  });
+
+  it("centerSelection vertically centers the selection bounds", () => {
+    setupSelection(["s1"]);
+    useBoardStore.getState().centerSelection("vertical");
+    const stroke = useBoardStore.getState().pages[0].strokes[0];
+    expect(stroke.points[0].y).toBeCloseTo(557.5);
+    expect(stroke.points[0].x).toBe(0);
+  });
+
+  it("centerSelection without a selection is a no-op", () => {
+    const pageId = useBoardStore.getState().pages[0].id;
+    useBoardStore.getState().addStroke(pageId, sampleStroke("s1"));
+    const before = useBoardStore.getState().past.length;
+    useBoardStore.getState().centerSelection("horizontal");
+    expect(useBoardStore.getState().past).toHaveLength(before);
+    expect(useBoardStore.getState().pages[0].strokes[0].points[0].x).toBe(0);
   });
 
   it("recolorSelection recolors only the selected strokes", () => {
@@ -377,7 +425,7 @@ describe("selection and clipboard", () => {
     useBoardStore.getState().addStroke(pageId, sampleStroke("s3"));
     useBoardStore
       .getState()
-      .setSelection({ pageId, strokeIds: ["s1", "s3"], imageIds: [], textIds: [] });
+      .setSelection({ pageId, strokeIds: ["s1", "s3"], imageIds: [], textIds: [], audioIds: [] });
     useBoardStore.getState().deleteSelection();
     let state = useBoardStore.getState();
     expect(state.pages[0].strokes.map((s) => s.id)).toEqual(["s2"]);
@@ -447,9 +495,13 @@ describe("selection and clipboard", () => {
   it("cut then paste on another page moves the content across pages", () => {
     const firstId = useBoardStore.getState().pages[0].id;
     useBoardStore.getState().addStroke(firstId, sampleStroke("s1"));
-    useBoardStore
-      .getState()
-      .setSelection({ pageId: firstId, strokeIds: ["s1"], imageIds: [], textIds: [] });
+    useBoardStore.getState().setSelection({
+      pageId: firstId,
+      strokeIds: ["s1"],
+      imageIds: [],
+      textIds: [],
+      audioIds: [],
+    });
     useBoardStore.getState().cutSelection();
     useBoardStore.getState().setViewPageIndex(1);
     useBoardStore.getState().pasteClipboard();
@@ -478,9 +530,13 @@ describe("selection and clipboard", () => {
     useBoardStore.setState({ pages: [createPage("#b98a5f")], viewPageIndex: 0 });
     const firstId = useBoardStore.getState().pages[0].id;
     useBoardStore.getState().addStroke(firstId, sampleStroke("s1"));
-    useBoardStore
-      .getState()
-      .setSelection({ pageId: firstId, strokeIds: ["s1"], imageIds: [], textIds: [] });
+    useBoardStore.getState().setSelection({
+      pageId: firstId,
+      strokeIds: ["s1"],
+      imageIds: [],
+      textIds: [],
+      audioIds: [],
+    });
     useBoardStore.getState().copySelection();
     useBoardStore.getState().setViewPageIndex(1);
     useBoardStore.getState().pasteClipboard();
@@ -493,11 +549,47 @@ describe("selection and clipboard", () => {
   it("pasteClipboard on an earlier page does not append a page", () => {
     const pageId = useBoardStore.getState().pages[0].id;
     useBoardStore.getState().addStroke(pageId, sampleStroke("s1"));
-    useBoardStore.getState().setSelection({ pageId, strokeIds: ["s1"], imageIds: [], textIds: [] });
+    useBoardStore
+      .getState()
+      .setSelection({ pageId, strokeIds: ["s1"], imageIds: [], textIds: [], audioIds: [] });
     useBoardStore.getState().copySelection();
     useBoardStore.getState().setViewPageIndex(0);
     useBoardStore.getState().pasteClipboard();
     expect(useBoardStore.getState().pages).toHaveLength(2);
+  });
+
+  it("pasteClipboard accepts explicit content and leaves the in-memory clipboard untouched", () => {
+    useBoardStore.getState().pasteClipboard({
+      strokes: [sampleStroke("s9")],
+      images: [],
+      texts: [],
+      audios: [],
+    });
+    const state = useBoardStore.getState();
+    expect(state.pages[0].strokes).toHaveLength(1);
+    expect(state.pages[0].strokes[0].id).not.toBe("s9");
+    expect(state.pages[0].strokes[0].points[0].x).toBe(42.5);
+    expect(state.clipboard.strokes).toHaveLength(0);
+    expect(state.selection?.strokeIds).toEqual([state.pages[0].strokes[0].id]);
+  });
+
+  it("insertTextItem adds the text with history and selects it", () => {
+    useBoardStore.getState().insertTextItem({
+      id: "t1",
+      x: 40,
+      y: 40,
+      width: 360,
+      fontSize: 24,
+      color: "#1a1a1a",
+      markdown: "hello",
+    });
+    const state = useBoardStore.getState();
+    expect(state.pages[0].texts.map((t) => t.id)).toEqual(["t1"]);
+    expect(state.selection?.textIds).toEqual(["t1"]);
+    expect(state.tool).toBe("select");
+    expect(state.pages).toHaveLength(2);
+    useBoardStore.getState().undo();
+    expect(useBoardStore.getState().pages[0].texts).toHaveLength(0);
   });
 
   it("insertImage places the image, selects it, and undo removes it", () => {
@@ -556,7 +648,7 @@ describe("selection and clipboard", () => {
     });
     useBoardStore
       .getState()
-      .setSelection({ pageId, strokeIds: ["s1"], imageIds: ["i1"], textIds: [] });
+      .setSelection({ pageId, strokeIds: ["s1"], imageIds: ["i1"], textIds: [], audioIds: [] });
     useBoardStore.getState().deleteSelection();
     let state = useBoardStore.getState();
     expect(state.pages[0].strokes).toHaveLength(0);
@@ -581,7 +673,7 @@ describe("selection and clipboard", () => {
     });
     useBoardStore
       .getState()
-      .setSelection({ pageId, strokeIds: ["s1"], imageIds: ["i1"], textIds: [] });
+      .setSelection({ pageId, strokeIds: ["s1"], imageIds: ["i1"], textIds: [], audioIds: [] });
     useBoardStore.getState().copySelection();
     expect(useBoardStore.getState().clipboard.images[0].imageId).toBe("blob-1");
     useBoardStore.getState().pasteClipboard();

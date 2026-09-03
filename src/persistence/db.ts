@@ -1,4 +1,5 @@
 import { type DBSchema, type IDBPDatabase, openDB } from "idb";
+import type { AudioItem } from "../model/audioItem";
 import type { ImageItem } from "../model/image";
 import type { PagePattern, PdfSource } from "../model/page";
 import type { Stroke } from "../model/stroke";
@@ -25,6 +26,7 @@ export interface PageRecord {
   strokes: Stroke[];
   images?: ImageItem[];
   texts?: TextItem[];
+  audios?: AudioItem[];
   pdfSource?: PdfSource;
 }
 
@@ -44,18 +46,26 @@ export interface GeometryRecord {
   document: string;
 }
 
+export interface MediaRecord {
+  id: string;
+  kind: "video" | "audio";
+  mimeType: string;
+  blob: Blob;
+}
+
 interface VasDB extends DBSchema {
   notebooks: { key: string; value: NotebookRecord };
   pages: { key: string; value: PageRecord; indexes: { "by-notebook": string } };
   images: { key: string; value: ImageRecord };
   pdfs: { key: string; value: PdfRecord };
   geometries: { key: string; value: GeometryRecord };
+  media: { key: string; value: MediaRecord };
 }
 
 let dbPromise: Promise<IDBPDatabase<VasDB>> | null = null;
 
 export function db(): Promise<IDBPDatabase<VasDB>> {
-  dbPromise ??= openDB<VasDB>("vas", 4, {
+  dbPromise ??= openDB<VasDB>("vas", 5, {
     upgrade(database, oldVersion) {
       if (oldVersion < 1) {
         database.createObjectStore("notebooks", { keyPath: "id" });
@@ -70,6 +80,9 @@ export function db(): Promise<IDBPDatabase<VasDB>> {
       }
       if (oldVersion < 4) {
         database.createObjectStore("geometries", { keyPath: "id" });
+      }
+      if (oldVersion < 5) {
+        database.createObjectStore("media", { keyPath: "id" });
       }
     },
   });

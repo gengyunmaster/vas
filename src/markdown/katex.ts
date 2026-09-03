@@ -1,3 +1,5 @@
+import { applyMathColorSpans } from "./mathColor";
+
 let loading: Promise<void> | null = null;
 
 interface KatexModule {
@@ -24,7 +26,10 @@ export function ensureKatex(): Promise<void> {
 export function renderMathHtml(latex: string, displayMode: boolean): string | null {
   if (!katexModule) return null;
   try {
-    return katexModule.renderToString(latex, { displayMode, throwOnError: false });
+    return katexModule.renderToString(applyMathColorSpans(latex), {
+      displayMode,
+      throwOnError: false,
+    });
   } catch {
     return null;
   }

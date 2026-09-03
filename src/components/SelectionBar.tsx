@@ -1,6 +1,7 @@
-import type { CSSProperties } from "react";
+import { type CSSProperties, useRef } from "react";
 import { COLORS, useBoardStore } from "../store/useBoardStore";
 import { ColorField } from "./ColorField";
+import { usePresence } from "./usePresence";
 
 export function SelectionBar() {
   const selection = useBoardStore((state) => state.selection);
@@ -29,30 +30,40 @@ export function SelectionBar() {
     if (!sel || sel.strokeIds.length > 0 || sel.imageIds.length > 0) return null;
     return sel.textIds.length === 1 ? sel.textIds[0] : null;
   });
-  if (!selection || !anchor || tool !== "select" || exporting) return null;
+  const visible = selection !== null && anchor !== null && tool === "select" && !exporting;
+  const presence = usePresence(visible, 120);
+  const lastShown = useRef<{
+    selection: NonNullable<typeof selection>;
+    anchor: NonNullable<typeof anchor>;
+  } | null>(null);
+  if (selection && anchor) lastShown.current = { selection, anchor };
+  if (!presence.mounted || !lastShown.current) return null;
+  const shown = selection && anchor ? { selection, anchor } : lastShown.current;
+  const { selection: shownSelection, anchor: shownAnchor } = shown;
 
   const { recolorSelection, cutSelection, copySelection, deleteSelection, editGeometry } =
     useBoardStore.getState();
+  const { centerSelection } = useBoardStore.getState();
 
   const editText = () => {
     if (!editableTextItemId) return;
     useBoardStore.getState().setSelection(null);
     useBoardStore
       .getState()
-      .setEditingText({ pageId: selection.pageId, itemId: editableTextItemId });
+      .setEditingText({ pageId: shownSelection.pageId, itemId: editableTextItemId });
   };
 
   return (
     <div
-      className="selection-bar"
+      className={presence.closing ? "selection-bar closing" : "selection-bar"}
       style={{
-        left: `clamp(${Math.min(190, (window.innerWidth - 12) / 2)}px, ${anchor.x}px, calc(100vw - ${Math.min(190, (window.innerWidth - 12) / 2)}px))`,
-        top: Math.max(anchor.y, 52),
+        left: `clamp(${Math.min(190, (window.innerWidth - 12) / 2)}px, ${shownAnchor.x}px, calc(100vw - ${Math.min(190, (window.innerWidth - 12) / 2)}px))`,
+        top: Math.max(shownAnchor.y, 52),
       }}
       role="toolbar"
       aria-label="Selection actions"
     >
-      {(selection.strokeIds.length > 0 || selection.textIds.length > 0) && (
+      {(shownSelection.strokeIds.length > 0 || shownSelection.textIds.length > 0) && (
         <>
           {COLORS.map((c) => (
             <button
@@ -74,7 +85,7 @@ export function SelectionBar() {
         <button
           type="button"
           className="text-btn"
-          onClick={() => editGeometry(selection.pageId, editableGeometryItemId)}
+          onClick={() => editGeometry(shownSelection.pageId, editableGeometryItemId)}
         >
           Edit
         </button>
@@ -84,6 +95,22 @@ export function SelectionBar() {
           Edit
         </button>
       )}
+      <button
+        type="button"
+        className="text-btn"
+        title="Center horizontally on page"
+        onClick={() => centerSelection("horizontal")}
+      >
+        Center H
+      </button>
+      <button
+        type="button"
+        className="text-btn"
+        title="Center vertically on page"
+        onClick={() => centerSelection("vertical")}
+      >
+        Center V
+      </button>
       <button type="button" className="text-btn" onClick={cutSelection}>
         Cut
       </button>

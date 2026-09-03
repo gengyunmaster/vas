@@ -49,6 +49,14 @@ import {
 import { resolveSnap, snapDisplacement, snapToAngledLine } from "../snapping";
 import { SNAP_TOLERANCE_PX } from "../tools/constants";
 import { ensureKatex } from "./katex";
+import {
+  LABEL_GAP,
+  LABEL_VIEW_MARGIN,
+  type LabelCandidate,
+  type LabelRect,
+  pickLabelSpot,
+  rectAround,
+} from "./labelLayout";
 import { boardPalette } from "./palette";
 
 export interface BoardCallbacks {
@@ -293,6 +301,31 @@ const plotLabelText = (object: GeoDocument["objects"][string]): string => {
   return "";
 };
 
+// Offsets from the anchor sample, in preference order: right-up matches the
+// long-standing default look, the rest give the anti-overlap pass room.
+const PLOT_LABEL_OFFSETS: XY[] = [
+  [16, -16],
+  [16, 16],
+  [-16, -16],
+  [-16, 16],
+];
+
+interface AxisLabelState {
+  text: JXG.Text;
+  origin: JXG.Point;
+  through: JXG.Point;
+  visible: boolean;
+  px: XY | null;
+}
+
+interface PlotState {
+  curves: JXG.Curve[];
+  fragments: XY[][];
+  label: JXG.Text | null;
+  labelContent: string | null;
+  labelVisible: boolean;
+}
+
 export class BoardController {
   private readonly board: JXG.Board;
   private readonly container: HTMLElement;
@@ -312,7 +345,7 @@ export class BoardController {
       helper: JXG.Point;
       lines: JXG.Line[];
       tickDistance: number;
-      labels: { text: JXG.Text; origin: JXG.Point; through: JXG.Point }[];
+      labels: AxisLabelState[];
     }
   >();
   private readonly sliders = new Map<
@@ -320,10 +353,7 @@ export class BoardController {
     { a: JXG.Point; b: JXG.Point; track: JXG.Line; handle: JXG.Point }
   >();
   private readonly circumcircleHelpers = new Map<ObjectId, JXG.Point>();
-  private readonly plots = new Map<
-    ObjectId,
-    { curves: JXG.Curve[]; fragments: XY[][]; label: JXG.Text | null; labelContent: string | null }
-  >();
+  private readonly plots = new Map<ObjectId, PlotState>();
   private readonly iterations = new Map<ObjectId, { points: JXG.Point[] }>();
   private readonly texts = new Map<ObjectId, JXG.Text>();
   private readonly textContents = new Map<ObjectId, string>();
@@ -365,8 +395,7 @@ export class BoardController {
           this.syncPlot(object.id, document);
         }
       }
-      for (const state of this.axisStates.values()) this.positionAxisLabels(state);
-      for (const state of this.plots.values()) this.positionPlotLabel(state);
+      this.layoutPlotLabels();
       for (const [id, state] of this.coordinateLabels) {
         const point = this.points.get(id);
         const object = document.objects[id];
@@ -393,6 +422,10 @@ export class BoardController {
           }
         }
         this.board.fullUpdate();
+        // KaTeX glyphs have different extents than the plain-text stand-ins
+        // measured at creation, so re-run the anti-overlap pass with real sizes.
+        this.layoutPlotLabels();
+        this.board.update();
       })
       .catch(() => {
         // Chunk load failed; labels stay plain and the next controller retries.
@@ -602,6 +635,7 @@ export class BoardController {
         this.restyle(object.id, this.selectedId === object.id);
       }
     }
+    this.layoutPlotLabels();
     this.board.update();
     debugLog(
       `sync objects=${Object.keys(document.objects).length} points=${this.points.size} shapes=${this.shapes.size}`,
@@ -1132,12 +1166,24 @@ export class BoardController {
         fixed: false,
       });
       const lines: JXG.Line[] = [this.createAxisLine(originPoint, unitPoint, tickDistance)];
-      const labels: { text: JXG.Text; origin: JXG.Point; through: JXG.Point }[] = [];
+      const labels: AxisLabelState[] = [];
       if (object.kind === "axisSystem") {
         lines.push(this.createAxisLine(originPoint, helper, tickDistance));
         labels.push(
-          { text: this.createFloatingLabel("x"), origin: originPoint, through: unitPoint },
-          { text: this.createFloatingLabel("y"), origin: originPoint, through: helper },
+          {
+            text: this.createFloatingLabel("x"),
+            origin: originPoint,
+            through: unitPoint,
+            visible: true,
+            px: null,
+          },
+          {
+            text: this.createFloatingLabel("y"),
+            origin: originPoint,
+            through: helper,
+            visible: true,
+            px: null,
+          },
         );
       }
       for (const line of lines) {
@@ -1173,6 +1219,7 @@ export class BoardController {
       (line as unknown as { defaultTicks: JXG.Ticks }).defaultTicks.setAttribute({ visible });
     }
     for (const label of state.labels) {
+      label.visible = visible;
       label.text.setAttribute({ visible, strokeColor: boardPalette.textStroke });
     }
     this.restyle(id, this.selectedId === id);
@@ -1281,7 +1328,7 @@ export class BoardController {
               : null;
     let state = this.plots.get(id);
     if (!state) {
-      state = { curves: [], fragments: [], label: null, labelContent: null };
+      state = { curves: [], fragments: [], label: null, labelContent: null, labelVisible: false };
       this.plots.set(id, state);
     }
     const plotState = state;
@@ -1324,7 +1371,7 @@ export class BoardController {
     const node = (label as unknown as { rendNode?: HTMLElement }).rendNode;
     const halfWidth = (node?.offsetWidth ?? 0) / 2;
     const halfHeight = (node?.offsetHeight ?? 0) / 2;
-    const margin = 8;
+    const margin = LABEL_VIEW_MARGIN;
     const width = this.board.canvasWidth;
     const height = this.board.canvasHeight;
     return [
@@ -1342,11 +1389,12 @@ export class BoardController {
   // Axis arrowheads sit exactly on the view boundary, so the x/y labels are
   // floating texts repositioned on every sync and pan/zoom: at the ray's exit
   // point, pulled inward along the axis and lifted sideways, clamped on-canvas.
-  private positionAxisLabels(state: {
-    labels: { text: JXG.Text; origin: JXG.Point; through: JXG.Point }[];
-  }): void {
+  // The final screen position is recorded so plot labels can avoid covering it.
+  private positionAxisLabels(state: { labels: AxisLabelState[] }): void {
     const [left, top, right, bottom] = this.board.getBoundingBox();
-    for (const { text, origin, through } of state.labels) {
+    for (const label of state.labels) {
+      label.px = null;
+      const { text, origin, through } = label;
       const dx = through.X() - origin.X();
       const dy = through.Y() - origin.Y();
       const length = Math.hypot(dx, dy);
@@ -1366,23 +1414,20 @@ export class BoardController {
       const dirPx: XY = [(tipPx[0] - originPx[0]) / spanPx, (tipPx[1] - originPx[1]) / spanPx];
       let lift: XY = [-dirPx[1], dirPx[0]];
       if (lift[1] > 0) lift = [-lift[0], -lift[1]];
-      text.setPosition(
-        JXG.COORDS_BY_SCREEN,
-        this.clampLabelToView(text, [
-          tipPx[0] - dirPx[0] * 22 + lift[0] * 12,
-          tipPx[1] - dirPx[1] * 22 + lift[1] * 12,
-        ]),
-      );
+      const px = this.clampLabelToView(text, [
+        tipPx[0] - dirPx[0] * 22 + lift[0] * 12,
+        tipPx[1] - dirPx[1] * 22 + lift[1] * 12,
+      ]);
+      label.px = px;
+      text.setPosition(JXG.COORDS_BY_SCREEN, px);
     }
   }
 
-  private syncPlotLabel(
-    object: GeoDocument["objects"][string],
-    state: { fragments: XY[][]; label: JXG.Text | null; labelContent: string | null },
-  ): void {
+  private syncPlotLabel(object: GeoDocument["objects"][string], state: PlotState): void {
     const content = plotLabelText(object);
     const show =
       content !== "" && !object.hidden && state.fragments.some((fragment) => fragment.length > 0);
+    state.labelVisible = show;
     if (show && !state.label) {
       state.label = this.createFloatingLabel("");
       state.labelContent = null;
@@ -1394,17 +1439,46 @@ export class BoardController {
       state.labelContent = content;
     }
     label.setAttribute({ visible: show, strokeColor: boardPalette.textStroke });
-    if (show) this.positionPlotLabel(state);
   }
 
-  // Plot labels anchor to the visible sample with the most clearance from
-  // every view edge (ties break rightward) and are clamped on-canvas, so they
-  // sit on a readable stretch of the curve instead of hugging the boundary.
-  private positionPlotLabel(state: { fragments: XY[][]; label: JXG.Text | null }): void {
+  private labelRect(label: JXG.Text, center: XY): LabelRect {
+    const node = (label as unknown as { rendNode?: HTMLElement }).rendNode;
+    return rectAround(center, (node?.offsetWidth ?? 0) / 2, (node?.offsetHeight ?? 0) / 2);
+  }
+
+  // Plot labels anchor beside a visible sample of their own curve, preferring
+  // the spot with the most clearance from the view edges (ties break
+  // rightward). One global pass keeps every placed label's rect as an
+  // obstacle — axis x/y labels first, then plot labels in creation order — so
+  // later labels move along their curve to a free spot instead of stacking on
+  // top of an existing label or covering an axis letter.
+  private layoutPlotLabels(): void {
+    const obstacles: LabelRect[] = [];
+    for (const state of this.axisStates.values()) {
+      this.positionAxisLabels(state);
+      for (const label of state.labels) {
+        if (label.visible && label.px) obstacles.push(this.labelRect(label.text, label.px));
+      }
+    }
+    for (const state of this.plots.values()) {
+      const label = state.label;
+      if (!label || !state.labelVisible) continue;
+      const spot = this.pickPlotLabelSpot(state, obstacles);
+      if (!spot) continue;
+      label.setPosition(JXG.COORDS_BY_SCREEN, spot);
+      obstacles.push(this.labelRect(label, spot));
+    }
+  }
+
+  private pickPlotLabelSpot(state: PlotState, obstacles: LabelRect[]): XY | null {
     const label = state.label;
-    if (!label) return;
+    if (!label) return null;
+    const node = (label as unknown as { rendNode?: HTMLElement }).rendNode;
+    const halfWidth = (node?.offsetWidth ?? 0) / 2;
+    const halfHeight = (node?.offsetHeight ?? 0) / 2;
     const width = this.board.canvasWidth;
     const height = this.board.canvasHeight;
+    const candidates: LabelCandidate[] = [];
     let anchor: XY | null = null;
     let bestClearance = -Infinity;
     for (const fragment of state.fragments) {
@@ -1418,13 +1492,25 @@ export class BoardController {
           bestClearance = clearance;
           anchor = px;
         }
+        for (const offset of PLOT_LABEL_OFFSETS) {
+          candidates.push({ center: [px[0] + offset[0], px[1] + offset[1]], clearance });
+        }
       }
     }
-    if (!anchor) return;
-    label.setPosition(
-      JXG.COORDS_BY_SCREEN,
-      this.clampLabelToView(label, [anchor[0] + 16, anchor[1] - 16]),
+    const spot = pickLabelSpot(
+      candidates,
+      halfWidth,
+      halfHeight,
+      obstacles,
+      { width, height },
+      LABEL_VIEW_MARGIN,
+      LABEL_GAP,
     );
+    if (spot) return spot;
+    // Degenerate case (label wider than the view, or every sample off-canvas):
+    // fall back to the max-clearance anchor clamped into the view.
+    if (!anchor) return null;
+    return this.clampLabelToView(label, [anchor[0] + 16, anchor[1] - 16]);
   }
 
   private syncIteration(id: ObjectId, document: GeoDocument): void {

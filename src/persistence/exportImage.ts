@@ -1,5 +1,6 @@
-import { ensureImageLoaded } from "../engine/imageCache";
+import { acquireFirstFrames, ensureImageLoaded } from "../engine/imageCache";
 import { paintElements, paintPageForExport } from "../engine/renderPage";
+import type { AudioItem } from "../model/audioItem";
 import type { ImageItem } from "../model/image";
 import { type Page, trimTrailingBlankPages } from "../model/page";
 import type { Stroke } from "../model/stroke";
@@ -40,37 +41,54 @@ export async function exportSelectionPng(
   strokes: Stroke[],
   images: ImageItem[],
   texts: TextItem[] = [],
+  audios: AudioItem[] = [],
+  paperColor = "#ffffff",
 ): Promise<void> {
   const bounds = elementsBounds(
     strokes,
     images,
     texts.map((item) => ({ item, height: textItemHeight(item) })),
+    audios,
   );
   if (!bounds) return;
-  await ensureAllImagesLoaded(images, texts);
-  const canvas = document.createElement("canvas");
-  await paintElements(
-    canvas,
-    strokes,
-    images,
-    bounds,
-    cappedRenderScale(PNG_SCALE, bounds.maxX - bounds.minX, bounds.maxY - bounds.minY),
-    texts,
-  );
-  downloadBlob(await canvasToPng(canvas), `${title}-selection.png`);
+  const ids = imageIdsInScope(images, texts);
+  await Promise.all(ids.map((id) => ensureImageLoaded(id)));
+  const release = await acquireFirstFrames(ids);
+  try {
+    const canvas = document.createElement("canvas");
+    await paintElements(
+      canvas,
+      strokes,
+      images,
+      bounds,
+      cappedRenderScale(PNG_SCALE, bounds.maxX - bounds.minX, bounds.maxY - bounds.minY),
+      texts,
+      audios,
+      paperColor,
+    );
+    downloadBlob(await canvasToPng(canvas), `${title}-selection.png`);
+  } finally {
+    release();
+  }
 }
 
 async function renderPageCanvas(page: Page): Promise<HTMLCanvasElement> {
-  await ensureAllImagesLoaded(page.images, page.texts);
-  const canvas = document.createElement("canvas");
-  await paintPageForExport(canvas, page, cappedRenderScale(PNG_SCALE, page.width, page.height));
-  return canvas;
+  const ids = imageIdsInScope(page.images, page.texts);
+  await Promise.all(ids.map((id) => ensureImageLoaded(id)));
+  const release = await acquireFirstFrames(ids);
+  try {
+    const canvas = document.createElement("canvas");
+    await paintPageForExport(canvas, page, cappedRenderScale(PNG_SCALE, page.width, page.height));
+    return canvas;
+  } finally {
+    release();
+  }
 }
 
-async function ensureAllImagesLoaded(images: ImageItem[], texts: TextItem[]): Promise<void> {
+function imageIdsInScope(images: ImageItem[], texts: TextItem[]): string[] {
   const ids = new Set(images.map((image) => image.imageId));
   for (const text of texts) for (const id of textImageRefs(text.markdown)) ids.add(id);
-  await Promise.all([...ids].map((id) => ensureImageLoaded(id)));
+  return [...ids];
 }
 
 function canvasToPng(canvas: HTMLCanvasElement): Promise<Blob> {

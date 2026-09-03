@@ -29,6 +29,7 @@ describe("parseToolPrefs", () => {
       paperColor: "#003423",
       pattern: "grid",
       sidebarOpen: true,
+      theme: "dark",
     });
     expect(parsed).toEqual({
       tool: "highlighter",
@@ -37,7 +38,16 @@ describe("parseToolPrefs", () => {
       paperColor: "#003423",
       pattern: "grid",
       sidebarOpen: true,
+      theme: "dark",
     });
+  });
+
+  it("accepts only known theme preferences", () => {
+    expect(parseToolPrefs({ theme: "system" })).toEqual({ theme: "system" });
+    expect(parseToolPrefs({ theme: "light" })).toEqual({ theme: "light" });
+    expect(parseToolPrefs({ theme: "dark" })).toEqual({ theme: "dark" });
+    expect(parseToolPrefs({ theme: "blue" })).toEqual({});
+    expect(parseToolPrefs({ theme: 1 })).toEqual({});
   });
 
   it("migrates the legacy pen field", () => {

@@ -2,7 +2,9 @@ import { ensureTextFontsLoaded } from "../fonts";
 import type { FontSpec, MeasureFn } from "./layout";
 
 export const TEXT_FONT_STACK = '"Noto Sans SC", ui-sans-serif, system-ui, sans-serif';
-export const CODE_FONT_STACK = 'ui-monospace, "Noto Sans SC", monospace';
+// Mono first: printable ASCII measures/draws monospaced; anything else (CJK)
+// falls back per glyph to Noto Sans SC, in canvas and PDF export alike.
+export const CODE_FONT_STACK = '"Noto Sans Mono", "Noto Sans SC", ui-monospace, monospace';
 
 function canvasFont(font: FontSpec): string {
   const style = font.italic ? "italic " : "";

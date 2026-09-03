@@ -645,7 +645,7 @@ function LatexField({
       <input
         type="text"
         value={value}
-        style={invalid ? { borderColor: "#cf222e" } : undefined}
+        style={invalid ? { borderColor: "var(--danger)" } : undefined}
         onChange={(event) => setValue(event.target.value)}
         onBlur={commit}
         onKeyDown={(event) => {

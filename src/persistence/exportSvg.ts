@@ -1,15 +1,17 @@
-import { ensureImageLoaded, getImageBitmap } from "../engine/imageCache";
+import { ensureImageLoaded } from "../engine/imageCache";
 import { getOutlinePoints, HIGHLIGHTER_ALPHA } from "../engine/renderStroke";
+import type { AudioItem } from "../model/audioItem";
 import { isDarkColor } from "../model/color";
 import type { Bounds } from "../model/hitTest";
 import type { ImageItem } from "../model/image";
+import { badgeToSvgElements } from "../model/mediaBadge";
 import { type Page, trimTrailingBlankPages } from "../model/page";
 import { PATTERN_DASH, patternLayout } from "../model/patternLayout";
 import { arrowHead } from "../model/shapeGeometry";
 import type { Stroke } from "../model/stroke";
 import { type TextItem, textImageRefs } from "../model/textItem";
 import { elementsBounds } from "../model/transform";
-import { layoutTextItem } from "../text/layoutItem";
+import { layoutTextItem, naturalImageSize } from "../text/layoutItem";
 import { createTextMeasurer } from "../text/measure";
 import { textItemHeight } from "../text/textHeight";
 import { textItemToSvg } from "../text/textToSvg";
@@ -48,17 +50,20 @@ export async function exportSelectionSvg(
   strokes: Stroke[],
   images: ImageItem[],
   texts: TextItem[] = [],
+  audios: AudioItem[] = [],
 ): Promise<void> {
   const bounds = elementsBounds(
     strokes,
     images,
     texts.map((item) => ({ item, height: textItemHeight(item) })),
+    audios,
   );
   if (!bounds) return;
   const imageData = await collectSelectionImageData(images, texts);
-  const svg = await pageToSvg({ ...page, strokes, images, texts }, imageData, {
+  const svg = await pageToSvg({ ...page, strokes, images, texts, audios }, imageData, {
     annotationOnly: true,
     clipTo: bounds,
+    darkPaper: false,
   });
   downloadBlob(new Blob([svg], { type: "image/svg+xml" }), `${title}-selection.svg`);
 }
@@ -91,6 +96,9 @@ export async function pageToSvg(
     // pdf-lib text layer can sit between them, matching the on-screen z-order.
     imagesOnly?: boolean;
     skipImages?: boolean;
+    // Selection exports sit on a transparent background; pass darkPaper: false
+    // so code highlighting uses the light palette.
+    darkPaper?: boolean;
   } = {},
 ): Promise<string> {
   const view = options.clipTo ?? { minX: 0, minY: 0, maxX: page.width, maxY: page.height };
@@ -115,12 +123,18 @@ export async function pageToSvg(
         `<image x="${fmt(image.x)}" y="${fmt(image.y)}" width="${fmt(image.width)}" height="${fmt(image.height)}" href="${href}" xlink:href="${href}" preserveAspectRatio="none"/>`,
       );
     }
+    // Audio badges sit between the image layer and the text layer, matching
+    // the on-screen overlay order; video items export their poster above.
+    for (const audio of page.audios) {
+      parts.push(...badgeToSvgElements(audio, page.paperColor));
+    }
   }
   const textMode = options.textMode ?? "all";
   if (!options.imagesOnly && textMode !== "none" && page.texts.length > 0) {
     const measure = await createTextMeasurer();
+    const darkPaper = options.darkPaper ?? isDarkColor(page.paperColor);
     for (const item of page.texts) {
-      const layout = await layoutTextItem(item, measure, naturalSize);
+      const layout = await layoutTextItem(item, measure, naturalImageSize, darkPaper);
       parts.push(...textItemToSvg(item, layout, imageData, textMode));
     }
   }
@@ -132,11 +146,6 @@ export async function pageToSvg(
   }
   parts.push("</svg>");
   return parts.join("\n");
-}
-
-function naturalSize(imageId: string): { width: number; height: number } | null {
-  const bitmap = getImageBitmap(imageId);
-  return bitmap ? { width: bitmap.naturalWidth, height: bitmap.naturalHeight } : null;
 }
 
 function strokeToSvg(stroke: Stroke): string {

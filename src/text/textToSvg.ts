@@ -26,9 +26,13 @@ export function textItemToSvg(
         parts.push(
           `<rect x="${fmt(deco.x)}" y="${fmt(deco.y)}" width="${fmt(deco.width)}" height="${fmt(deco.height)}" rx="8" fill="${CODE_BG_COLOR}" fill-opacity="0.06"/>`,
         );
-      } else {
+      } else if (deco.kind === "rule") {
         parts.push(
           `<rect x="${fmt(deco.x)}" y="${fmt(deco.y - 0.75)}" width="${fmt(deco.width)}" height="1.5" fill="${RULE_COLOR}" fill-opacity="0.4"/>`,
+        );
+      } else {
+        parts.push(
+          `<rect x="${fmt(deco.x)}" y="${fmt(deco.y - deco.thickness / 2)}" width="${fmt(deco.width)}" height="${fmt(deco.thickness)}" fill="${escapeHtml(deco.color)}"/>`,
         );
       }
     }
@@ -39,15 +43,22 @@ export function textItemToSvg(
       const weight = run.font.bold ? ` font-weight="700"` : "";
       const style = run.font.italic ? ` font-style="italic"` : "";
       const family = run.font.code ? CODE_FONT_STACK : TEXT_FONT_STACK;
-      parts.push(
-        `<text x="${fmt(run.x)}" y="${fmt(run.y)}" font-family="${escapeHtml(family)}" font-size="${fmt(run.font.size)}"${weight}${style} fill="${escapeHtml(run.color)}">${escapeHtml(run.text)}</text>`,
-      );
+      // xml:space="preserve": layout glues a leading space onto atoms after a
+      // break (and prices it into x), which the default whitespace handling
+      // would strip, shifting every glyph of the run one space to the left.
+      const text = `<text x="${fmt(run.x)}" y="${fmt(run.y)}" font-family="${escapeHtml(family)}" font-size="${fmt(run.font.size)}"${weight}${style} fill="${escapeHtml(run.color)}" xml:space="preserve">${escapeHtml(run.text)}</text>`;
+      if (run.link) {
+        const href = escapeHtml(run.link);
+        parts.push(`<a href="${href}" xlink:href="${href}" target="_blank">${text}</a>`);
+      } else {
+        parts.push(text);
+      }
     } else if (run.kind === "math") {
       const [vx, , vw] = run.glyph.viewBox;
       if (vw <= 0) continue;
       const scale = run.width / vw;
       parts.push(
-        `<g transform="translate(${fmt(run.x - vx * scale)} ${fmt(run.y - run.glyph.viewBox[1] * scale)}) scale(${fmt(scale)})" color="${escapeHtml(item.color)}">${run.glyph.body}</g>`,
+        `<g transform="translate(${fmt(run.x - vx * scale)} ${fmt(run.y - run.glyph.viewBox[1] * scale)}) scale(${fmt(scale)})" color="${escapeHtml(run.color)}">${run.glyph.body}</g>`,
       );
     } else {
       const dataUri = imageData.get(run.imageId);

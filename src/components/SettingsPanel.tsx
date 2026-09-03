@@ -13,13 +13,13 @@ import { SHAPE_KINDS, type ShapeKind } from "../model/stroke";
 import { exportNotebookPng, exportPagePng, exportSelectionPng } from "../persistence/exportImage";
 import { exportNotebookPdf, exportSelectionPdf } from "../persistence/exportPdf";
 import { exportNotebookSvg, exportPageSvg, exportSelectionSvg } from "../persistence/exportSvg";
-import {
-  importPdfIntoNotebook,
-  insertPdfImageFile,
-  reRasterizePdfBase,
-} from "../persistence/importPdf";
-import { insertImageFile } from "../persistence/insertImage";
+import { importPdfIntoNotebook, reRasterizePdfBase } from "../persistence/importPdf";
+import { insertFile } from "../persistence/insertFile";
+import { requestInstall, useInstallStore } from "../pwa/installPrompt";
+import { askConfirm } from "../store/dialogs";
+import { toast } from "../store/toasts";
 import { COLORS, PAPER_COLORS, SIZES, useBoardStore } from "../store/useBoardStore";
+import { THEME_PREFERENCES, type ThemePreference } from "../theme";
 import { ColorField } from "./ColorField";
 import {
   AddPageIcon,
@@ -50,7 +50,13 @@ const SHAPE_LABELS: Record<ShapeKind, string> = {
   ellipse: "Ellipse",
 };
 
-export function SettingsPanel() {
+const THEME_LABELS: Record<ThemePreference, string> = {
+  system: "Auto",
+  light: "Light",
+  dark: "Dark",
+};
+
+export function SettingsPanel({ closing = false }: { closing?: boolean }) {
   const tool = useBoardStore((state) => state.tool);
   const inkColor = useBoardStore((state) => state.color);
   const size = useBoardStore((state) => state.size);
@@ -72,7 +78,8 @@ export function SettingsPanel() {
     return (
       (page?.strokes.length ?? 0) > 0 ||
       (page?.images.some((i) => !i.locked) ?? false) ||
-      (page?.texts.length ?? 0) > 0
+      (page?.texts.length ?? 0) > 0 ||
+      (page?.audios.length ?? 0) > 0
     );
   });
   const canDeletePage = useBoardStore((state) => state.pages.length > 1);
@@ -80,15 +87,20 @@ export function SettingsPanel() {
     (state) =>
       state.clipboard.strokes.length > 0 ||
       state.clipboard.images.length > 0 ||
-      state.clipboard.texts.length > 0,
+      state.clipboard.texts.length > 0 ||
+      state.clipboard.audios.length > 0,
   );
   const sidebarOpen = useBoardStore((state) => state.sidebarOpen);
+  const theme = useBoardStore((state) => state.theme);
   const presentation = useBoardStore((state) => state.presentation);
   const pdfImporting = useBoardStore((state) =>
     state.notebookId ? (state.pdfImports[state.notebookId] ?? null) : null,
   );
   const hasSelection = useBoardStore((state) => state.selection !== null);
   const exporting = useBoardStore((state) => state.exporting);
+  const deferredPrompt = useInstallStore((state) => state.deferredPrompt);
+  const installInstalled = useInstallStore((state) => state.installed);
+  const installIos = useInstallStore((state) => state.ios);
   const [exportRange, setExportRange] = useState<"selection" | "page" | "notebook">("page");
   const imageInputRef = useRef<HTMLInputElement>(null);
   const pdfInputRef = useRef<HTMLInputElement>(null);
@@ -108,14 +120,21 @@ export function SettingsPanel() {
     pasteClipboard,
   } = useBoardStore.getState();
 
-  const confirmClear = () => {
-    if (currentPageId && window.confirm("Clear this page?")) clearPage(currentPageId);
+  const confirmClear = async () => {
+    if (!currentPageId) return;
+    const ok = await askConfirm({ title: "Clear this page?", confirmLabel: "Clear", danger: true });
+    if (ok) clearPage(currentPageId);
   };
 
-  const confirmDelete = () => {
-    if (currentPageId && window.confirm("Delete this page and everything on it?")) {
-      deletePage(currentPageId);
-    }
+  const confirmDelete = async () => {
+    if (!currentPageId) return;
+    const ok = await askConfirm({
+      title: "Delete this page?",
+      text: "Everything on it will be removed.",
+      confirmLabel: "Delete",
+      danger: true,
+    });
+    if (ok) deletePage(currentPageId);
   };
 
   const doExport = async (format: "pdf" | "svg" | "png") => {
@@ -129,15 +148,17 @@ export function SettingsPanel() {
           ? state.pages.find((candidate) => candidate.id === selection.pageId)
           : undefined;
         if (!selection || !page) return;
-        const { strokes, images, texts } = pickElements(
+        const { strokes, images, texts, audios } = pickElements(
           page,
           selection.strokeIds,
           selection.imageIds,
           selection.textIds,
+          selection.audioIds,
         );
-        if (format === "pdf") await exportSelectionPdf(title, page, strokes, images, texts);
-        else if (format === "svg") await exportSelectionSvg(title, page, strokes, images, texts);
-        else await exportSelectionPng(title, strokes, images, texts);
+        if (format === "pdf") await exportSelectionPdf(title, page, strokes, images, texts, audios);
+        else if (format === "svg")
+          await exportSelectionSvg(title, page, strokes, images, texts, audios);
+        else await exportSelectionPng(title, strokes, images, texts, audios, page.paperColor);
       } else if (exportRange === "page") {
         const page = state.pages[state.viewPageIndex];
         if (!page) return;
@@ -151,22 +172,33 @@ export function SettingsPanel() {
       }
     } catch (error) {
       console.error(`${format.toUpperCase()} export failed`, error);
-      window.alert(`${format.toUpperCase()} export failed.`);
+      toast(`${format.toUpperCase()} export failed.`);
     } finally {
       useBoardStore.getState().setExporting(false);
     }
   };
 
+  const installApp = async () => {
+    if (deferredPrompt) {
+      await requestInstall();
+      return;
+    }
+    await askConfirm({
+      title: "Install vas",
+      text: "Tap the browser's Share button, then choose 'Add to Home Screen'.",
+      confirmLabel: "Got it",
+      hideCancel: true,
+    });
+  };
+
   const pickImage = async (file: File | undefined) => {
     if (!file) return;
-    const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
     try {
-      if (isPdf) await insertPdfImageFile(file);
-      else await insertImageFile(file);
+      await insertFile(file);
     } catch (error) {
       if (error instanceof Error && error.message.startsWith("Import cancelled")) return;
-      console.error("Failed to insert image", error);
-      window.alert(error instanceof Error ? error.message : "Failed to insert image.");
+      console.error("Failed to insert file", error);
+      toast(error instanceof Error ? error.message : "Failed to insert file.");
     }
   };
 
@@ -180,15 +212,16 @@ export function SettingsPanel() {
         setPdfImport(notebookId, { done, total }),
       );
     } catch (error) {
+      if (error instanceof Error && error.message.startsWith("Import cancelled")) return;
       console.error("PDF import failed", error);
-      window.alert(error instanceof Error ? error.message : "PDF import failed");
+      toast(error instanceof Error ? error.message : "PDF import failed");
     } finally {
       setPdfImport(notebookId, null);
     }
   };
 
   return (
-    <div className="settings-panel">
+    <div className={closing ? "settings-panel closing" : "settings-panel"}>
       <section className="settings-section">
         <div className="settings-label">Tool</div>
         <div className="settings-row">
@@ -382,13 +415,13 @@ export function SettingsPanel() {
             type="button"
             title="Paste"
             disabled={!canPaste || exporting}
-            onClick={pasteClipboard}
+            onClick={() => pasteClipboard()}
           >
             <PasteIcon />
           </button>
           <button
             type="button"
-            title="Insert image"
+            title="Insert media"
             disabled={exporting}
             onClick={() => imageInputRef.current?.click()}
           >
@@ -397,7 +430,7 @@ export function SettingsPanel() {
           <input
             ref={imageInputRef}
             type="file"
-            accept="image/*,.pdf,application/pdf"
+            accept="image/*,video/*,audio/*,.pdf,application/pdf"
             hidden
             onChange={(e) => {
               void pickImage(e.target.files?.[0]);
@@ -466,6 +499,32 @@ export function SettingsPanel() {
             </div>
           )}
         </div>
+      )}
+      <section className="settings-section">
+        <div className="settings-label">Theme</div>
+        <div className="settings-row">
+          {THEME_PREFERENCES.map((t) => (
+            <button
+              key={t}
+              type="button"
+              aria-pressed={theme === t}
+              className={theme === t ? "text-option active" : "text-option"}
+              onClick={() => useBoardStore.getState().setTheme(t)}
+            >
+              {THEME_LABELS[t]}
+            </button>
+          ))}
+        </div>
+      </section>
+      {!installInstalled && (deferredPrompt || installIos) && (
+        <section className="settings-section">
+          <div className="settings-label">App</div>
+          <div className="settings-row">
+            <button type="button" className="text-option" onClick={() => void installApp()}>
+              Install app
+            </button>
+          </div>
+        </section>
       )}
       <section className="settings-section">
         <div className="settings-label">Export</div>

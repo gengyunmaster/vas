@@ -149,6 +149,7 @@ describe("trimTrailingBlankPages", () => {
     strokes: [],
     images: [],
     texts: [],
+    audios: [],
     paperColor: "#ffffff",
     pattern: "blank" as const,
   });
@@ -220,12 +221,15 @@ describe("clonePageWithNewIds", () => {
       ],
       images: [{ id: "i1", imageId: "blob-1", x: 40, y: 40, width: 100, height: 50, locked: true }],
       texts: [],
+      audios: [{ id: "a1", audioId: "media-1", x: 10, y: 10, width: 240, height: 44 }],
     };
     const clone = clonePageWithNewIds(source);
     expect(clone.id).not.toBe(source.id);
     expect(clone.strokes[0].id).not.toBe("s1");
     expect(clone.images[0].id).not.toBe("i1");
     expect(clone.images[0].imageId).toBe("blob-1");
+    expect(clone.audios[0].id).not.toBe("a1");
+    expect(clone.audios[0].audioId).toBe("media-1");
     expect(clone.width).toBe(500);
     expect(clone.height).toBe(700);
     expect(clone.paperColor).toBe("#003423");

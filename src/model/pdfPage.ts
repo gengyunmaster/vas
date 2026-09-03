@@ -9,11 +9,14 @@ export interface PdfPageImage {
   naturalHeight: number;
   // 0-based index into the source PDF; defaults to the array position when absent.
   pageIndex?: number;
+  // Whether the raster was rendered with an opaque white backdrop.
+  whiteBackground?: boolean;
 }
 
 export interface PageRange {
   from: number;
   to: number;
+  whiteBackground?: boolean;
 }
 
 export function normalizePageRange(
@@ -44,6 +47,7 @@ export function buildPdfPages(
       height: size.height,
       strokes: [],
       texts: [],
+      audios: [],
       images: [
         {
           id: newId(),
@@ -59,7 +63,18 @@ export function buildPdfPages(
       ],
       paperColor,
       pattern,
-      ...(docId ? { pdfSource: { docId, pageIndex: pdfPage.pageIndex ?? index } } : {}),
+      ...(docId
+        ? {
+            pdfSource: {
+              docId,
+              pageIndex: pdfPage.pageIndex ?? index,
+              // absent on legacy base pages, which rendered opaque white
+              ...(pdfPage.whiteBackground !== undefined
+                ? { whiteBackground: pdfPage.whiteBackground }
+                : {}),
+            },
+          }
+        : {}),
     };
   });
 }

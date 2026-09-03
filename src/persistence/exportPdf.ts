@@ -1,4 +1,5 @@
 import type { PDFDocument, PDFEmbeddedPage, PDFPage, RGB } from "pdf-lib";
+import type { AudioItem } from "../model/audioItem";
 import { hexToRgb, isDarkColor } from "../model/color";
 import type { ImageItem } from "../model/image";
 import { type Page, type PdfSource, trimTrailingBlankPages } from "../model/page";
@@ -29,11 +30,13 @@ export async function exportSelectionPdf(
   strokes: Stroke[],
   images: ImageItem[],
   texts: TextItem[] = [],
+  audios: AudioItem[] = [],
 ): Promise<void> {
   const bounds = elementsBounds(
     strokes,
     images,
     texts.map((item) => ({ item, height: textItemHeight(item) })),
+    audios,
   );
   if (!bounds) return;
   const imageData = await collectImageDataUris(selectionImageIds(images, texts), true);
@@ -41,7 +44,7 @@ export async function exportSelectionPdf(
   const heightUnits = bounds.maxY - bounds.minY;
   const width = widthUnits * PT_PER_UNIT;
   const height = heightUnits * PT_PER_UNIT;
-  const cropped = { ...page, strokes, images, texts };
+  const cropped = { ...page, strokes, images, texts, audios };
   const pdfImages = images.filter((image) => image.pdfSource);
   if (texts.length > 0 || pdfImages.length > 0) {
     // svg2pdf drops <text> and cannot embed source PDFs: selections with text or
@@ -63,15 +66,19 @@ export async function exportSelectionPdf(
       await drawPdfImage(pdflib, doc, pdfPage, image, view, caches);
     }
     const regularImages = images.filter((image) => !image.pdfSource);
-    if (regularImages.length > 0) {
+    if (regularImages.length > 0 || audios.length > 0) {
       const layerBytes = await singlePageSvgPdf(
         jsPDF,
         svg2pdf,
-        await pageToSvg({ ...page, strokes: [], images: regularImages, texts: [] }, imageData, {
-          annotationOnly: true,
-          imagesOnly: true,
-          clipTo: bounds,
-        }),
+        await pageToSvg(
+          { ...page, strokes: [], images: regularImages, texts: [], audios },
+          imageData,
+          {
+            annotationOnly: true,
+            imagesOnly: true,
+            clipTo: bounds,
+          },
+        ),
         width,
         height,
         title,
@@ -158,7 +165,10 @@ export async function exportNotebookPdf(title: string, pages: Page[]): Promise<v
   const kept = trimTrailingBlankPages(pages);
   const layered = kept.some(
     (page) =>
-      page.pdfSource || page.texts.length > 0 || page.images.some((image) => image.pdfSource),
+      page.pdfSource ||
+      page.texts.length > 0 ||
+      page.audios.length > 0 ||
+      page.images.some((image) => image.pdfSource),
   );
   if (!layered) {
     const bytes = await renderSvgLayerPdf(kept, title, "all");
@@ -226,8 +236,9 @@ async function renderSvgLayerPdf(
 async function exportLayeredPdf(title: string, pages: Page[]): Promise<void> {
   const pdflib: PdfLib = await import("pdf-lib");
   const annotationBytes = await renderSvgLayerPdf(pages, title, "strokes");
-  const hasImageLayer = pages.some((page) =>
-    page.images.some((image) => !image.locked && !image.pdfSource),
+  const hasImageLayer = pages.some(
+    (page) =>
+      page.audios.length > 0 || page.images.some((image) => !image.locked && !image.pdfSource),
   );
   const imageLayerBytes = hasImageLayer ? await renderSvgLayerPdf(pages, title, "images") : null;
   const finalDoc = await pdflib.PDFDocument.create();
@@ -274,6 +285,7 @@ async function exportLayeredPdf(title: string, pages: Page[]): Promise<void> {
         offsetX: 0,
         offsetY: 0,
         heightUnits: page.height,
+        darkPaper: isDarkColor(page.paperColor),
       });
     }
     pdfPage.drawPage(annotationPages[index], { x: 0, y: 0, width, height });
@@ -282,9 +294,10 @@ async function exportLayeredPdf(title: string, pages: Page[]): Promise<void> {
   downloadBlob(new Blob([bytes.slice()], { type: "application/pdf" }), `${title}.pdf`);
 }
 
-// A PDF-backed image embeds its original page as a vector Form XObject. Unlike
-// the locked base, no white backing is drawn: source pages that paint no
-// background stay transparent, matching the raster preview.
+// A PDF-backed image embeds its original page as a vector Form XObject. The
+// white backing follows the import-time choice: with a white background the
+// raster preview is opaque, so the vector embed gets the same backing; without
+// it, source pages that paint no background stay transparent.
 async function drawPdfImage(
   pdflib: PdfLib,
   finalDoc: PDFDocument,
@@ -306,6 +319,9 @@ async function drawPdfImage(
   };
   const embedded = await embedSourcePage(pdflib, finalDoc, source, caches);
   if (embedded) {
+    if (source.whiteBackground ?? false) {
+      pdfPage.drawRectangle({ ...rect, color: pdflib.rgb(1, 1, 1) });
+    }
     pdfPage.drawPage(embedded, rect);
     return;
   }
@@ -333,7 +349,11 @@ async function drawSourceLayer(
   };
   const embedded = await embedSourcePage(pdflib, finalDoc, source, caches);
   if (embedded) {
-    pdfPage.drawRectangle({ ...rect, color: pdflib.rgb(1, 1, 1) });
+    // the white backing matches the raster: legacy base pages (flag absent)
+    // rendered opaque white, transparent imports skip it
+    if (source.whiteBackground ?? true) {
+      pdfPage.drawRectangle({ ...rect, color: pdflib.rgb(1, 1, 1) });
+    }
     pdfPage.drawPage(embedded, rect);
     return;
   }

@@ -1,3 +1,5 @@
+import { publishMediaFrame } from "../media/mediaFrameBus";
+import type { AudioItem } from "../model/audioItem";
 import { type Bounds, ERASER_TOLERANCE, hitTestStroke, strokeBounds } from "../model/hitTest";
 import type { ImageItem } from "../model/image";
 import {
@@ -10,7 +12,7 @@ import {
   pageTops,
   pageTopY,
 } from "../model/page";
-import { imagesInLasso, strokesInLasso, textsInLasso } from "../model/selection";
+import { audiosInLasso, imagesInLasso, strokesInLasso, textsInLasso } from "../model/selection";
 import {
   createStroke,
   effectiveStrokeSize,
@@ -26,10 +28,12 @@ import {
   clampMoveDelta,
   clampScaleToPage,
   elementsBounds,
+  scaleAudio,
   scaleBounds,
   scaleImage,
   scaleStroke,
   scaleTextReflow,
+  translateAudio,
   translateBounds,
   translateImage,
   translateStroke,
@@ -39,7 +43,7 @@ import type { ViewState } from "../model/viewState";
 import { publishTextFrame, type SelectionGestureSnapshot } from "../text/textFrameBus";
 import { textItemHeight } from "../text/textHeight";
 import { get2dContext } from "./canvas";
-import { getImageBitmap, onImageLoaded } from "./imageCache";
+import { getImageBitmap, isAnimatedGif, nextGifFrameDelay, onImageLoaded } from "./imageCache";
 import { maxCacheRenderScale, PageCache } from "./pageCache";
 import { drawPagePattern } from "./patterns";
 import { drawStroke } from "./renderStroke";
@@ -70,6 +74,7 @@ export interface SelectionSnapshot {
   strokeIds: string[];
   imageIds: string[];
   textIds: string[];
+  audioIds: string[];
 }
 
 interface BoardCallbacks {
@@ -80,8 +85,8 @@ interface BoardCallbacks {
   onSelectionChange: (selection: SelectionSnapshot | null) => void;
   onSelectionAnchor: (anchor: Point | null) => void;
   onTransformSelection: (
-    before: { strokes: Stroke[]; images: ImageItem[]; texts: TextItem[] },
-    after: { strokes: Stroke[]; images: ImageItem[]; texts: TextItem[] },
+    before: { strokes: Stroke[]; images: ImageItem[]; texts: TextItem[]; audios: AudioItem[] },
+    after: { strokes: Stroke[]; images: ImageItem[]; texts: TextItem[]; audios: AudioItem[] },
   ) => void;
   onTextTap: (pageId: string, x: number, y: number) => void;
   onViewportChange: (viewState: ViewState) => void;
@@ -124,6 +129,7 @@ interface SelectionState {
   strokes: Stroke[];
   images: ImageItem[];
   texts: TextItem[];
+  audios: AudioItem[];
   bounds: Bounds;
 }
 
@@ -147,12 +153,19 @@ type SelectGesture =
     };
 
 const LASER_LIFETIME_MS = 1200;
+const ERASER_RING_RADIUS = 8;
+const GIF_TICK_MS = 120; // fallback when no frame timing is known
+const GIF_TICK_MIN_MS = 50;
+const GIF_TICK_MAX_MS = 1000;
 
 const PEN_SEEN_KEY = "vas.penSeen";
 const WHEEL_ZOOM_SETTLE_MS = 150;
 const PAGE_TURN_MS = 280;
 const WHEEL_PAGE_THRESHOLD = 120;
+const WHEEL_NOTCH_PX = 100;
+const WHEEL_STREAM_MS = 40;
 const WHEEL_ACCUM_RESET_MS = 250;
+const MAX_QUEUED_TURNS = 8;
 const SWIPE_PAGE_THRESHOLD = 80;
 const HANDLE_SIZE = 10;
 const HANDLE_HIT_RADIUS = 12;
@@ -171,6 +184,7 @@ export class Board {
   private readonly inkCache = new PageCache();
   private readonly derivedBase = new WeakMap<Page, Page>();
   private readonly derivedInk = new WeakMap<Page, Page>();
+  private readonly derivedStatic = new WeakMap<Page, { derived: Page; animated: number }>();
 
   private pages: Page[] = [];
   private viewport: Viewport = { x: 0, y: 0, scale: 1 };
@@ -179,6 +193,7 @@ export class Board {
   private penSeen = false;
 
   private pointers = new Map<number, TrackedPointer>();
+  private hover: Point | null = null;
   private stroke: ActiveStroke | null = null;
   private erasing: EraseSession | null = null;
   private laser: LaserTrail | null = null;
@@ -202,9 +217,13 @@ export class Board {
   private pageTurn: { from: Viewport; to: Viewport; fromPage: number; start: number } | null = null;
   private wheelAccum = 0;
   private wheelAccumTimer: number | undefined;
+  private pendingTurns = 0;
+  private touchpadFlipped = false;
+  private lastWheelAt = 0;
   private swipeStartY = 0;
   private swipeUsed = false;
   private rafId = 0;
+  private gifTimer: number | undefined;
   private lastReportedPage = -1;
   private lastReportedView: { x: number; y: number; scale: number } | null = null;
   private readonly stopImageListener: () => void;
@@ -223,6 +242,7 @@ export class Board {
     this.activeCanvas.addEventListener("pointermove", this.handlePointerMove);
     this.activeCanvas.addEventListener("pointerup", this.handlePointerEnd);
     this.activeCanvas.addEventListener("pointercancel", this.handlePointerEnd);
+    this.activeCanvas.addEventListener("pointerleave", this.handlePointerLeave);
     this.activeCanvas.addEventListener("contextmenu", preventDefault);
     this.activeCanvas.addEventListener("wheel", this.handleWheel, { passive: false });
     document.addEventListener("gesturestart", preventDefault);
@@ -245,10 +265,12 @@ export class Board {
       const strokeIds = new Set(this.selection.strokes.map((s) => s.id));
       const imageIds = new Set(this.selection.images.map((i) => i.id));
       const textIds = new Set(this.selection.texts.map((t) => t.id));
+      const audioIds = new Set(this.selection.audios.map((a) => a.id));
       const strokes = page?.strokes.filter((s) => strokeIds.has(s.id)) ?? [];
       const images = page?.images.filter((i) => imageIds.has(i.id)) ?? [];
       const texts = page?.texts.filter((t) => textIds.has(t.id)) ?? [];
-      const bounds = this.selectionBounds(strokes, images, texts);
+      const audios = page?.audios.filter((a) => audioIds.has(a.id)) ?? [];
+      const bounds = this.selectionBounds(strokes, images, texts, audios);
       if (!page || !bounds) {
         this.selection = null;
         this.gesture = null;
@@ -258,11 +280,12 @@ export class Board {
       } else {
         // External document change during a drag leaves the gesture anchor stale.
         this.gesture = null;
-        this.selection = { pageId: page.id, strokes, images, texts, bounds };
+        this.selection = { pageId: page.id, strokes, images, texts, audios, bounds };
       }
     }
     if (this.presenting) {
       this.pageTurn = null;
+      this.pendingTurns = 0;
       this.lockPresentation();
     } else {
       const board = boardWidth(next);
@@ -309,10 +332,12 @@ export class Board {
     const strokeIds = new Set(target.strokeIds);
     const imageIds = new Set(target.imageIds);
     const textIds = new Set(target.textIds);
+    const audioIds = new Set(target.audioIds);
     const strokes = page.strokes.filter((s) => strokeIds.has(s.id));
     const images = page.images.filter((i) => imageIds.has(i.id));
     const texts = page.texts.filter((t) => textIds.has(t.id));
-    const bounds = this.selectionBounds(strokes, images, texts);
+    const audios = page.audios.filter((a) => audioIds.has(a.id));
+    const bounds = this.selectionBounds(strokes, images, texts, audios);
     if (!bounds) return;
     if (
       this.selection &&
@@ -322,11 +347,13 @@ export class Board {
       this.selection.images.length === images.length &&
       this.selection.images.every((i) => imageIds.has(i.id)) &&
       this.selection.texts.length === texts.length &&
-      this.selection.texts.every((t) => textIds.has(t.id))
+      this.selection.texts.every((t) => textIds.has(t.id)) &&
+      this.selection.audios.length === audios.length &&
+      this.selection.audios.every((a) => audioIds.has(a.id))
     ) {
       return;
     }
-    this.selection = { pageId: target.pageId, strokes, images, texts, bounds };
+    this.selection = { pageId: target.pageId, strokes, images, texts, audios, bounds };
     this.selectionBase = null;
     this.strokeOverlayCache = null;
     this.gesture = null;
@@ -337,17 +364,20 @@ export class Board {
     strokes: Stroke[],
     images: ImageItem[],
     texts: TextItem[],
+    audios: AudioItem[] = [],
   ): Bounds | null {
     return elementsBounds(
       strokes,
       images,
       texts.map((item) => ({ item, height: textItemHeight(item) })),
+      audios,
     );
   }
 
   scrollToPage(index: number): void {
     if (this.presenting) {
       this.pageTurn = null;
+      this.pendingTurns = 0;
       this.presentationPage = Math.min(Math.max(0, index), Math.max(0, this.pages.length - 1));
       this.lockPresentation();
       this.scheduleComposite();
@@ -388,6 +418,7 @@ export class Board {
 
   destroy(): void {
     cancelAnimationFrame(this.rafId);
+    window.clearTimeout(this.gifTimer);
     window.clearTimeout(this.wheelTimer);
     window.clearTimeout(this.wheelAccumTimer);
     this.observer.disconnect();
@@ -396,6 +427,7 @@ export class Board {
     this.activeCanvas.removeEventListener("pointermove", this.handlePointerMove);
     this.activeCanvas.removeEventListener("pointerup", this.handlePointerEnd);
     this.activeCanvas.removeEventListener("pointercancel", this.handlePointerEnd);
+    this.activeCanvas.removeEventListener("pointerleave", this.handlePointerLeave);
     this.activeCanvas.removeEventListener("contextmenu", preventDefault);
     this.activeCanvas.removeEventListener("wheel", this.handleWheel);
     document.removeEventListener("gesturestart", preventDefault);
@@ -404,10 +436,15 @@ export class Board {
     this.activeCanvas.remove();
   }
 
+  notifyToolChanged(): void {
+    this.scheduleComposite();
+  }
+
   setPresentation(on: boolean): void {
     if (this.presenting === on) return;
     this.presenting = on;
     this.pageTurn = null;
+    this.pendingTurns = 0;
     this.wheelAccum = 0;
     this.panPointerId = null;
     this.lasso = null;
@@ -466,6 +503,28 @@ export class Board {
     this.scheduleComposite();
   }
 
+  // Deliberate flips are never swallowed by a running animation: they queue and
+  // apply when it settles, so one wheel notch always lands as one page turn.
+  private requestTurn(delta: number): void {
+    if (!this.pageTurn) {
+      this.turnPage(delta);
+      return;
+    }
+    this.pendingTurns = Math.max(
+      -MAX_QUEUED_TURNS,
+      Math.min(MAX_QUEUED_TURNS, this.pendingTurns + delta),
+    );
+  }
+
+  private settlePageTurn(): void {
+    this.pageTurn = null;
+    if (this.pendingTurns === 0) return;
+    const delta = this.pendingTurns > 0 ? 1 : -1;
+    this.pendingTurns -= delta;
+    this.turnPage(delta);
+    if (!this.pageTurn) this.pendingTurns = 0;
+  }
+
   private handleKeyDown = (event: KeyboardEvent): void => {
     if (!this.presenting) return;
     const target = event.target;
@@ -477,10 +536,10 @@ export class Board {
     }
     if (["ArrowDown", "ArrowRight", "PageDown", " "].includes(event.key)) {
       event.preventDefault();
-      this.turnPage(1);
+      this.requestTurn(1);
     } else if (["ArrowUp", "ArrowLeft", "PageUp"].includes(event.key)) {
       event.preventDefault();
-      this.turnPage(-1);
+      this.requestTurn(-1);
     }
   };
 
@@ -501,6 +560,7 @@ export class Board {
     const dpr = window.devicePixelRatio || 1;
     this.lastDpr = dpr;
     this.pageTurn = null;
+    this.pendingTurns = 0;
     this.screen = { width: this.container.clientWidth, height: this.container.clientHeight };
     for (const canvas of [this.baseCanvas, this.activeCanvas]) {
       canvas.width = Math.round(this.screen.width * dpr);
@@ -543,7 +603,7 @@ export class Board {
         y: from.y + (to.y - from.y) * k,
         scale: from.scale + (to.scale - from.scale) * k,
       };
-      if (t >= 1) this.pageTurn = null;
+      if (t >= 1) this.settlePageTurn();
       else this.scheduleComposite();
     }
     const vp = this.viewport;
@@ -576,6 +636,7 @@ export class Board {
       const basePage = this.basePageFor(page);
       if (live && renderScale > maxCacheRenderScale(page)) {
         this.paintPageDirect(ctx, basePage, left, tops[i], dpr);
+        this.paintLiveGifs(ctx, page, left, tops[i]);
         // Keep the gesture-time bitmap fresh; capped and incrementally updated internally.
         this.cache.sync(basePage, renderScale);
         continue;
@@ -588,6 +649,7 @@ export class Board {
       const sw = page.width * vp.scale;
       const sh = page.height * vp.scale;
       ctx.drawImage(bitmap, sx, sy, sw, sh);
+      this.paintLiveGifs(ctx, page, left, tops[i]);
       ctx.strokeStyle = "rgba(0, 0, 0, 0.15)";
       ctx.lineWidth = 1;
       ctx.strokeRect(sx + 0.5, sy + 0.5, sw - 1, sh - 1);
@@ -597,10 +659,68 @@ export class Board {
     this.renderActiveStroke(dpr);
     this.renderSelection(dpr);
     this.renderLaserTrail(dpr);
+    this.renderEraserRing(dpr);
     this.publishTexts(board, tops);
+    this.publishMedia(board, tops);
     this.reportViewPage();
     this.pushSelectionAnchor();
     this.reportViewport();
+    this.syncGifTicker();
+  }
+
+  // Animated GIFs stay out of the cached bitmaps (pageForCache) so their
+  // current frame can draw live here on every composite, even mid-stroke.
+  // A selection holding images already repaints that page's images each frame.
+  private paintLiveGifs(
+    ctx: CanvasRenderingContext2D,
+    page: Page,
+    left: number,
+    top: number,
+  ): void {
+    const sel = this.selection;
+    if (sel?.pageId === page.id && sel.images.length > 0) return;
+    const vp = this.viewport;
+    for (const image of page.images) {
+      if (!isAnimatedGif(image.imageId)) continue;
+      const bitmap = getImageBitmap(image.imageId);
+      if (!bitmap) continue;
+      ctx.drawImage(
+        bitmap,
+        (left + image.x - vp.x) * vp.scale,
+        (top + image.y - vp.y) * vp.scale,
+        image.width * vp.scale,
+        image.height * vp.scale,
+      );
+    }
+  }
+
+  // Animations pick frames by wall clock inside getImageBitmap; the ticker
+  // only forces repaints, timed to the nearest frame boundary. No gesture
+  // pauses: composite runs every frame during those anyway.
+  private syncGifTicker(): void {
+    if (this.gifTimer !== undefined) return;
+    const delay = this.visibleGifDelay();
+    if (delay === null) return;
+    this.gifTimer = window.setTimeout(() => {
+      this.gifTimer = undefined;
+      this.scheduleComposite();
+      // Let the loop die once no animated GIF is visible.
+      this.syncGifTicker();
+    }, delay);
+  }
+
+  private visibleGifDelay(): number | null {
+    const { first, last } = visiblePageRange(this.viewport, this.screen, this.pages);
+    let min = Number.POSITIVE_INFINITY;
+    for (let i = first; i <= last; i++) {
+      for (const image of this.pages[i]?.images ?? []) {
+        if (!isAnimatedGif(image.imageId)) continue;
+        const delay = nextGifFrameDelay(image.imageId);
+        min = Math.min(min, delay > 0 ? delay : GIF_TICK_MS);
+      }
+    }
+    if (min === Number.POSITIVE_INFINITY) return null;
+    return Math.min(GIF_TICK_MAX_MS, Math.max(GIF_TICK_MIN_MS, min));
   }
 
   private publishTexts(board: number, tops: number[]): void {
@@ -615,24 +735,47 @@ export class Board {
         y: (tops[i] - vp.y) * vp.scale,
       });
     }
-    const gesture = this.gesture;
-    const snapshot: SelectionGestureSnapshot | null = gesture
-      ? gesture.kind === "move"
-        ? { kind: "move", dx: gesture.dx, dy: gesture.dy, anchor: { x: 0, y: 0 }, sx: 1, sy: 1 }
-        : {
-            kind: "resize",
-            dx: 0,
-            dy: 0,
-            anchor: gesture.anchor,
-            sx: gesture.sx,
-            sy: gesture.sy,
-          }
-      : null;
     publishTextFrame({
       scale: vp.scale,
       pages,
-      gesture: snapshot,
+      gesture: this.gestureSnapshot(),
       selectedTextIds: this.selection?.texts.map((t) => t.id) ?? [],
+    });
+  }
+
+  private gestureSnapshot(): SelectionGestureSnapshot | null {
+    const gesture = this.gesture;
+    if (!gesture) return null;
+    return gesture.kind === "move"
+      ? { kind: "move", dx: gesture.dx, dy: gesture.dy, anchor: { x: 0, y: 0 }, sx: 1, sy: 1 }
+      : {
+          kind: "resize",
+          dx: 0,
+          dy: 0,
+          anchor: gesture.anchor,
+          sx: gesture.sx,
+          sy: gesture.sy,
+        };
+  }
+
+  private publishMedia(board: number, tops: number[]): void {
+    const vp = this.viewport;
+    const pages: { pageId: string; x: number; y: number }[] = [];
+    for (let i = 0; i < this.pages.length; i++) {
+      const page = this.pages[i];
+      if (!hasDomOverlay(page)) continue;
+      pages.push({
+        pageId: page.id,
+        x: (pageLeftX(board, page) - vp.x) * vp.scale,
+        y: (tops[i] - vp.y) * vp.scale,
+      });
+    }
+    publishMediaFrame({
+      scale: vp.scale,
+      pages,
+      gesture: this.gestureSnapshot(),
+      selectedVideoIds: this.selection?.images.filter((i) => i.videoId).map((i) => i.id) ?? [],
+      selectedAudioIds: this.selection?.audios.map((a) => a.id) ?? [],
     });
   }
 
@@ -640,8 +783,8 @@ export class Board {
     const vp = this.presenting ? this.browseViewport() : this.viewport;
     const last = this.lastReportedView;
     if (last && last.x === vp.x && last.y === vp.y && last.scale === vp.scale) return;
-    this.lastReportedView = { x: vp.x, y: vp.y, scale: vp.scale };
     if (this.screen.width === 0) return;
+    this.lastReportedView = { x: vp.x, y: vp.y, scale: vp.scale };
     this.callbacks.onViewportChange({
       x: vp.x,
       y: vp.y,
@@ -651,23 +794,41 @@ export class Board {
 
   private pageForCache(page: Page): Page {
     const sel = this.selection;
-    if (!sel || sel.pageId !== page.id) return page;
-    if (this.selectionBase?.source === page) return this.selectionBase.derived;
+    if (!sel || sel.pageId !== page.id) return this.withoutAnimatedGifs(page);
+    const cached = this.selectionBase;
+    if (cached?.source === page) return this.withoutAnimatedGifs(cached.derived);
     const strokeIds = new Set(sel.strokes.map((s) => s.id));
     const derived =
       sel.images.length > 0
         ? { ...page, strokes: [], images: [] }
         : { ...page, strokes: page.strokes.filter((s) => !strokeIds.has(s.id)) };
     this.selectionBase = { source: page, derived };
+    return this.withoutAnimatedGifs(derived);
+  }
+
+  // Animated GIFs paint live during composite (paintLiveGifs), so no frame may
+  // bake into a cached bitmap. The memo tracks the animated count because the
+  // async decode flips isAnimatedGif without any page object change.
+  private withoutAnimatedGifs(page: Page): Page {
+    let animated = 0;
+    for (const image of page.images) {
+      if (isAnimatedGif(image.imageId)) animated++;
+    }
+    if (animated === 0) return page;
+    const cached = this.derivedStatic.get(page);
+    if (cached?.animated === animated) return cached.derived;
+    const derived = { ...page, images: page.images.filter((i) => !isAnimatedGif(i.imageId)) };
+    this.derivedStatic.set(page, { derived, animated });
     return derived;
   }
 
-  // Text lives in the DOM overlay between the base and active canvases, so a
-  // page with texts keeps its ink out of the base bitmap; the strokes composite
-  // separately above the overlay (renderPageInk) to match the export order.
+  // Text and media live in DOM overlays between the base and active canvases,
+  // so a page with either keeps its ink out of the base bitmap; the strokes
+  // composite separately above the overlays (renderPageInk) to match the
+  // export order.
   private basePageFor(page: Page): Page {
     const source = this.pageForCache(page);
-    if (source.texts.length === 0) return source;
+    if (!hasDomOverlay(source)) return source;
     let derived = this.derivedBase.get(source);
     if (!derived) {
       derived = { ...source, strokes: [] };
@@ -678,10 +839,10 @@ export class Board {
 
   private inkPageFor(page: Page): Page | null {
     const source = this.pageForCache(page);
-    if (source.texts.length === 0 || source.strokes.length === 0) return null;
+    if (!hasDomOverlay(source) || source.strokes.length === 0) return null;
     let derived = this.derivedInk.get(source);
     if (!derived) {
-      derived = { ...source, images: [], pattern: "blank", paperColor: "transparent" };
+      derived = { ...source, images: [], audios: [], pattern: "blank", paperColor: "transparent" };
       this.derivedInk.set(source, derived);
     }
     return derived;
@@ -722,6 +883,33 @@ export class Board {
       return;
     }
     this.scheduleComposite();
+  }
+
+  private handlePointerLeave = (event: PointerEvent): void => {
+    if (event.pointerType === "touch" || !this.hover) return;
+    this.hover = null;
+    this.scheduleComposite();
+  };
+
+  // Two-tone ring: visible on any paper color, chalkboard included.
+  private renderEraserRing(dpr: number): void {
+    const hover = this.hover;
+    if (!hover || this.callbacks.getTool().tool !== "eraser") return;
+    const radius = ERASER_RING_RADIUS * this.viewport.scale;
+    const ctx = this.activeCtx;
+    ctx.save();
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.beginPath();
+    ctx.arc(hover.x, hover.y, radius, 0, Math.PI * 2);
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.8)";
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(hover.x, hover.y, radius, 0, Math.PI * 2);
+    ctx.strokeStyle = "rgba(20, 20, 20, 0.55)";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.restore();
   }
 
   private paintPageDirect(
@@ -1064,7 +1252,7 @@ export class Board {
   }
 
   private handlePointerDown = (event: PointerEvent): void => {
-    if (event.button === 2) return;
+    if (event.pointerType !== "touch" && event.button !== 0) return;
     if (this.callbacks.getTool().exporting) return;
     this.activeCanvas.setPointerCapture(event.pointerId);
     const pos = this.eventPos(event);
@@ -1143,9 +1331,13 @@ export class Board {
   };
 
   private handlePointerMove = (event: PointerEvent): void => {
+    const pos = this.eventPos(event);
+    if (event.pointerType !== "touch") {
+      this.hover = pos;
+      if (this.callbacks.getTool().tool === "eraser") this.scheduleComposite();
+    }
     const prev = this.pointers.get(event.pointerId);
     if (!prev) return;
-    const pos = this.eventPos(event);
     this.pointers.set(event.pointerId, { ...pos, type: event.pointerType });
 
     if (this.pinching && event.pointerType === "touch") {
@@ -1251,15 +1443,31 @@ export class Board {
     event.preventDefault();
     const unit = event.deltaMode === 2 ? this.screen.height : event.deltaMode === 1 ? 16 : 1;
     if (this.presenting) {
-      this.wheelAccum += event.deltaY * unit;
+      const delta = event.deltaY * unit;
+      if (delta === 0) return;
+      const now = performance.now();
+      const inStream = now - this.lastWheelAt < WHEEL_STREAM_MS;
+      this.lastWheelAt = now;
+      // A mouse notch arrives as a big discrete delta (or line/page units); a
+      // trackpad flick is a fast stream of small decaying ones.
+      const discrete = event.deltaMode !== 0 || (!inStream && Math.abs(delta) >= WHEEL_NOTCH_PX);
       window.clearTimeout(this.wheelAccumTimer);
       this.wheelAccumTimer = window.setTimeout(() => {
         this.wheelAccum = 0;
+        this.touchpadFlipped = false;
       }, WHEEL_ACCUM_RESET_MS);
-      if (!this.pageTurn && Math.abs(this.wheelAccum) >= WHEEL_PAGE_THRESHOLD) {
-        const delta = this.wheelAccum > 0 ? 1 : -1;
+      if (discrete) {
         this.wheelAccum = 0;
-        this.turnPage(delta);
+        this.touchpadFlipped = false;
+        this.requestTurn(delta > 0 ? 1 : -1);
+        return;
+      }
+      if (this.touchpadFlipped) return;
+      this.wheelAccum += delta;
+      if (Math.abs(this.wheelAccum) >= WHEEL_PAGE_THRESHOLD) {
+        this.wheelAccum = 0;
+        this.touchpadFlipped = true;
+        this.requestTurn(delta > 0 ? 1 : -1);
       }
       return;
     }
@@ -1302,7 +1510,7 @@ export class Board {
     const dy = midY - this.swipeStartY;
     if (Math.abs(dy) < SWIPE_PAGE_THRESHOLD) return;
     this.swipeUsed = true;
-    this.turnPage(dy < 0 ? 1 : -1);
+    this.requestTurn(dy < 0 ? 1 : -1);
   }
 
   private applyPinch(pointerId: number, prev: TrackedPointer, pos: Point): void {
@@ -1535,22 +1743,24 @@ export class Board {
     if (gesture.kind === "move") {
       if (Math.abs(gesture.dx) < 0.01 && Math.abs(gesture.dy) < 0.01) return;
       this.callbacks.onTransformSelection(
-        { strokes: sel.strokes, images: sel.images, texts: sel.texts },
+        { strokes: sel.strokes, images: sel.images, texts: sel.texts, audios: sel.audios },
         {
           strokes: sel.strokes.map((s) => translateStroke(s, gesture.dx, gesture.dy)),
           images: sel.images.map((i) => translateImage(i, gesture.dx, gesture.dy)),
           texts: sel.texts.map((t) => translateText(t, gesture.dx, gesture.dy)),
+          audios: sel.audios.map((a) => translateAudio(a, gesture.dx, gesture.dy)),
         },
       );
       return;
     }
     if (Math.abs(gesture.sx - 1) < 0.001 && Math.abs(gesture.sy - 1) < 0.001) return;
     this.callbacks.onTransformSelection(
-      { strokes: sel.strokes, images: sel.images, texts: sel.texts },
+      { strokes: sel.strokes, images: sel.images, texts: sel.texts, audios: sel.audios },
       {
         strokes: sel.strokes.map((s) => scaleStroke(s, gesture.anchor, gesture.sx, gesture.sy)),
         images: sel.images.map((i) => scaleImage(i, gesture.anchor, gesture.sx, gesture.sy)),
         texts: sel.texts.map((t) => scaleTextReflow(t, gesture.anchor, gesture.sx, gesture.sy)),
+        audios: sel.audios.map((a) => scaleAudio(a, gesture.anchor, gesture.sx, gesture.sy)),
       },
     );
   }
@@ -1564,12 +1774,13 @@ export class Board {
     const strokes = page ? strokesInLasso(page.strokes, lasso.points) : [];
     const images = page ? imagesInLasso(page.images, lasso.points) : [];
     const texts = page ? textsInLasso(page.texts, lasso.points, textItemHeight) : [];
-    const bounds = this.selectionBounds(strokes, images, texts);
+    const audios = page ? audiosInLasso(page.audios, lasso.points) : [];
+    const bounds = this.selectionBounds(strokes, images, texts, audios);
     if (!page || !bounds) {
       this.clearSelection();
       return;
     }
-    this.selection = { pageId: page.id, strokes, images, texts, bounds };
+    this.selection = { pageId: page.id, strokes, images, texts, audios, bounds };
     this.selectionBase = null;
     this.strokeOverlayCache = null;
     this.callbacks.onSelectionChange({
@@ -1577,6 +1788,7 @@ export class Board {
       strokeIds: strokes.map((s) => s.id),
       imageIds: images.map((i) => i.id),
       textIds: texts.map((t) => t.id),
+      audioIds: audios.map((a) => a.id),
     });
   }
 
@@ -1722,4 +1934,13 @@ function preventDefault(event: Event): void {
 
 function isShapeTool(tool: ToolKind): tool is ShapeKind {
   return SHAPE_KINDS.includes(tool as ShapeKind);
+}
+
+// Pages with DOM-rendered content (text items, videos, audio badges) route
+// their committed strokes through the transparent ink cache so the overlays
+// stay between the paper/images layer and the ink layer.
+function hasDomOverlay(page: Page): boolean {
+  return (
+    page.texts.length > 0 || page.audios.length > 0 || page.images.some((image) => image.videoId)
+  );
 }

@@ -12,7 +12,7 @@ function reset(): void {
     paperColor: "#ffffff",
     selection: null,
     selectionAnchor: null,
-    clipboard: { strokes: [], images: [], texts: [] },
+    clipboard: { strokes: [], images: [], texts: [], audios: [] },
     editingText: null,
     textEditOrigin: null,
   });
@@ -109,6 +109,33 @@ describe("text editing lifecycle", () => {
     expect(after.pages[0].texts).toHaveLength(1);
     expect(after.past).toHaveLength(1);
   });
+
+  it("clearPage drops the editing session when its text is cleared", () => {
+    const state = useBoardStore.getState();
+    const pageId = state.pages[0].id;
+    const itemId = state.addTextItem(pageId, 100, 100);
+    state.setEditingText({ pageId, itemId });
+    useBoardStore.getState().updateTextItem(pageId, itemId, { markdown: "note" });
+    useBoardStore.getState().clearPage(pageId);
+    const after = useBoardStore.getState();
+    expect(after.editingText).toBeNull();
+    expect(after.textEditOrigin).toBeNull();
+    expect(after.pages[0].texts).toHaveLength(0);
+  });
+
+  it("inserting an image finalizes the edit before switching to select", () => {
+    const state = useBoardStore.getState();
+    const pageId = state.pages[0].id;
+    const itemId = state.addTextItem(pageId, 100, 100);
+    state.setEditingText({ pageId, itemId });
+    useBoardStore.getState().updateTextItem(pageId, itemId, { markdown: "typed" });
+    useBoardStore.getState().insertImage("blob-1", 200, 100);
+    const after = useBoardStore.getState();
+    expect(after.editingText).toBeNull();
+    expect(after.tool).toBe("select");
+    expect(after.pages[0].texts).toHaveLength(1);
+    expect(after.past.map((edit) => edit.kind)).toEqual(["add-elements", "add-elements"]);
+  });
 });
 
 describe("text clipboard", () => {
@@ -122,7 +149,7 @@ describe("text clipboard", () => {
 
     useBoardStore
       .getState()
-      .setSelection({ pageId, strokeIds: [], imageIds: [], textIds: [itemId] });
+      .setSelection({ pageId, strokeIds: [], imageIds: [], textIds: [itemId], audioIds: [] });
     useBoardStore.getState().copySelection();
     useBoardStore.getState().setSelection(null);
     useBoardStore.getState().pasteClipboard();
