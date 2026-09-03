@@ -184,6 +184,7 @@ export class Board {
   private readonly inkCache = new PageCache();
   private readonly derivedBase = new WeakMap<Page, Page>();
   private readonly derivedInk = new WeakMap<Page, Page>();
+  private readonly derivedStatic = new WeakMap<Page, { derived: Page; animated: number }>();
 
   private pages: Page[] = [];
   private viewport: Viewport = { x: 0, y: 0, scale: 1 };
@@ -635,6 +636,7 @@ export class Board {
       const basePage = this.basePageFor(page);
       if (live && renderScale > maxCacheRenderScale(page)) {
         this.paintPageDirect(ctx, basePage, left, tops[i], dpr);
+        this.paintLiveGifs(ctx, page, left, tops[i]);
         // Keep the gesture-time bitmap fresh; capped and incrementally updated internally.
         this.cache.sync(basePage, renderScale);
         continue;
@@ -647,6 +649,7 @@ export class Board {
       const sw = page.width * vp.scale;
       const sh = page.height * vp.scale;
       ctx.drawImage(bitmap, sx, sy, sw, sh);
+      this.paintLiveGifs(ctx, page, left, tops[i]);
       ctx.strokeStyle = "rgba(0, 0, 0, 0.15)";
       ctx.lineWidth = 1;
       ctx.strokeRect(sx + 0.5, sy + 0.5, sw - 1, sh - 1);
@@ -665,17 +668,43 @@ export class Board {
     this.syncGifTicker();
   }
 
+  // Animated GIFs stay out of the cached bitmaps (pageForCache) so their
+  // current frame can draw live here on every composite, even mid-stroke.
+  // A selection holding images already repaints that page's images each frame.
+  private paintLiveGifs(
+    ctx: CanvasRenderingContext2D,
+    page: Page,
+    left: number,
+    top: number,
+  ): void {
+    const sel = this.selection;
+    if (sel?.pageId === page.id && sel.images.length > 0) return;
+    const vp = this.viewport;
+    for (const image of page.images) {
+      if (!isAnimatedGif(image.imageId)) continue;
+      const bitmap = getImageBitmap(image.imageId);
+      if (!bitmap) continue;
+      ctx.drawImage(
+        bitmap,
+        (left + image.x - vp.x) * vp.scale,
+        (top + image.y - vp.y) * vp.scale,
+        image.width * vp.scale,
+        image.height * vp.scale,
+      );
+    }
+  }
+
   // Animations pick frames by wall clock inside getImageBitmap; the ticker
-  // only forces repaints, timed to the nearest frame boundary.
+  // only forces repaints, timed to the nearest frame boundary. No gesture
+  // pauses: composite runs every frame during those anyway.
   private syncGifTicker(): void {
     if (this.gifTimer !== undefined) return;
     const delay = this.visibleGifDelay();
     if (delay === null) return;
     this.gifTimer = window.setTimeout(() => {
       this.gifTimer = undefined;
-      this.tickGifFrames();
-      // The tick may skip invalidation (gesture in progress); re-arm directly
-      // so the loop survives, and let it die once no animated GIF is visible.
+      this.scheduleComposite();
+      // Let the loop die once no animated GIF is visible.
       this.syncGifTicker();
     }, delay);
   }
@@ -692,27 +721,6 @@ export class Board {
     }
     if (min === Number.POSITIVE_INFINITY) return null;
     return Math.min(GIF_TICK_MAX_MS, Math.max(GIF_TICK_MIN_MS, min));
-  }
-
-  private tickGifFrames(): void {
-    // Writing latency outranks animation; gestures repaint continuously anyway.
-    if (this.pinching || this.wheelZooming || this.pageTurn) return;
-    if (this.stroke || this.erasing || this.lasso || this.gesture) return;
-    const renderScale = (window.devicePixelRatio || 1) * this.viewport.scale;
-    const { first, last } = visiblePageRange(this.viewport, this.screen, this.pages);
-    let dirty = false;
-    for (let i = first; i <= last; i++) {
-      const page = this.pages[i];
-      if (!page?.images.some((image) => isAnimatedGif(image.imageId))) continue;
-      dirty = true;
-      // Direct-draw past the cache pixel cap and the image-selection layer both
-      // repaint images every composite; only the cached bitmap goes stale.
-      const paintsLive =
-        renderScale > maxCacheRenderScale(page) ||
-        (this.selection?.pageId === page.id && this.selection.images.length > 0);
-      if (!paintsLive) this.cache.drop(page.id);
-    }
-    if (dirty) this.scheduleComposite();
   }
 
   private publishTexts(board: number, tops: number[]): void {
@@ -786,14 +794,31 @@ export class Board {
 
   private pageForCache(page: Page): Page {
     const sel = this.selection;
-    if (!sel || sel.pageId !== page.id) return page;
-    if (this.selectionBase?.source === page) return this.selectionBase.derived;
+    if (!sel || sel.pageId !== page.id) return this.withoutAnimatedGifs(page);
+    const cached = this.selectionBase;
+    if (cached?.source === page) return this.withoutAnimatedGifs(cached.derived);
     const strokeIds = new Set(sel.strokes.map((s) => s.id));
     const derived =
       sel.images.length > 0
         ? { ...page, strokes: [], images: [] }
         : { ...page, strokes: page.strokes.filter((s) => !strokeIds.has(s.id)) };
     this.selectionBase = { source: page, derived };
+    return this.withoutAnimatedGifs(derived);
+  }
+
+  // Animated GIFs paint live during composite (paintLiveGifs), so no frame may
+  // bake into a cached bitmap. The memo tracks the animated count because the
+  // async decode flips isAnimatedGif without any page object change.
+  private withoutAnimatedGifs(page: Page): Page {
+    let animated = 0;
+    for (const image of page.images) {
+      if (isAnimatedGif(image.imageId)) animated++;
+    }
+    if (animated === 0) return page;
+    const cached = this.derivedStatic.get(page);
+    if (cached?.animated === animated) return cached.derived;
+    const derived = { ...page, images: page.images.filter((i) => !isAnimatedGif(i.imageId)) };
+    this.derivedStatic.set(page, { derived, animated });
     return derived;
   }
 
