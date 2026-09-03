@@ -61,6 +61,7 @@ const THEME_LABELS: Record<ThemePreference, string> = {
 export function SettingsPanel({ closing = false }: { closing?: boolean }) {
   const tool = useBoardStore((state) => state.tool);
   const inkColor = useBoardStore((state) => state.color);
+  const recentColors = useBoardStore((state) => state.recentColors);
   const size = useBoardStore((state) => state.size);
   const pressureCurve = useBoardStore((state) => state.pressureCurve);
   const setPressureCurve = useBoardStore((state) => state.setPressureCurve);
@@ -307,6 +308,23 @@ export function SettingsPanel({ closing = false }: { closing?: boolean }) {
           ))}
           <ColorField value={inkColor} onChange={setColor} />
         </div>
+        {recentColors.length > 0 && (
+          <div className="settings-row recent-colors-row">
+            {recentColors.map((c) => (
+              <button
+                key={c}
+                type="button"
+                title={`Recent ${c}`}
+                aria-pressed={inkColor === c}
+                className={inkColor === c ? "swatch active" : "swatch"}
+                style={{ "--swatch": c } as CSSProperties}
+                onClick={() => setColor(c)}
+              >
+                <span />
+              </button>
+            ))}
+          </div>
+        )}
       </section>
       <section className="settings-section">
         <div className="settings-label">Size</div>

@@ -354,6 +354,10 @@ body {
   gap: 4px;
 }
 
+.recent-colors-row {
+  margin-top: 6px;
+}
+
 .settings-progress {
   display: flex;
   flex-direction: column;

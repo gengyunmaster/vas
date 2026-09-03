@@ -48,6 +48,8 @@ export const PAPER_COLORS = [
 ] as const;
 export const SIZES = [1.5, 2.5, 4.5] as const;
 
+export const RECENT_COLORS_LIMIT = 6;
+
 const MAX_HISTORY = 200;
 
 export type Edit =
@@ -124,6 +126,7 @@ interface BoardState {
   geometryEditor: { mode: "insert" } | { mode: "edit"; pageId: string; itemId: string } | null;
   color: string;
   size: number;
+  recentColors: string[];
   paperColor: string;
   pattern: PagePattern;
   theme: ThemePreference;
@@ -448,6 +451,7 @@ export const useBoardStore = create<BoardState>()((set) => ({
   geometryEditor: null,
   color: COLORS[0],
   size: SIZES[1],
+  recentColors: [],
   paperColor: PAPER_COLORS[0],
   pattern: "blank",
   theme: "system",
@@ -784,7 +788,13 @@ export const useBoardStore = create<BoardState>()((set) => ({
     }),
   toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
   requestScrollToPage: (index) => set({ pendingScrollToPage: index }),
-  setColor: (color) => set({ color }),
+  setColor: (color) =>
+    set((state) => ({
+      color,
+      recentColors: (COLORS as readonly string[]).includes(color)
+        ? state.recentColors
+        : [color, ...state.recentColors.filter((c) => c !== color)].slice(0, RECENT_COLORS_LIMIT),
+    })),
   setTheme: (theme) => set({ theme }),
   setPressureCurve: (pressureCurve) => set({ pressureCurve }),
   setDash: (dash) => set({ dash }),

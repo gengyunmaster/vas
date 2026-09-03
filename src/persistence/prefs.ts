@@ -2,7 +2,7 @@ import { normalizeHex } from "../model/color";
 import { PAGE_PATTERNS, type PagePattern } from "../model/page";
 import { PRESSURE_CURVES, type PressureCurve } from "../model/pressureCurve";
 import { TOOL_KINDS, type ToolKind } from "../model/stroke";
-import { useBoardStore } from "../store/useBoardStore";
+import { RECENT_COLORS_LIMIT, useBoardStore } from "../store/useBoardStore";
 import { THEME_PREFERENCES, type ThemePreference } from "../theme";
 
 const PREFS_KEY = "vas.toolPrefs";
@@ -17,6 +17,7 @@ interface ToolPrefs {
   theme?: ThemePreference;
   pressureCurve?: PressureCurve;
   dash?: boolean;
+  recentColors?: string[];
 }
 
 export function loadToolPrefs(): ToolPrefs {
@@ -60,6 +61,12 @@ export function parseToolPrefs(raw: unknown): ToolPrefs {
     out.pressureCurve = prefs.pressureCurve as PressureCurve;
   }
   if (typeof prefs.dash === "boolean") out.dash = prefs.dash;
+  if (Array.isArray(prefs.recentColors)) {
+    const colors = prefs.recentColors
+      .map((c) => (typeof c === "string" ? normalizeHex(c) : null))
+      .filter((c): c is string => c !== null);
+    out.recentColors = [...new Set(colors)].slice(0, RECENT_COLORS_LIMIT);
+  }
   return out;
 }
 
@@ -75,14 +82,25 @@ export function startPrefsSync(): () => void {
       state.sidebarOpen === prev.sidebarOpen &&
       state.theme === prev.theme &&
       state.pressureCurve === prev.pressureCurve &&
-      state.dash === prev.dash
+      state.dash === prev.dash &&
+      state.recentColors === prev.recentColors
     ) {
       return;
     }
     window.clearTimeout(timer);
     timer = window.setTimeout(() => {
-      const { tool, color, size, paperColor, pattern, sidebarOpen, theme, pressureCurve, dash } =
-        useBoardStore.getState();
+      const {
+        tool,
+        color,
+        size,
+        paperColor,
+        pattern,
+        sidebarOpen,
+        theme,
+        pressureCurve,
+        dash,
+        recentColors,
+      } = useBoardStore.getState();
       try {
         localStorage.setItem(
           PREFS_KEY,
@@ -96,6 +114,7 @@ export function startPrefsSync(): () => void {
             theme,
             pressureCurve,
             dash,
+            recentColors,
           }),
         );
       } catch {
