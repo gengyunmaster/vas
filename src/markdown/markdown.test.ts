@@ -38,6 +38,37 @@ describe("parseMarkdown", () => {
     expect(multi[0]).toEqual({ kind: "mathBlock", latex: "\\int_0^1 x\\,dx" });
   });
 
+  it("keeps trailing text after same-line display math", () => {
+    const blocks = parseMarkdown("$$E=mc^2$$ see above");
+    expect(blocks[0]).toEqual({ kind: "mathBlock", latex: "E=mc^2" });
+    expect(blocks[1]).toMatchObject({ kind: "paragraph" });
+    const inlines = (blocks[1] as { inlines: unknown[] }).inlines;
+    expect(inlines).toEqual([{ kind: "text", text: "see above", style: {} }]);
+  });
+
+  it("parses trailing text after display math as inline content", () => {
+    const blocks = parseMarkdown("\\[x^2\\] tail with $y$ math");
+    expect(blocks[0]).toEqual({ kind: "mathBlock", latex: "x^2" });
+    const inlines = (blocks[1] as { inlines: unknown[] }).inlines;
+    expect(inlines).toContainEqual({ kind: "math", latex: "y" });
+    expect(inlines).toContainEqual({ kind: "text", text: "tail with ", style: {} });
+  });
+
+  it("keeps trailing text after the closer of multi-line display math", () => {
+    const blocks = parseMarkdown("$$\nx^2\n$$ done");
+    expect(blocks[0]).toEqual({ kind: "mathBlock", latex: "x^2" });
+    expect(blocks[1]).toMatchObject({ kind: "paragraph" });
+    const inlines = (blocks[1] as { inlines: unknown[] }).inlines;
+    expect(inlines).toEqual([{ kind: "text", text: "done", style: {} }]);
+  });
+
+  it("keeps text around an inline display math line", () => {
+    const blocks = parseMarkdown("before\n$$x^2$$ after\nend");
+    expect(blocks.map((b) => b.kind)).toEqual(["paragraph", "mathBlock", "paragraph", "paragraph"]);
+    const last = (blocks[3] as { inlines: { text?: string }[] }).inlines;
+    expect(last[0].text).toBe("end");
+  });
+
   it("parses \\(...\\) as inline math", () => {
     const blocks = parseMarkdown("energy \\(E=mc^2\\) here");
     const inlines = (blocks[0] as { inlines: unknown[] }).inlines;
@@ -124,6 +155,17 @@ describe("parseMarkdown", () => {
     expect(items[0]).toMatchObject({ ordered: false, depth: 0 });
     expect(items[2]).toMatchObject({ ordered: true, index: 1 });
     expect(items[3]).toMatchObject({ ordered: true, index: 2 });
+  });
+
+  it("folds loose-list continuation paragraphs into the item without an index", () => {
+    const blocks = parseMarkdown("1. first para\n\n   continuation\n\n2. next");
+    expect(blocks).toHaveLength(2);
+    expect(blocks[0]).toMatchObject({ kind: "listItem", ordered: true, index: 1 });
+    expect(blocks[1]).toMatchObject({ kind: "listItem", ordered: true, index: 2 });
+    const inlines = (blocks[0] as { inlines: { kind: string; text?: string }[] }).inlines;
+    expect(inlines.map((i) => (i.kind === "text" ? i.text : "|")).join("")).toBe(
+      "first para|continuation",
+    );
   });
 
   it("parses blockquotes, code fences and rules", () => {

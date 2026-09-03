@@ -140,9 +140,12 @@ export function parseMarkdown(source: string): Block[] {
   const tokens = markdownIt().parse(source, {});
   const blocks: Block[] = [];
   const listStack: ListFrame[] = [];
+  const lastItem: (Block & { kind: "listItem" })[] = [];
   let quoteDepth = 0;
   let pendingHeading = 0;
   let paragraph = false;
+  // Set by list_item_open: only an item's first paragraph gets a marker.
+  let freshItem = false;
 
   const pushInlines = (inlines: Inline[]) => {
     if (pendingHeading > 0) {
@@ -151,14 +154,28 @@ export function parseMarkdown(source: string): Block[] {
       return;
     }
     if (listStack.length > 0) {
-      const frame = listStack[listStack.length - 1];
-      blocks.push({
+      const depth = listStack.length - 1;
+      if (!freshItem) {
+        // Loose-list continuation paragraph: part of the open item, so it
+        // must not consume an ordered index.
+        const item = lastItem[depth];
+        if (item) {
+          if (item.inlines.length > 0 && inlines.length > 0) item.inlines.push({ kind: "break" });
+          item.inlines.push(...inlines);
+          return;
+        }
+      }
+      freshItem = false;
+      const frame = listStack[depth];
+      const item: Block & { kind: "listItem" } = {
         kind: "listItem",
         ordered: frame.ordered,
         index: frame.ordered ? frame.index++ : 0,
-        depth: listStack.length - 1,
+        depth,
         inlines,
-      });
+      };
+      lastItem[depth] = item;
+      blocks.push(item);
       return;
     }
     blocks.push({ kind: "paragraph", quote: quoteDepth > 0, inlines });
@@ -187,9 +204,16 @@ export function parseMarkdown(source: string): Block[] {
       case "ordered_list_open":
         listStack.push({ ordered: true, index: Number(token.attrGet("start") ?? 1) || 1 });
         break;
+      case "list_item_open":
+        freshItem = true;
+        break;
+      case "list_item_close":
+        freshItem = false;
+        break;
       case "bullet_list_close":
       case "ordered_list_close":
         listStack.pop();
+        lastItem.length = listStack.length;
         break;
       case "blockquote_open":
         quoteDepth++;

@@ -56,20 +56,35 @@ export async function paintTextItems(
   }
 }
 
+const GLYPH_BITMAP_LIMIT = 500;
 const glyphBitmaps = new Map<string, Promise<HTMLImageElement | null>>();
 
 // MathJax glyph runs are SVG paths; rasterize once per glyph+color via the
-// same blob decoder the image cache uses.
+// same blob decoder the image cache uses. Bounded LRU; failed decodes are
+// not cached so a transient decode failure does not stick at null.
 function glyphBitmap(glyph: LatexGlyph, color: string): Promise<HTMLImageElement | null> {
   const [vx, vy, vw, vh] = glyph.viewBox;
   const key = `${color}|${glyph.body}`;
-  let task = glyphBitmaps.get(key);
-  if (!task) {
-    const svg =
-      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${vx} ${vy} ${vw} ${vh}" ` +
-      `width="${vw / 2}" height="${vh / 2}" color="${color}">${glyph.body}</svg>`;
-    task = decodeBlob(new Blob([svg], { type: "image/svg+xml" })).catch(() => null);
-    glyphBitmaps.set(key, task);
+  const cached = glyphBitmaps.get(key);
+  if (cached) {
+    glyphBitmaps.delete(key);
+    glyphBitmaps.set(key, cached);
+    return cached;
+  }
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${vx} ${vy} ${vw} ${vh}" ` +
+    `width="${vw / 2}" height="${vh / 2}" color="${color}">${glyph.body}</svg>`;
+  const task = decodeBlob(new Blob([svg], { type: "image/svg+xml" }))
+    .catch(() => null)
+    .then((bitmap) => {
+      if (bitmap === null) glyphBitmaps.delete(key);
+      return bitmap;
+    });
+  glyphBitmaps.set(key, task);
+  while (glyphBitmaps.size > GLYPH_BITMAP_LIMIT) {
+    const oldest = glyphBitmaps.keys().next().value;
+    if (oldest === undefined) break;
+    glyphBitmaps.delete(oldest);
   }
   return task;
 }

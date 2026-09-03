@@ -70,6 +70,20 @@ function mathInline(state: StateInline, silent: boolean): boolean {
   return true;
 }
 
+// Text left on the line after the closing delimiter is real content, not
+// part of the formula; re-emit it as a paragraph so the core inline rule
+// parses it (state.line already consumes the physical line).
+function pushTrailingParagraph(state: StateBlock, text: string, line: number): void {
+  const content = text.trim();
+  if (!content) return;
+  state.push("paragraph_open", "p", 1);
+  const inline = state.push("inline", "", 0);
+  inline.content = content;
+  inline.map = [line, line + 1];
+  inline.children = [];
+  state.push("paragraph_close", "p", -1);
+}
+
 function mathBlock(
   state: StateBlock,
   startLine: number,
@@ -99,6 +113,7 @@ function mathBlock(
     token.block = true;
     token.content = state.src.slice(pos, firstLineEnd).trim();
     token.map = [startLine, startLine + 1];
+    pushTrailingParagraph(state, state.src.slice(firstLineEnd + closer.length, max), startLine);
     state.line = startLine + 1;
     return true;
   }
@@ -118,6 +133,11 @@ function mathBlock(
   token.block = true;
   token.content = state.src.slice(start + 2, state.eMarks[nextLine - 1] ?? start + 2).trim();
   token.map = [startLine, nextLine + 1];
+  pushTrailingParagraph(
+    state,
+    state.src.slice(pos + closer.length, state.eMarks[nextLine]),
+    nextLine,
+  );
   state.line = nextLine + 1;
   return true;
 }

@@ -2,7 +2,7 @@ import type { PointerEvent as ReactPointerEvent } from "react";
 import { useEffect, useRef, useState } from "react";
 import "./App.css";
 import { isDarkColor } from "../model/color";
-import { askConfirm } from "../store/dialogs";
+import { askConfirm, askPrompt } from "../store/dialogs";
 import { toast } from "../store/toasts";
 import { BoardController } from "./board";
 import { applyBoardTheme, applyPaperPalette } from "./board/palette";
@@ -534,13 +534,13 @@ export default function App({ paperColor, initialDocument, onEmbed, onCancel }: 
     setActiveTool(`custom:${name}`);
   };
 
-  const handleCreateCustom = () => {
+  const handleCreateCustom = async () => {
     const selected = selectedRef.current;
     if (!selected || !documentRef.current.objects[selected]) {
       setStatus("Select the output object of the tool first");
       return;
     }
-    const name = window.prompt("Tool name", "");
+    const name = await askPrompt({ title: "Tool name" });
     if (!name?.trim()) return;
     const def = buildToolDefinition(name.trim(), documentRef.current, selected);
     if (!def) {

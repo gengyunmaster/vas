@@ -102,7 +102,7 @@ export function renderBlocksHtml(
         }
         const marker = block.ordered ? `${block.index}.` : "•";
         parts.push(
-          `<li class="md-li md-depth-${Math.min(block.depth, 4)}"><span class="md-marker">${marker}</span>${renderInlines(block.inlines, resolveImage)}</li>`,
+          `<li class="md-li md-depth-${Math.min(block.depth, 6)}"><span class="md-marker">${marker}</span>${renderInlines(block.inlines, resolveImage)}</li>`,
         );
         break;
       }

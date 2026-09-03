@@ -1,14 +1,15 @@
-// Regenerates the subset CJK fonts in public/fonts/.
+// Regenerates the subset fonts in public/fonts/.
 //
 // Full Noto Sans SC fonts (~10 MB per weight) are too heavy for the PWA
 // precache, so we ship subsets covering ASCII, Latin-1, the full GB2312
-// repertoire, and common symbols (~2.3 MB per weight). Run:
+// repertoire, and common symbols (~2.3 MB per weight). Code runs use Noto
+// Sans Mono, subset to printable ASCII only (~30 KB). Run:
 //
 //   node scripts/subset-fonts.mjs
 //
 // Source fonts are downloaded from Google Fonts when font-src/ is empty.
-// Requires the subset-font devDependency. Noto Sans SC is licensed under
-// the SIL OFL 1.1 (see public/fonts/OFL.txt).
+// Requires the subset-font devDependency. Noto Sans SC and Noto Sans Mono are
+// licensed under the SIL OFL 1.1 (see public/fonts/OFL.txt).
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -47,22 +48,22 @@ function buildCharset() {
   return [...new Set(chars)].join("");
 }
 
-async function fetchFontUrl(weight) {
+async function fetchFontUrl(family, weight) {
   const css = await fetch(
-    `https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@${weight}&display=swap`,
+    `https://fonts.googleapis.com/css2?family=${family}:wght@${weight}&display=swap`,
     { headers: { "User-Agent": TTF_USER_AGENT } },
   ).then((r) => r.text());
   const url = css.match(/url\((https:[^)]+\.ttf)\)/)?.[1];
-  if (!url) throw new Error(`no TTF url found for weight ${weight}`);
+  if (!url) throw new Error(`no TTF url found for ${family} weight ${weight}`);
   return url;
 }
 
-async function loadSourceFont(weight, fileName) {
+async function loadSourceFont(family, weight, fileName) {
   const local = join(srcDir, fileName);
   try {
     return await readFile(local);
   } catch {
-    const url = await fetchFontUrl(weight);
+    const url = await fetchFontUrl(family, weight);
     console.log(`downloading ${url}`);
     const bytes = Buffer.from(await fetch(url).then((r) => r.arrayBuffer()));
     await mkdir(srcDir, { recursive: true });
@@ -83,11 +84,23 @@ console.log(`charset: ${charset.length} code points`);
 
 for (const { weight, name } of WEIGHTS) {
   const fileName = `NotoSansSC-${name === "regular" ? "Regular" : "Bold"}.ttf`;
-  const input = await loadSourceFont(weight, fileName);
+  const input = await loadSourceFont("Noto+Sans+SC", weight, fileName);
   const output = await subsetFont(input, charset, { targetFormat: "truetype" });
   const out = join(outDir, `noto-sans-sc-${name}.ttf`);
   await writeFile(out, output);
   console.log(`${out}: ${(input.length / 1e6).toFixed(2)}MB -> ${(output.length / 1e6).toFixed(2)}MB`);
 }
+
+// Mono font for code runs: printable ASCII only (the rest falls back to the
+// Noto Sans SC subsets, on screen and in PDF exports alike).
+let ascii = "";
+for (let cp = 0x20; cp <= 0x7e; cp++) ascii += String.fromCodePoint(cp);
+const monoInput = await loadSourceFont("Noto+Sans+Mono", 400, "NotoSansMono-Regular.ttf");
+const monoOutput = await subsetFont(monoInput, ascii, { targetFormat: "truetype" });
+const monoOut = join(outDir, "noto-sans-mono-regular.ttf");
+await writeFile(monoOut, monoOutput);
+console.log(
+  `${monoOut}: ${(monoInput.length / 1e6).toFixed(2)}MB -> ${(monoOutput.length / 1e6).toFixed(2)}MB`,
+);
 
 await fetchLicense();

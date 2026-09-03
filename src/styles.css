@@ -953,6 +953,31 @@ body {
   margin: 0.1em 0;
 }
 
+/* Flattened list depth (exports indent by depth * 1.5em; cap matches html.ts). */
+.text-item .md-depth-1 {
+  margin-left: 1.5em;
+}
+
+.text-item .md-depth-2 {
+  margin-left: 3em;
+}
+
+.text-item .md-depth-3 {
+  margin-left: 4.5em;
+}
+
+.text-item .md-depth-4 {
+  margin-left: 6em;
+}
+
+.text-item .md-depth-5 {
+  margin-left: 7.5em;
+}
+
+.text-item .md-depth-6 {
+  margin-left: 9em;
+}
+
 .text-item .md-quote {
   margin: 0 0 0.5em;
   padding-left: 0.7em;
@@ -962,7 +987,7 @@ body {
 }
 
 .text-item code {
-  font-family: ui-monospace, "Noto Sans SC", monospace;
+  font-family: "Noto Sans Mono", "Noto Sans SC", ui-monospace, monospace;
   font-size: 0.86em;
   background: rgba(0, 0, 0, 0.06);
   border-radius: 4px;
@@ -970,7 +995,7 @@ body {
 }
 
 .text-item .md-code {
-  font-family: ui-monospace, "Noto Sans SC", monospace;
+  font-family: "Noto Sans Mono", "Noto Sans SC", ui-monospace, monospace;
   font-size: 0.86em;
   background: rgba(0, 0, 0, 0.06);
   border-radius: 8px;

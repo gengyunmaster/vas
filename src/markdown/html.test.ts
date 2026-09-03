@@ -37,3 +37,14 @@ describe("renderBlocksHtml code blocks", () => {
     expect(html).toBe('<pre class="md-code">let x</pre>');
   });
 });
+
+describe("renderBlocksHtml lists", () => {
+  it("emits depth classes capped at 6 for nested items", () => {
+    const nested = "- a\n  - b\n    - c\n      - d\n        - e\n          - f\n            - g";
+    const html = renderBlocksHtml(parseMarkdown(nested), noImages);
+    for (let depth = 0; depth <= 6; depth++) {
+      expect(html).toContain(`md-depth-${depth}`);
+    }
+    expect(html).not.toContain("md-depth-7");
+  });
+});

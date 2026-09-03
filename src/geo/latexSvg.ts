@@ -37,38 +37,56 @@ interface MathjaxContext {
 
 let context: Promise<MathjaxContext> | null = null;
 
-function loadMathjax(): Promise<MathjaxContext> {
-  context ??= (async () => {
+async function buildContext(): Promise<MathjaxContext> {
+  await Promise.all([
+    import("@mathjax/src/js/input/tex/ams/AmsConfiguration.js"),
+    import("@mathjax/src/js/input/tex/textmacros/TextMacrosConfiguration.js"),
+    import("@mathjax/src/js/input/tex/unicode/UnicodeConfiguration.js"),
+    import("@mathjax/src/js/input/tex/newcommand/NewcommandConfiguration.js"),
+    import("@mathjax/src/js/input/tex/noundefined/NoUndefinedConfiguration.js"),
+    import("@mathjax/src/js/input/tex/color/ColorConfiguration.js"),
+  ]);
+  const [{ mathjax }, { TeX }, { SVG }, { liteAdaptor }, { RegisterHTMLHandler }] =
     await Promise.all([
-      import("@mathjax/src/js/input/tex/ams/AmsConfiguration.js"),
-      import("@mathjax/src/js/input/tex/textmacros/TextMacrosConfiguration.js"),
-      import("@mathjax/src/js/input/tex/unicode/UnicodeConfiguration.js"),
-      import("@mathjax/src/js/input/tex/newcommand/NewcommandConfiguration.js"),
-      import("@mathjax/src/js/input/tex/noundefined/NoUndefinedConfiguration.js"),
-      import("@mathjax/src/js/input/tex/color/ColorConfiguration.js"),
+      import("@mathjax/src/js/mathjax.js"),
+      import("@mathjax/src/js/input/tex.js"),
+      import("@mathjax/src/js/output/svg.js"),
+      import("@mathjax/src/js/adaptors/liteAdaptor.js"),
+      import("@mathjax/src/js/handlers/html.js"),
     ]);
-    const [{ mathjax }, { TeX }, { SVG }, { liteAdaptor }, { RegisterHTMLHandler }] =
-      await Promise.all([
-        import("@mathjax/src/js/mathjax.js"),
-        import("@mathjax/src/js/input/tex.js"),
-        import("@mathjax/src/js/output/svg.js"),
-        import("@mathjax/src/js/adaptors/liteAdaptor.js"),
-        import("@mathjax/src/js/handlers/html.js"),
-      ]);
-    const adaptor = liteAdaptor();
-    RegisterHTMLHandler(adaptor);
-    const html = mathjax.document("", {
-      InputJax: new TeX({
-        packages: ["base", "ams", "newcommand", "noundefined", "textmacros", "unicode", "color"],
-      }),
-      OutputJax: new SVG({ fontCache: "none", linebreaks: { inline: false } }),
-    });
-    return { html, adaptor } as MathjaxContext;
-  })();
+  const adaptor = liteAdaptor();
+  RegisterHTMLHandler(adaptor);
+  const html = mathjax.document("", {
+    InputJax: new TeX({
+      packages: ["base", "ams", "newcommand", "noundefined", "textmacros", "unicode", "color"],
+    }),
+    OutputJax: new SVG({ fontCache: "none", linebreaks: { inline: false } }),
+  });
+  return { html, adaptor } as MathjaxContext;
+}
+
+function loadMathjax(): Promise<MathjaxContext> {
+  // A failed load (e.g. a transient chunk fetch error) must not poison the
+  // session: reset so the next call retries, mirroring markdown/katex.ts.
+  context ??= buildContext().catch((error: unknown) => {
+    context = null;
+    throw error;
+  });
   return context;
 }
 
+const GLYPH_CACHE_LIMIT = 500;
 const glyphCache = new Map<string, LatexGlyph | null>();
+
+function glyphCacheSet(key: string, glyph: LatexGlyph | null): void {
+  glyphCache.delete(key);
+  glyphCache.set(key, glyph);
+  while (glyphCache.size > GLYPH_CACHE_LIMIT) {
+    const oldest = glyphCache.keys().next().value;
+    if (oldest === undefined) break;
+    glyphCache.delete(oldest);
+  }
+}
 
 // Returns null when the source cannot be parsed or the output is not a single SVG.
 export async function renderLatex(latex: string, display = false): Promise<LatexGlyph | null> {
@@ -97,8 +115,10 @@ export async function renderLatex(latex: string, display = false): Promise<Latex
       }
     }
   } catch {
-    glyph = null;
+    // Transient failures (MathJax not loaded yet) are not cached: the next
+    // render must retry rather than stick at null.
+    return null;
   }
-  glyphCache.set(key, glyph);
+  glyphCacheSet(key, glyph);
   return glyph;
 }

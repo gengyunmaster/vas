@@ -265,4 +265,82 @@ describe("layoutBlocks", () => {
     expect(line.y).toBeLessThan(struck.y);
     expect(line.color).toBe(struck.color);
   });
+
+  it("sizes the line box around larger runs like headings", async () => {
+    const result = await layout("# Big", 200, 10);
+    const heading = result.runs.find((r) => r.kind === "text" && r.text === "Big");
+    if (heading?.kind !== "text") throw new Error("missing heading run");
+    // Heading is 1.6x base size: its ascent must fit above the baseline
+    // inside the box, and the reported height must reach the baseline.
+    expect(heading.y - heading.font.size * 1.15).toBeGreaterThanOrEqual(0);
+    expect(result.height).toBeGreaterThanOrEqual(heading.y);
+  });
+
+  it("spaces wrapped heading lines by the heading's own metrics", async () => {
+    const result = await layout("# aaaaaa bbbbbb cccc", 200, 10);
+    const runs = result.runs.filter((r) => r.kind === "text");
+    expect(runs).toHaveLength(3);
+    const ys = runs.map((r) => (r.kind === "text" ? r.y : 0));
+    const lineHeight = 16 * 1.5; // h1 size at base 10 is 16
+    expect(ys[1] - ys[0]).toBeGreaterThanOrEqual(lineHeight);
+    expect(ys[2] - ys[1]).toBeGreaterThanOrEqual(lineHeight);
+  });
+
+  it("keeps body text clear of a preceding heading's descent", async () => {
+    const result = await layout("# Big\n\nsmall", 200, 10);
+    const heading = result.runs.find((r) => r.kind === "text" && r.text === "Big");
+    const body = result.runs.find((r) => r.kind === "text" && r.text === "small");
+    if (heading?.kind !== "text" || body?.kind !== "text") throw new Error("missing runs");
+    expect(heading.y + heading.font.size * 0.35).toBeLessThanOrEqual(
+      body.y - body.font.size * 1.15,
+    );
+    expect(result.height).toBeGreaterThanOrEqual(body.y);
+  });
+
+  it("hard-breaks words wider than the box", async () => {
+    const word = "a".repeat(45);
+    const result = await layout(word, 100, 10);
+    const runs = result.runs.filter((r) => r.kind === "text");
+    expect(runs.length).toBeGreaterThan(1);
+    expect(runs.map((r) => (r.kind === "text" ? r.text : "")).join("")).toBe(word);
+    for (const run of runs) {
+      if (run.kind !== "text") continue;
+      expect(run.x + run.text.length * 10).toBeLessThanOrEqual(100);
+    }
+  });
+
+  it("underlines every hard-broken segment of a long link", async () => {
+    const result = await layout("[aaaaaaaaaaaaaaaaaaaaaaaaaaaaa](https://example.com)", 100, 10);
+    const linked = result.runs.filter((r) => r.kind === "text" && r.link);
+    expect(linked.length).toBeGreaterThan(1);
+    expect(result.decorations.filter((d) => d.kind === "underline")).toHaveLength(linked.length);
+  });
+
+  it("measures inline and block code at the screen's 0.86 factor", async () => {
+    const inline = await layout("some `code` here", 500, 10);
+    const code = inline.runs.find((r) => r.kind === "text" && r.text.trim() === "code");
+    if (code?.kind !== "text") throw new Error("missing code run");
+    expect(code.font.code).toBe(true);
+    expect(code.font.size).toBeCloseTo(8.6, 6);
+    const block = await layout("```\nlet x\n```", 200, 10);
+    const blockRun = block.runs.find((r) => r.kind === "text");
+    if (blockRun?.kind !== "text") throw new Error("missing block code run");
+    expect(blockRun.font.size).toBeCloseTo(8.6, 6);
+  });
+
+  it("wraps long code lines instead of overflowing the background", async () => {
+    const code = "a".repeat(30);
+    const result = await layout(`\`\`\`\n${code}\n\`\`\``, 100, 10);
+    const runs = result.runs.filter((r) => r.kind === "text");
+    expect(runs.length).toBeGreaterThan(1);
+    expect(runs.map((r) => (r.kind === "text" ? r.text : "")).join("")).toBe(code);
+    for (const run of runs) {
+      if (run.kind !== "text") continue;
+      expect(run.x).toBe(8); // CODE_PADDING
+      expect(run.x + run.text.length * 10).toBeLessThanOrEqual(92);
+    }
+    const bg = result.decorations.find((d) => d.kind === "codeBg");
+    if (bg?.kind !== "codeBg") throw new Error("missing code background");
+    expect(bg.width).toBe(100);
+  });
 });

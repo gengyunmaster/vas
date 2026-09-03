@@ -45,6 +45,57 @@ describe("text image references", () => {
       "before  after ![b](image:ok) end",
     );
   });
+
+  it("ignores refs inside fenced code blocks", () => {
+    const markdown = "![a](image:real)\n\n```\n![b](image:fenced)\n```\n\n![c](image:real-2)";
+    expect(textImageRefs(markdown)).toEqual(["real", "real-2"]);
+  });
+
+  it("ignores refs inside tilde fences and longer fences", () => {
+    const markdown = "~~~~\n![a](image:tilde)\n~~~~\n```js\n![b](image:js)\n```";
+    expect(textImageRefs(markdown)).toEqual([]);
+  });
+
+  it("requires the closing fence to be at least as long as the opener", () => {
+    const markdown = "````\n![a](image:inner)\n```\n![b](image:still-code)\n````\n![c](image:out)";
+    expect(textImageRefs(markdown)).toEqual(["out"]);
+  });
+
+  it("treats the rest of the document as code after an unclosed fence", () => {
+    const markdown = "![a](image:top)\n\n```\n![b](image:gone)\nno closer here\n![c](image:gone-2)";
+    expect(textImageRefs(markdown)).toEqual(["top"]);
+  });
+
+  it("ignores refs inside inline code spans", () => {
+    const markdown = "![a](image:real) `![b](image:span)` ![c](image:real-2)";
+    expect(textImageRefs(markdown)).toEqual(["real", "real-2"]);
+  });
+
+  it("matches inline code closers by exact backtick run length", () => {
+    const markdown = "``x ` ![a](image:inner) ` y`` ![b](image:out)";
+    expect(textImageRefs(markdown)).toEqual(["out"]);
+    const unclosed = "`x ![a](image:not-code)\n\n![b](image:after)";
+    expect(textImageRefs(unclosed)).toEqual(["not-code", "after"]);
+  });
+
+  it("keeps refs adjacent to code spans", () => {
+    const markdown = "`code`![a](image:tight)`code`";
+    expect(textImageRefs(markdown)).toEqual(["tight"]);
+  });
+
+  it("does not remap or reject refs inside code", () => {
+    const remap = new Map([["real", "mapped"]]);
+    const markdown =
+      "![a](image:real)\n\n```\n![b](image:literal)\n```\n\n`![c](image:also-literal)`";
+    expect(remapTextImageRefs(markdown, remap)).toBe(
+      "![a](image:mapped)\n\n```\n![b](image:literal)\n```\n\n`![c](image:also-literal)`",
+    );
+  });
+
+  it("does not strip refs inside code on export", () => {
+    const markdown = "```\n![a](image:ghost)\n```\n\n![b](image:ghost)";
+    expect(dropUnknownTextImageRefs(markdown, () => false)).toBe("```\n![a](image:ghost)\n```\n\n");
+  });
 });
 
 describe("isValidTextItem", () => {
