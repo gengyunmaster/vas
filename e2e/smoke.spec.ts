@@ -86,6 +86,25 @@ test("exports whole notebook as PDF", async ({ page }) => {
   expect(bytes.subarray(0, 5).toString("latin1")).toBe("%PDF-");
 });
 
+test("exports math with dynamic-font macros as vector glyphs", async ({ page }) => {
+  await openSettings(page);
+  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await page.getByRole("button", { name: "Settings" }).click();
+  await page.mouse.click(400, 320);
+  const editor = page.locator(".text-editor textarea");
+  await expect(editor).toBeVisible();
+  await editor.fill(String.raw`set $x\in\color{red}{\mathbb{R}}$ done`);
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".text-item")).toContainText("set");
+  const bytes = await downloadExport(page, "This page", "SVG");
+  const svg = bytes.toString("utf8");
+  // MathJax embeds the TeX source in data-latex attributes, so only visible
+  // <text> content proves the export fell back to rendering raw source.
+  expect(svg).not.toMatch(/<text[^>]*>[^<]*\\mathbb/);
+  expect(svg).toContain('data-c="211D"');
+  expect(svg).toContain('fill="red"');
+});
+
 test("shows an error banner for unhandled errors", async ({ page }) => {
   await page.evaluate(() => {
     window.dispatchEvent(new ErrorEvent("error", { error: new Error("boom"), message: "boom" }));

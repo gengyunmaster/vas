@@ -220,7 +220,7 @@ interface TextItem {
 - 结构：`model/`（纯函数文档模型与约束求解，全部 node 可测）、`board/`（`controller.ts` 把文档同步到 JSXGraph 画板并回写拖拽、`palette.ts` 调色板）、`tools/`（构造工具与自定义工具）、`ui/`（inspector、export 等）、`history/`（编辑器内独立的撤销栈）、`latexSvg.ts`（MathJax 懒加载封装）。
 - 编辑器文档模型与 vas 的 Page/Stroke 完全无关：一张图 = 一份 webgeo document（JSON 序列化存 `geometries` 表）+ 一份导出 SVG（存 `images` 表）。
 - 嵌入/导出管线（`ui/export.ts` 的 `composeBoardSvg`）：克隆画板 SVG → 按内容包围盒裁剪（`CROP_MARGIN`，与画板矩形求交）→ 可选底色（嵌入时 `background: null` 透明底）→ overlay 层把 KaTeX 屏幕标签换成 MathJax 矢量字形（`placeGlyph` 按实测标签 rect 缩放居中）→ `vectorizeSvgTexts` 把 JSXGraph 刻度 `<text>` 也转为矢量路径（svg2pdf 会丢弃 SVG `<text>`，不转则导出 PDF 丢刻度）。
-- LaTeX 标签双轨：屏幕上用 KaTeX（HTML overlay，快），嵌入/导出时用 MathJax 转 SVG 字形（矢量，字体风格一致）；`latexSvg.ts` 必须保持 `linebreaks: { inline: false }`（否则一个标签断成多个 svg）与 `fontCache: "none"`（字形内联，SVG 自包含）；序列化必须用 `serializeXML` 而非 `outerHTML`——后者按 HTML 规则不转义属性值中的 `<`，而 MathJax 会把 TeX 源码写进 `data-latex` 属性（如公式含 `a<b`），导致导出的 SVG 成为非法 XML（PNG 栅格化与 svg2pdf 同样失败）。
+- LaTeX 标签双轨：屏幕上用 KaTeX（HTML overlay，快），嵌入/导出时用 MathJax 转 SVG 字形（矢量，字体风格一致）；`latexSvg.ts` 必须保持 `linebreaks: { inline: false }`（否则一个标签断成多个 svg）与 `fontCache: "none"`（字形内联，SVG 自包含）；序列化必须用 `serializeXML` 而非 `outerHTML`——后者按 HTML 规则不转义属性值中的 `<`，而 MathJax 会把 TeX 源码写进 `data-latex` 属性（如公式含 `a<b`），导致导出的 SVG 成为非法 XML（PNG 栅格化与 svg2pdf 同样失败）。非常用字形的字体数据（`\mathbb` 的 double-struck、`\mathcal` 的 calligraphic、fraktur、粗斜体拉丁变体等）由 MathJax 按需动态加载：`mathjaxDynamicFonts.ts` 以**裸包路径显式 import** 的映射接管 `mathjax.asyncLoad`（每个字体文件独立懒加载 chunk，随 SW 预缓存保证离线可用），排版时经 `mathjax.handleRetriesFor` 包装以响应动态加载的 retry 信号——缺了这两步，`\mathbb{R}` 一类公式会被 MathJax 排成 merror 错误框，`renderLatex` 返回 null，导出端退化为显示 LaTeX 源码。字体模块不可用 `import.meta.glob` 指裸文件系统路径：dev 下预打包的 `@mathjax/src` 与裸路径加载的字体模块会形成两份字体类实例，动态字形注册到错误的副本上而静默失效。
 - 函数图像标签布局：每条曲线的表达式标签吸附在"离视图边缘最远"的可见采样点附近；`board/labelLayout.ts`（纯函数，单测覆盖）做全局防重叠——已放置的标签矩形（先是坐标轴 x/y 字母，再按创建顺序的各曲线标签）成为后续标签的障碍，候选点沿曲线取、含四个方向偏移，全部相撞时退化为拥挤度最小者；KaTeX 异步加载完成后按真实字形尺寸重排一次。
 - 纸色适配：编辑器画板底色 = 当前页纸色（`applyPaperPalette` + 画板宿主元素背景同步），深色纸切换 dark 调色板保证线条可见；嵌入图形本身透明底，落到什么纸色上都成立。编辑器 UI（工具栏/inspector/对话框）跟随全局明暗主题：`App.css` 顶部 `.geo` 作用域的调色板变量在 `:root[data-theme="dark"] .geo` 下整块覆盖。
 - 样式隔离：vas 全局 `.toolbar` 样式会泄漏进编辑器，`App.css` 的 `.geo .toolbar` 块负责复位（position/size）；编辑器渲染错误由 `ui/ErrorBoundary` 兜底，不拖垮笔记界面。
@@ -241,7 +241,8 @@ src/
                  imageCache（图片位图异步解码缓存）、canvas（2D 上下文工具）
   geo/           几何画板（webgeo 集成，见 3.9）：App（编辑器壳）、model（纯函数文档模型）、
                  board（JSXGraph 同步与调色板）、tools（构造工具）、ui（inspector/导出管线）、
-                 history（编辑器内撤销栈）、latexSvg（MathJax 懒加载）、test（模型与组件测试）
+                 history（编辑器内撤销栈）、latexSvg（MathJax 懒加载）、mathjaxDynamicFonts（动态字体
+                 按需加载映射）、test（模型与组件测试）
   model/         数据模型与纯函数：stroke（笔画与工具枚举、虚线参数、倾角）、page（页面几何与板面布局）、
                  pageSize（页面尺寸调整）、color（颜色）、hitTest（橡皮命中检测）、patternLayout（背景模板布局，
                  含五线谱/康奈尔）、pressureCurve（压感 gamma 曲线）、shapeRecognize（徒手笔画规整为图形）、
