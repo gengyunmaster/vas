@@ -40,7 +40,9 @@ export function decryptPdfWith(
     }
   }
   fs.writeFile(INPUT_PATH, bytes);
-  const args = ["--decrypt"];
+  // Without --deterministic-id, qpdf generates a time-based trailer ID for
+  // inputs lacking one, breaking the content-addressed docId on re-inserts.
+  const args = ["--decrypt", "--deterministic-id"];
   if (password) args.push(`--password=${password}`);
   args.push(INPUT_PATH, OUTPUT_PATH);
   let code: number;
