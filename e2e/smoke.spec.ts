@@ -96,7 +96,7 @@ test("shows an error banner for unhandled errors", async ({ page }) => {
   await expect(page.locator(".error-banner")).toHaveCount(0);
 });
 
-test("draw-and-hold snaps a rough rectangle into a shape", async ({ page }) => {
+function roughRectTrace(): { x: number; y: number }[] {
   const rect: { x: number; y: number }[] = [];
   const corners = [
     { x: 250, y: 200 },
@@ -114,12 +114,33 @@ test("draw-and-hold snaps a rough rectangle into a shape", async ({ page }) => {
       rect.push({ x: a.x + (b.x - a.x) * t + wobble, y: a.y + (b.y - a.y) * t - wobble });
     }
   }
+  return rect;
+}
+
+test("draw-and-hold snaps a rough rectangle into a shape", async ({ page }) => {
+  const rect = roughRectTrace();
   await page.mouse.move(rect[0].x, rect[0].y);
   await page.mouse.down();
   for (const p of rect.slice(1)) await page.mouse.move(p.x, p.y, { steps: 2 });
   await page.waitForTimeout(500);
   await page.mouse.up();
   await expect.poll(async () => (await pageStrokes(page))[0]?.shape).toBe("rect");
+});
+
+test("a snapped rectangle ignores further pointer movement", async ({ page }) => {
+  const rect = roughRectTrace();
+  await page.mouse.move(rect[0].x, rect[0].y);
+  await page.mouse.down();
+  for (const p of rect.slice(1)) await page.mouse.move(p.x, p.y, { steps: 2 });
+  await page.waitForTimeout(500);
+  await page.mouse.move(rect[0].x + 6, rect[0].y + 6, { steps: 3 });
+  await page.mouse.up();
+  await expect.poll(async () => (await pageStrokes(page))[0]?.shape).toBe("rect");
+  const stroke = (await pageStrokes(page))[0];
+  if (!stroke) throw new Error("expected a committed stroke");
+  const [a, b] = stroke.points as { x: number; y: number }[];
+  expect(Math.abs(b.x - a.x)).toBeGreaterThan(100);
+  expect(Math.abs(b.y - a.y)).toBeGreaterThan(80);
 });
 
 test("a quick stroke stays freehand", async ({ page }) => {

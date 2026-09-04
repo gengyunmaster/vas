@@ -116,6 +116,7 @@ interface ActiveStroke {
   color: string;
   size: number;
   shape?: ShapeKind;
+  shapeLocked?: boolean;
   dash?: boolean;
   simulatePressure: boolean;
   points: StrokePoint[];
@@ -1388,7 +1389,7 @@ export class Board {
         const pageIndex = this.pages.findIndex((p) => p.id === stroke.pageId);
         if (pageIndex >= 0) {
           if (stroke.shape) {
-            stroke.points[1] = this.toPagePoint(event, pageIndex);
+            if (!stroke.shapeLocked) stroke.points[1] = this.toPagePoint(event, pageIndex);
           } else {
             for (const e of coalesced(event)) {
               stroke.points.push(this.toPagePoint(e, pageIndex));
@@ -1662,6 +1663,8 @@ export class Board {
     const first = stroke.points[0];
     const last = stroke.points[stroke.points.length - 1];
     stroke.shape = hit.kind;
+    // Rect/ellipse stay as first recognized; only a snapped line keeps following the pointer.
+    stroke.shapeLocked = hit.kind !== "line";
     stroke.points = [
       { x: hit.start.x, y: hit.start.y, pressure: first.pressure },
       { x: hit.end.x, y: hit.end.y, pressure: last.pressure },

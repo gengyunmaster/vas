@@ -53,6 +53,29 @@ function tracedRect(x: number, y: number, w: number, h: number, wobble = 3): Poi
   return points;
 }
 
+function tracedBowedRect(x: number, y: number, w: number, h: number, bow: number): Point[] {
+  const edges: { a: Point; b: Point; nx: number; ny: number }[] = [
+    { a: { x, y }, b: { x: x + w, y }, nx: 0, ny: -1 },
+    { a: { x: x + w, y }, b: { x: x + w, y: y + h }, nx: 1, ny: 0 },
+    { a: { x: x + w, y: y + h }, b: { x, y: y + h }, nx: 0, ny: 1 },
+    { a: { x, y: y + h }, b: { x, y }, nx: -1, ny: 0 },
+  ];
+  const points: Point[] = [];
+  let seed = 0;
+  for (const edge of edges) {
+    for (let i = 0; i <= 20; i++) {
+      const t = i / 20;
+      const bulge = Math.sin(Math.PI * t) * bow;
+      points.push({
+        x: jitter(edge.a.x + (edge.b.x - edge.a.x) * t + edge.nx * bulge, 2, seed),
+        y: jitter(edge.a.y + (edge.b.y - edge.a.y) * t + edge.ny * bulge, 2, seed * 3),
+      });
+      seed++;
+    }
+  }
+  return points;
+}
+
 function tracedEllipse(cx: number, cy: number, rx: number, ry: number, wobble = 3): Point[] {
   const points: Point[] = [];
   for (let i = 0; i <= 80; i++) {
@@ -80,6 +103,10 @@ describe("recognizeShape", () => {
     expect(Math.abs((hit?.start.y ?? 0) - 100)).toBeLessThan(4);
     expect(Math.abs((hit?.end.x ?? 0) - 400)).toBeLessThan(4);
     expect(Math.abs((hit?.end.y ?? 0) - 300)).toBeLessThan(4);
+  });
+
+  it("recognizes a rectangle with bowed edges as a rect, not an ellipse", () => {
+    expect(recognizeShape(tracedBowedRect(100, 100, 300, 200, 18))?.kind).toBe("rect");
   });
 
   it("recognizes a wobbly ellipse", () => {

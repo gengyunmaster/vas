@@ -17,7 +17,10 @@ const MIN_POINTS = 10;
 const MIN_DIAGONAL = 32;
 const LINE_MAX_DEVIATION_RATIO = 0.05;
 const CLOSURE_RATIO = 0.25;
-const RECT_ANGLE_TOLERANCE = (30 * Math.PI) / 180;
+const RECT_ANGLE_TOLERANCE = (40 * Math.PI) / 180;
+const RECT_SIMPLIFY_RATIO = 0.03;
+const RECT_MERGE_TOLERANCE_RATIO = 0.08;
+const RECT_MIN_EDGE_COVERAGE = 0.7;
 const ELLIPSE_RADIAL_RMSE = 0.22;
 const ELLIPSE_MAX_GAP_DEG = 75;
 
@@ -108,22 +111,80 @@ function lineEndpoints(
 
 function rectangleVertices(points: readonly Point[], box: Box, diagonal: number): Point[] | null {
   if (box.width < MIN_DIAGONAL * 0.4 || box.height < MIN_DIAGONAL * 0.4) return null;
-  const corners = simplify(points, diagonal * 0.04);
+  if (edgeCoverage(points, box) < RECT_MIN_EDGE_COVERAGE) return null;
+  const corners = simplify(closedLoop(points), diagonal * RECT_SIMPLIFY_RATIO);
   // A closed rectangle simplifies to 4 corners plus the duplicated closure point.
   const vertices =
-    corners.length >= 5 && samePoint(corners[0], corners[corners.length - 1], diagonal * 0.05)
+    corners.length >= 5 && samePoint(corners[0], corners[corners.length - 1], diagonal * 0.06)
       ? corners.slice(0, -1)
       : corners;
-  if (vertices.length !== 4) return null;
+  const merged = mergeCollinear(vertices, diagonal * RECT_MERGE_TOLERANCE_RATIO);
+  if (merged.length !== 4 || !hasRightAngles(merged)) return null;
+  return merged;
+}
+
+function hasRightAngles(vertices: readonly Point[]): boolean {
   for (let i = 0; i < 4; i++) {
     const prev = vertices[(i + 3) % 4];
     const curr = vertices[i];
     const next = vertices[(i + 1) % 4];
     const angle = interiorAngle(prev, curr, next);
-    if (Math.abs(angle - Math.PI / 2) > RECT_ANGLE_TOLERANCE) return null;
+    if (Math.abs(angle - Math.PI / 2) > RECT_ANGLE_TOLERANCE) return false;
   }
-  if (edgeCoverage(points, box) < 0.7) return null;
-  return vertices;
+  return true;
+}
+
+// RDP's opening chord degenerates on a closed trace, so rotate the loop to a
+// corner-like point (farthest from the centroid) before simplifying.
+function closedLoop(points: readonly Point[]): Point[] {
+  let cx = 0;
+  let cy = 0;
+  for (const p of points) {
+    cx += p.x;
+    cy += p.y;
+  }
+  cx /= points.length;
+  cy /= points.length;
+  let start = 0;
+  let best = -1;
+  for (let i = 0; i < points.length; i++) {
+    const d = (points[i].x - cx) ** 2 + (points[i].y - cy) ** 2;
+    if (d > best) {
+      best = d;
+      start = i;
+    }
+  }
+  return [...points.slice(start), ...points.slice(0, start)];
+}
+
+// Bowed hand-drawn edges survive RDP as split vertices; merge any vertex that
+// barely deviates from the chord between its neighbors until four remain.
+function mergeCollinear(vertices: readonly Point[], tolerance: number): Point[] {
+  const result = [...vertices];
+  while (result.length > 4) {
+    let flattest = -1;
+    let flattestDeviation = Infinity;
+    for (let i = 0; i < result.length; i++) {
+      const prev = result[(i + result.length - 1) % result.length];
+      const next = result[(i + 1) % result.length];
+      const deviation = pointToChord(result[i], prev, next);
+      if (deviation < flattestDeviation) {
+        flattestDeviation = deviation;
+        flattest = i;
+      }
+    }
+    if (flattestDeviation > tolerance) break;
+    result.splice(flattest, 1);
+  }
+  return result;
+}
+
+function pointToChord(p: Point, a: Point, b: Point): number {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const length = Math.hypot(dx, dy);
+  if (length === 0) return Math.hypot(p.x - a.x, p.y - a.y);
+  return Math.abs((p.x - a.x) * dy - (p.y - a.y) * dx) / length;
 }
 
 function isEllipse(points: readonly Point[], box: Box): boolean {
