@@ -23,6 +23,10 @@ function reportSaveError(error: unknown): void {
   console.error("Failed to save page", error);
   if (saveErrorReported) return;
   saveErrorReported = true;
+  if (error instanceof DOMException && error.name === "QuotaExceededError") {
+    toast("Local storage is full. Export your notebooks and free up space.");
+    return;
+  }
   toast("Saving failed. Your latest changes may not be stored.");
 }
 

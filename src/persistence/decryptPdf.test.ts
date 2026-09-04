@@ -53,6 +53,15 @@ describe("decryptPdfWith", () => {
     await expectLoadable(decryptPdfWith(qpdf, await makePdf()));
   });
 
+  it("produces deterministic output for PDFs without a trailer ID", async () => {
+    // pdf-lib writes no trailer ID, so qpdf generates one; a time-based ID
+    // would give every insert of the same file a different content hash.
+    const pdf = await makePdf();
+    const first = decryptPdfWith(qpdf, pdf);
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+    expect(decryptPdfWith(qpdf, pdf)).toEqual(first);
+  });
+
   it("throws on a wrong password", async () => {
     const encrypted = encryptPdf(await makePdf(), "userpw", "ownerpw");
     expect(() => decryptPdfWith(qpdf, encrypted, "wrong")).toThrow();

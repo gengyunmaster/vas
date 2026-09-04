@@ -20,11 +20,21 @@ export function drawPagePattern(
 
   ctx.beginPath();
   for (const line of lines) {
-    if (line.dashed) continue;
+    if (line.dashed || line.strong) continue;
     ctx.moveTo(line.x1, line.y1);
     ctx.lineTo(line.x2, line.y2);
   }
   ctx.stroke();
+
+  ctx.lineWidth = 1.8;
+  ctx.beginPath();
+  for (const line of lines) {
+    if (line.dashed || !line.strong) continue;
+    ctx.moveTo(line.x1, line.y1);
+    ctx.lineTo(line.x2, line.y2);
+  }
+  ctx.stroke();
+  ctx.lineWidth = 1;
 
   ctx.setLineDash([...PATTERN_DASH]);
   ctx.beginPath();

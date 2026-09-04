@@ -12,6 +12,7 @@ import {
 } from "../model/page";
 import { resizePage } from "../model/pageSize";
 import { buildPdfPages, type PdfPageImage } from "../model/pdfPage";
+import type { PressureCurve } from "../model/pressureCurve";
 import { newId, type PenKind, type Stroke, type ToolKind } from "../model/stroke";
 import { createTextItem, DEFAULT_TEXT_FONT_SIZE, type TextItem } from "../model/textItem";
 import {
@@ -46,6 +47,8 @@ export const PAPER_COLORS = [
   "#b98a5f",
 ] as const;
 export const SIZES = [1.5, 2.5, 4.5] as const;
+
+export const RECENT_COLORS_LIMIT = 6;
 
 const MAX_HISTORY = 200;
 
@@ -123,10 +126,15 @@ interface BoardState {
   geometryEditor: { mode: "insert" } | { mode: "edit"; pageId: string; itemId: string } | null;
   color: string;
   size: number;
+  recentColors: string[];
   paperColor: string;
   pattern: PagePattern;
   theme: ThemePreference;
   setTheme: (theme: ThemePreference) => void;
+  pressureCurve: PressureCurve;
+  setPressureCurve: (curve: PressureCurve) => void;
+  dash: boolean;
+  setDash: (dash: boolean) => void;
   selection: SelectionTarget | null;
   selectionAnchor: { x: number; y: number } | null;
   clipboard: ClipboardContent;
@@ -443,9 +451,12 @@ export const useBoardStore = create<BoardState>()((set) => ({
   geometryEditor: null,
   color: COLORS[0],
   size: SIZES[1],
+  recentColors: [],
   paperColor: PAPER_COLORS[0],
   pattern: "blank",
   theme: "system",
+  pressureCurve: "standard",
+  dash: false,
   selection: null,
   selectionAnchor: null,
   clipboard: { strokes: [], images: [], texts: [], audios: [] },
@@ -777,8 +788,16 @@ export const useBoardStore = create<BoardState>()((set) => ({
     }),
   toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
   requestScrollToPage: (index) => set({ pendingScrollToPage: index }),
-  setColor: (color) => set({ color }),
+  setColor: (color) =>
+    set((state) => ({
+      color,
+      recentColors: (COLORS as readonly string[]).includes(color)
+        ? state.recentColors
+        : [color, ...state.recentColors.filter((c) => c !== color)].slice(0, RECENT_COLORS_LIMIT),
+    })),
   setTheme: (theme) => set({ theme }),
+  setPressureCurve: (pressureCurve) => set({ pressureCurve }),
+  setDash: (dash) => set({ dash }),
   setSize: (size) => set({ size }),
   setPaperColor: (paperColor) =>
     set((state) => ({

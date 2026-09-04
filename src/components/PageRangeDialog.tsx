@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { normalizePageRange } from "../model/pdfPage";
 import { settlePageRange } from "../store/pdfRangePrompt";
 import { useBoardStore } from "../store/useBoardStore";
+import { useFocusTrap } from "./useFocusTrap";
 import { usePresence } from "./usePresence";
 
 export function PageRangeDialog() {
@@ -13,6 +14,8 @@ export function PageRangeDialog() {
   const presence = usePresence(request !== null, 140);
   const lastRequest = useRef(request);
   if (request) lastRequest.current = request;
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(request !== null && presence.mounted, dialogRef);
 
   useEffect(() => {
     if (!request) return;
@@ -67,7 +70,13 @@ export function PageRangeDialog() {
 
   return (
     <div className={presence.closing ? "dialog-overlay closing" : "dialog-overlay"}>
-      <div className="dialog" role="dialog" aria-modal="true" aria-label="PDF page settings">
+      <div
+        className="dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-label="PDF page settings"
+        ref={dialogRef}
+      >
         <div className="dialog-title">PDF page settings</div>
         <p className="dialog-text">
           {single

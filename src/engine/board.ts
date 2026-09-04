@@ -12,7 +12,9 @@ import {
   pageTops,
   pageTopY,
 } from "../model/page";
+import { applyPressureCurve, type PressureCurve } from "../model/pressureCurve";
 import { audiosInLasso, imagesInLasso, strokesInLasso, textsInLasso } from "../model/selection";
+import { recognizeShape } from "../model/shapeRecognize";
 import {
   createStroke,
   effectiveStrokeSize,
@@ -22,7 +24,9 @@ import {
   type Stroke,
   type StrokePoint,
   type ToolKind,
+  tiltMagnitude,
 } from "../model/stroke";
+import { tapAction } from "../model/tapGesture";
 import type { TextItem } from "../model/textItem";
 import {
   clampMoveDelta,
@@ -66,6 +70,8 @@ export interface ToolSettings {
   tool: ToolKind;
   color: string;
   size: number;
+  dash: boolean;
+  pressureCurve: PressureCurve;
   exporting: boolean;
 }
 
@@ -81,6 +87,8 @@ interface BoardCallbacks {
   getTool: () => ToolSettings;
   onCommitStroke: (pageId: string, stroke: Stroke) => void;
   onEraseStroke: (pageId: string, strokeId: string) => void;
+  onUndo: () => void;
+  onRedo: () => void;
   onViewChange: (pageIndex: number) => void;
   onSelectionChange: (selection: SelectionSnapshot | null) => void;
   onSelectionAnchor: (anchor: Point | null) => void;
@@ -96,6 +104,8 @@ interface TrackedPointer {
   x: number;
   y: number;
   type: string;
+  downX: number;
+  downY: number;
 }
 
 interface ActiveStroke {
@@ -106,6 +116,8 @@ interface ActiveStroke {
   color: string;
   size: number;
   shape?: ShapeKind;
+  shapeLocked?: boolean;
+  dash?: boolean;
   simulatePressure: boolean;
   points: StrokePoint[];
   predicted: StrokePoint[];
@@ -169,6 +181,8 @@ const MAX_QUEUED_TURNS = 8;
 const SWIPE_PAGE_THRESHOLD = 80;
 const HANDLE_SIZE = 10;
 const HANDLE_HIT_RADIUS = 12;
+const SHAPE_HOLD_MS = 350;
+const TAP_SLOP_PX = 12;
 const MIN_SELECTION_SCALE = 0.05;
 const SELECTION_ACCENT = "#2f6fdd";
 
@@ -217,6 +231,8 @@ export class Board {
   private pageTurn: { from: Viewport; to: Viewport; fromPage: number; start: number } | null = null;
   private wheelAccum = 0;
   private wheelAccumTimer: number | undefined;
+  private shapeHoldTimer: number | undefined;
+  private tapSession: { count: number; startAt: number; moved: boolean } | null = null;
   private pendingTurns = 0;
   private touchpadFlipped = false;
   private lastWheelAt = 0;
@@ -421,6 +437,7 @@ export class Board {
     window.clearTimeout(this.gifTimer);
     window.clearTimeout(this.wheelTimer);
     window.clearTimeout(this.wheelAccumTimer);
+    window.clearTimeout(this.shapeHoldTimer);
     this.observer.disconnect();
     this.stopImageListener();
     this.activeCanvas.removeEventListener("pointerdown", this.handlePointerDown);
@@ -1256,8 +1273,20 @@ export class Board {
     if (this.callbacks.getTool().exporting) return;
     this.activeCanvas.setPointerCapture(event.pointerId);
     const pos = this.eventPos(event);
-    this.pointers.set(event.pointerId, { ...pos, type: event.pointerType });
+    this.pointers.set(event.pointerId, {
+      ...pos,
+      type: event.pointerType,
+      downX: pos.x,
+      downY: pos.y,
+    });
     if (event.pointerType === "pen") this.markPenSeen();
+
+    if (event.pointerType === "touch") {
+      if (!this.tapSession) this.tapSession = { count: 0, startAt: event.timeStamp, moved: false };
+      this.tapSession.count++;
+    } else {
+      this.tapSession = null;
+    }
 
     if (this.touchCount() === 2) {
       if (this.stroke && this.pointerTypeOf(this.stroke.pointerId) === "touch") this.cancelStroke();
@@ -1338,7 +1367,11 @@ export class Board {
     }
     const prev = this.pointers.get(event.pointerId);
     if (!prev) return;
-    this.pointers.set(event.pointerId, { ...pos, type: event.pointerType });
+    this.pointers.set(event.pointerId, { ...prev, x: pos.x, y: pos.y });
+    if (this.tapSession && event.pointerType === "touch" && !this.tapSession.moved) {
+      if (Math.hypot(pos.x - prev.downX, pos.y - prev.downY) > TAP_SLOP_PX)
+        this.tapSession.moved = true;
+    }
 
     if (this.pinching && event.pointerType === "touch") {
       if (this.presenting) this.applySwipe(event.pointerId, pos);
@@ -1356,12 +1389,13 @@ export class Board {
         const pageIndex = this.pages.findIndex((p) => p.id === stroke.pageId);
         if (pageIndex >= 0) {
           if (stroke.shape) {
-            stroke.points[1] = this.toPagePoint(event, pageIndex);
+            if (!stroke.shapeLocked) stroke.points[1] = this.toPagePoint(event, pageIndex);
           } else {
             for (const e of coalesced(event)) {
               stroke.points.push(this.toPagePoint(e, pageIndex));
             }
             stroke.predicted = predicted(event).map((e) => this.toPagePoint(e, pageIndex));
+            this.armShapeHold();
           }
         }
       }
@@ -1412,6 +1446,17 @@ export class Board {
 
   private handlePointerEnd = (event: PointerEvent): void => {
     this.pointers.delete(event.pointerId);
+    if (event.pointerType === "touch" && this.tapSession) {
+      if (event.type === "pointercancel") {
+        this.tapSession = null;
+      } else if (![...this.pointers.values()].some((p) => p.type === "touch")) {
+        const session = this.tapSession;
+        this.tapSession = null;
+        const action = tapAction(session.count, event.timeStamp - session.startAt, session.moved);
+        if (action === "undo") this.callbacks.onUndo();
+        else if (action === "redo") this.callbacks.onRedo();
+      }
+    }
     if (
       this.stroke?.pointerId === event.pointerId &&
       (event.type === "pointercancel" || event.button === this.stroke.button)
@@ -1548,6 +1593,7 @@ export class Board {
     if (!page) return;
     const tool = this.callbacks.getTool();
     if (tool.tool !== "pen" && tool.tool !== "highlighter" && !isShapeTool(tool.tool)) return;
+    window.clearTimeout(this.shapeHoldTimer);
     const clamped = clampToPage(page, x, y);
     this.stroke = {
       pointerId: event.pointerId,
@@ -1557,8 +1603,16 @@ export class Board {
       color: tool.color,
       size: tool.size,
       shape: isShapeTool(tool.tool) ? tool.tool : undefined,
+      dash: tool.dash || undefined,
       simulatePressure: event.pointerType !== "pen",
-      points: [{ x: clamped.x, y: clamped.y, pressure: pressureOf(event) }],
+      points: [
+        {
+          x: clamped.x,
+          y: clamped.y,
+          pressure: applyPressureCurve(pressureOf(event), tool.pressureCurve),
+          ...(tiltOf(event) ? { tilt: tiltOf(event) } : {}),
+        },
+      ],
       predicted: [],
     };
     this.scheduleComposite();
@@ -1567,6 +1621,7 @@ export class Board {
   private commitStroke(): void {
     const stroke = this.stroke;
     this.stroke = null;
+    window.clearTimeout(this.shapeHoldTimer);
     this.scheduleComposite();
     if (!stroke || stroke.points.length === 0) return;
     if (stroke.shape) {
@@ -1580,6 +1635,7 @@ export class Board {
         color: stroke.color,
         size: stroke.size,
         shape: stroke.shape,
+        dash: stroke.dash,
         simulatePressure: stroke.simulatePressure,
         points: stroke.points,
       }),
@@ -1588,6 +1644,32 @@ export class Board {
 
   private cancelStroke(): void {
     this.stroke = null;
+    window.clearTimeout(this.shapeHoldTimer);
+    this.scheduleComposite();
+  }
+
+  // Draw-and-hold shape snapping: while the pointer rests at the end of a
+  // pen/highlighter stroke, try to morph the trace into a perfect shape.
+  private armShapeHold(): void {
+    window.clearTimeout(this.shapeHoldTimer);
+    this.shapeHoldTimer = window.setTimeout(() => this.snapStrokeShape(), SHAPE_HOLD_MS);
+  }
+
+  private snapStrokeShape(): void {
+    const stroke = this.stroke;
+    if (!stroke || stroke.shape || stroke.points.length < 2) return;
+    const hit = recognizeShape(stroke.points, { lineOnly: stroke.pen === "highlighter" });
+    if (!hit) return;
+    const first = stroke.points[0];
+    const last = stroke.points[stroke.points.length - 1];
+    stroke.shape = hit.kind;
+    // Rect/ellipse stay as first recognized; only a snapped line keeps following the pointer.
+    stroke.shapeLocked = hit.kind !== "line";
+    stroke.points = [
+      { x: hit.start.x, y: hit.start.y, pressure: first.pressure },
+      { x: hit.end.x, y: hit.end.y, pressure: last.pressure },
+    ];
+    stroke.predicted = [];
     this.scheduleComposite();
   }
 
@@ -1829,7 +1911,12 @@ export class Board {
     const pos = this.eventPos(event);
     const world = screenToWorld(this.viewport, pos.x, pos.y);
     const local = clampToPage(page, world.x - left, world.y - pageTopY(this.pages, pageIndex));
-    return { x: local.x, y: local.y, pressure: pressureOf(event) };
+    return {
+      x: local.x,
+      y: local.y,
+      pressure: applyPressureCurve(pressureOf(event), this.callbacks.getTool().pressureCurve),
+      ...(tiltOf(event) ? { tilt: tiltOf(event) } : {}),
+    };
   }
 
   private toWorldPoint(event: PointerEvent): { x: number; y: number; t: number } {
@@ -1880,6 +1967,12 @@ function createLayer(className = "board-layer"): HTMLCanvasElement {
 
 function pressureOf(event: PointerEvent): number {
   return event.pressure > 0 ? event.pressure : 0.5;
+}
+
+function tiltOf(event: PointerEvent): number | undefined {
+  if (event.pointerType !== "pen") return undefined;
+  const tilt = tiltMagnitude(event.tiltX, event.tiltY);
+  return tilt > 0.05 ? tilt : undefined;
 }
 
 function midpoint(a: Point, b: Point): Point {

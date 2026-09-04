@@ -61,4 +61,13 @@ describe("parseToolPrefs", () => {
     expect(parseToolPrefs({ size: -2 })).toEqual({});
     expect(parseToolPrefs({ size: 2.5 })).toEqual({ size: 2.5 });
   });
+
+  it("keeps only valid hex entries in recent colors, deduped and capped", () => {
+    expect(parseToolPrefs({ recentColors: "red" })).toEqual({});
+    expect(parseToolPrefs({ recentColors: ["#FFF", "oops", 12, "#fff"] })).toEqual({
+      recentColors: ["#ffffff"],
+    });
+    const many = ["#111111", "#222222", "#333333", "#444444", "#555555", "#666666", "#777777"];
+    expect(parseToolPrefs({ recentColors: many })).toEqual({ recentColors: many.slice(0, 6) });
+  });
 });

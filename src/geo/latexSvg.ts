@@ -3,6 +3,7 @@
 // fontCache: "none", which inlines every glyph as a <path> — the resulting
 // markup is self-contained vector data with no runtime font dependency.
 import { applyMathColorSpans } from "../markdown/mathColor";
+import { dynamicFontModules } from "./mathjaxDynamicFonts";
 export interface LatexGlyph {
   body: string;
   viewBox: [number, number, number, number];
@@ -27,12 +28,27 @@ interface LiteNode {
 
 interface MathjaxContext {
   html: { convert(latex: string, options: { display: boolean }): LiteNode };
+  // Dynamic font loads signal a retry exception mid-typeset; this reruns the
+  // callback once the pending fetch resolves (component-loader behavior).
+  handleRetriesFor(run: () => void): Promise<void>;
   adaptor: {
     // outerHTML serializes as HTML, leaving "<" raw inside attribute values
     // (data-latex holds the TeX source, e.g. "a<b") — fine for innerHTML but
     // malformed XML once the glyph is embedded into exported SVG.
     serializeXML(node: LiteNode): string;
   };
+}
+
+// Glyphs outside the base font (double-struck for \mathbb, calligraphic for
+// \mathcal, fraktur, bold/italic latin variants, ...) ship as per-file modules
+// that MathJax fetches through mathjax.asyncLoad on demand; each stays its own
+// lazy chunk so the precache only pays for what a notebook actually uses.
+function loadDynamicFont(name: string): Promise<unknown> {
+  const file = name.split("/").pop() ?? "";
+  const loader = dynamicFontModules[file];
+  return loader
+    ? loader()
+    : Promise.reject(new Error(`Unknown MathJax dynamic font file: ${name}`));
 }
 
 let context: Promise<MathjaxContext> | null = null;
@@ -56,13 +72,14 @@ async function buildContext(): Promise<MathjaxContext> {
     ]);
   const adaptor = liteAdaptor();
   RegisterHTMLHandler(adaptor);
+  mathjax.asyncLoad = loadDynamicFont;
   const html = mathjax.document("", {
     InputJax: new TeX({
       packages: ["base", "ams", "newcommand", "noundefined", "textmacros", "unicode", "color"],
     }),
     OutputJax: new SVG({ fontCache: "none", linebreaks: { inline: false } }),
   });
-  return { html, adaptor } as MathjaxContext;
+  return { html, adaptor, handleRetriesFor: mathjax.handleRetriesFor } as MathjaxContext;
 }
 
 function loadMathjax(): Promise<MathjaxContext> {
@@ -96,8 +113,13 @@ export async function renderLatex(latex: string, display = false): Promise<Latex
   if (cached !== undefined) return cached;
   let glyph: LatexGlyph | null = null;
   try {
-    const { html, adaptor } = await loadMathjax();
-    const container = adaptor.serializeXML(html.convert(source, { display }));
+    const { html, adaptor, handleRetriesFor } = await loadMathjax();
+    let node: LiteNode | null = null;
+    await handleRetriesFor(() => {
+      node = html.convert(source, { display });
+    });
+    if (!node) return null;
+    const container = adaptor.serializeXML(node);
     const svgStart = container.indexOf("<svg");
     const svgCount = container.match(/<svg[\s>]/g)?.length ?? 0;
     if (svgStart >= 0 && svgCount === 1) {

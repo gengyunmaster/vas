@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { Page } from "../model/page";
 import {
   buildNotebookZip,
+  bundleEntryPaths,
   geometryEntryPath,
   imageEntryPath,
   mediaEntryPath,
@@ -78,6 +79,35 @@ describe("serializeNotebook / parseNotebookFile", () => {
     const shape = page.strokes[1];
     expect(shape.shape).toBe("arrow");
     expect(shape.points).toHaveLength(2);
+  });
+
+  it("round-trips dashed strokes", () => {
+    const page = samplePage();
+    page.strokes[0] = { ...page.strokes[0], dash: true };
+    const parsed = parseNotebookFile(serializeNotebook("My notes", [page]));
+    expect(parsed.pages[0].strokes[0].dash).toBe(true);
+    expect(parsed.pages[0].strokes[1].dash).toBeUndefined();
+  });
+
+  it("round-trips point tilt and clamps out-of-range values", () => {
+    const page = samplePage();
+    page.strokes[0] = {
+      ...page.strokes[0],
+      points: [
+        { x: 1, y: 2, pressure: 0.4, tilt: 0.6 },
+        { x: 30, y: 40, pressure: 0.8 },
+      ],
+    };
+    const text = serializeNotebook("My notes", [page]);
+    const parsed = parseNotebookFile(text);
+    expect(parsed.pages[0].strokes[0].points).toEqual([
+      { x: 1, y: 2, pressure: 0.4, tilt: 0.6 },
+      { x: 30, y: 40, pressure: 0.8 },
+    ]);
+    const tampered = JSON.parse(text);
+    tampered.pages[0].strokes[0].points[0].tilt = 7;
+    const clamped = parseNotebookFile(JSON.stringify(tampered));
+    expect(clamped.pages[0].strokes[0].points[0].tilt).toBe(1);
   });
 
   it("regenerates ids on import", () => {
@@ -768,6 +798,34 @@ describe("sanitizeFileName", () => {
 
   it("keeps safe names untouched", () => {
     expect(sanitizeFileName("My notes-page-1.png")).toBe("My notes-page-1.png");
+  });
+});
+
+describe("bundleEntryPaths", () => {
+  const entry = new Uint8Array([1]);
+
+  it("treats archives with a root notebook.json as single notebooks", () => {
+    expect(bundleEntryPaths({ "notebook.json": entry, "images/a.png": entry })).toEqual([]);
+  });
+
+  it("picks top-level json and zip entries in sorted order", () => {
+    expect(
+      bundleEntryPaths({
+        "b.vas.zip": entry,
+        "a.vas.json": entry,
+        "c.zip": entry,
+      }),
+    ).toEqual(["a.vas.json", "b.vas.zip", "c.zip"]);
+  });
+
+  it("skips nested paths, directories and foreign files", () => {
+    expect(
+      bundleEntryPaths({
+        "notes/a.vas.json": entry,
+        "README.md": entry,
+        "b.vas.json": entry,
+      }),
+    ).toEqual(["b.vas.json"]);
   });
 });
 

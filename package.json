@@ -1,7 +1,7 @@
 {
   "name": "vas",
   "private": true,
-  "version": "0.6.0",
+  "version": "1.0.0",
   "type": "module",
   "engines": {
     "node": ">=20.19"
@@ -11,6 +11,7 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "test": "vitest run",
+    "test:e2e": "npm run build && playwright test",
     "lint": "biome check .",
     "format": "biome format --write ."
   },
@@ -37,6 +38,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.10",
+    "@playwright/test": "^1.62.1",
     "@types/katex": "^0.16.8",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",

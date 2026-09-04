@@ -8,6 +8,7 @@ import {
   PAGE_WIDTH,
   type PagePattern,
 } from "../model/page";
+import { PRESSURE_CURVE_LABELS, PRESSURE_CURVES } from "../model/pressureCurve";
 import { pickElements } from "../model/selection";
 import { SHAPE_KINDS, type ShapeKind } from "../model/stroke";
 import { exportNotebookPng, exportPagePng, exportSelectionPng } from "../persistence/exportImage";
@@ -17,6 +18,7 @@ import { importPdfIntoNotebook, reRasterizePdfBase } from "../persistence/import
 import { insertFile } from "../persistence/insertFile";
 import { requestInstall, useInstallStore } from "../pwa/installPrompt";
 import { askConfirm } from "../store/dialogs";
+import { useShortcutsStore } from "../store/shortcuts";
 import { toast } from "../store/toasts";
 import { COLORS, PAPER_COLORS, SIZES, useBoardStore } from "../store/useBoardStore";
 import { THEME_PREFERENCES, type ThemePreference } from "../theme";
@@ -27,6 +29,7 @@ import {
   GeometryIcon,
   ImageIcon,
   ImportPdfIcon,
+  KeyboardIcon,
   PasteIcon,
   PresentIcon,
   RedoIcon,
@@ -34,6 +37,7 @@ import {
   TrashIcon,
   UndoIcon,
 } from "./icons";
+import { StorageSection } from "./StorageMeter";
 
 const PATTERN_LABELS: Record<PagePattern, string> = {
   blank: "Blank",
@@ -41,6 +45,8 @@ const PATTERN_LABELS: Record<PagePattern, string> = {
   grid: "Grid",
   dots: "Dots",
   rice: "Rice",
+  staff: "Staff",
+  cornell: "Cornell",
 };
 
 const SHAPE_LABELS: Record<ShapeKind, string> = {
@@ -59,7 +65,12 @@ const THEME_LABELS: Record<ThemePreference, string> = {
 export function SettingsPanel({ closing = false }: { closing?: boolean }) {
   const tool = useBoardStore((state) => state.tool);
   const inkColor = useBoardStore((state) => state.color);
+  const recentColors = useBoardStore((state) => state.recentColors);
   const size = useBoardStore((state) => state.size);
+  const pressureCurve = useBoardStore((state) => state.pressureCurve);
+  const setPressureCurve = useBoardStore((state) => state.setPressureCurve);
+  const dash = useBoardStore((state) => state.dash);
+  const setDash = useBoardStore((state) => state.setDash);
   const paperColor = useBoardStore(
     (state) => state.pages[state.viewPageIndex]?.paperColor ?? state.paperColor,
   );
@@ -301,6 +312,23 @@ export function SettingsPanel({ closing = false }: { closing?: boolean }) {
           ))}
           <ColorField value={inkColor} onChange={setColor} />
         </div>
+        {recentColors.length > 0 && (
+          <div className="settings-row recent-colors-row">
+            {recentColors.map((c) => (
+              <button
+                key={c}
+                type="button"
+                title={`Recent ${c}`}
+                aria-pressed={inkColor === c}
+                className={inkColor === c ? "swatch active" : "swatch"}
+                style={{ "--swatch": c } as CSSProperties}
+                onClick={() => setColor(c)}
+              >
+                <span />
+              </button>
+            ))}
+          </div>
+        )}
       </section>
       <section className="settings-section">
         <div className="settings-label">Size</div>
@@ -333,6 +361,43 @@ export function SettingsPanel({ closing = false }: { closing?: boolean }) {
             onChange={(e) => setSize(Number(e.target.value))}
           />
           <span className="size-value">{size}</span>
+        </div>
+      </section>
+      <section className="settings-section">
+        <div className="settings-label">Pressure</div>
+        <div className="settings-row">
+          {PRESSURE_CURVES.map((curve) => (
+            <button
+              key={curve}
+              type="button"
+              aria-pressed={pressureCurve === curve}
+              className={pressureCurve === curve ? "text-option active" : "text-option"}
+              onClick={() => setPressureCurve(curve)}
+            >
+              {PRESSURE_CURVE_LABELS[curve]}
+            </button>
+          ))}
+        </div>
+      </section>
+      <section className="settings-section">
+        <div className="settings-label">Style</div>
+        <div className="settings-row">
+          <button
+            type="button"
+            aria-pressed={!dash}
+            className={dash ? "text-option" : "text-option active"}
+            onClick={() => setDash(false)}
+          >
+            Solid
+          </button>
+          <button
+            type="button"
+            aria-pressed={dash}
+            className={dash ? "text-option active" : "text-option"}
+            onClick={() => setDash(true)}
+          >
+            Dashed
+          </button>
         </div>
       </section>
       <section className="settings-section">
@@ -447,6 +512,13 @@ export function SettingsPanel({ closing = false }: { closing?: boolean }) {
           </button>
           <button
             type="button"
+            title="Keyboard shortcuts"
+            onClick={() => useShortcutsStore.getState().setOpen(true)}
+          >
+            <KeyboardIcon />
+          </button>
+          <button
+            type="button"
             title="Import PDF"
             disabled={exporting || pdfImporting !== null}
             onClick={() => pdfInputRef.current?.click()}
@@ -526,6 +598,7 @@ export function SettingsPanel({ closing = false }: { closing?: boolean }) {
           </div>
         </section>
       )}
+      <StorageSection />
       <section className="settings-section">
         <div className="settings-label">Export</div>
         <div className="settings-row">

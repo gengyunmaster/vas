@@ -8,7 +8,7 @@ import { badgeToSvgElements } from "../model/mediaBadge";
 import { type Page, trimTrailingBlankPages } from "../model/page";
 import { PATTERN_DASH, patternLayout } from "../model/patternLayout";
 import { arrowHead } from "../model/shapeGeometry";
-import type { Stroke } from "../model/stroke";
+import { effectiveStrokeSize, type Stroke, strokeDashArray } from "../model/stroke";
 import { type TextItem, textImageRefs } from "../model/textItem";
 import { elementsBounds } from "../model/transform";
 import { layoutTextItem, naturalImageSize } from "../text/layoutItem";
@@ -17,7 +17,7 @@ import { textItemHeight } from "../text/textHeight";
 import { textItemToSvg } from "../text/textToSvg";
 import { downloadZip } from "./exportZip";
 import { collectImageDataUris } from "./imageDataUri";
-import { outlineToSvgPath } from "./svgPath";
+import { outlineToSvgPath, pointsToSvgPath } from "./svgPath";
 import { downloadBlob, sanitizeFileName } from "./transfer";
 
 export async function exportPageSvg(title: string, pageIndex: number, page: Page): Promise<void> {
@@ -150,6 +150,12 @@ export async function pageToSvg(
 
 function strokeToSvg(stroke: Stroke): string {
   if (stroke.shape) return shapeToSvg(stroke);
+  if (stroke.dash && stroke.pen === "pen") {
+    const d = pointsToSvgPath(stroke.points);
+    if (!d) return "";
+    const [dash, gap] = strokeDashArray(stroke);
+    return `<path d="${d}" fill="none" stroke="${escapeXml(stroke.color)}" stroke-width="${fmt(effectiveStrokeSize(stroke))}" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="${fmt(dash)} ${fmt(gap)}"/>`;
+  }
   const outline = getOutlinePoints(stroke, true);
   if (outline.length < 3) return "";
   const opacity = stroke.pen === "highlighter" ? ` fill-opacity="${HIGHLIGHTER_ALPHA}"` : "";
@@ -159,7 +165,10 @@ function strokeToSvg(stroke: Stroke): string {
 function shapeToSvg(stroke: Stroke): string {
   const [a, b] = stroke.points;
   if (!stroke.shape || !a || !b) return "";
-  const common = `stroke="${escapeXml(stroke.color)}" stroke-width="${fmt(stroke.size)}" stroke-linecap="round" stroke-linejoin="round" fill="none"`;
+  const dashAttr = stroke.dash
+    ? ` stroke-dasharray="${strokeDashArray(stroke).map(fmt).join(" ")}"`
+    : "";
+  const common = `stroke="${escapeXml(stroke.color)}" stroke-width="${fmt(stroke.size)}" stroke-linecap="round" stroke-linejoin="round" fill="none"${dashAttr}`;
   switch (stroke.shape) {
     case "line":
       return `<path d="M${fmt(a.x)} ${fmt(a.y)} L${fmt(b.x)} ${fmt(b.y)}" ${common}/>`;
@@ -193,7 +202,7 @@ function patternToSvg(page: Page): string[] {
   for (const line of lines) {
     const dash = line.dashed ? ` stroke-dasharray="${PATTERN_DASH.join(" ")}"` : "";
     elements.push(
-      `<line x1="${fmt(line.x1)}" y1="${fmt(line.y1)}" x2="${fmt(line.x2)}" y2="${fmt(line.y2)}" stroke="${color}" stroke-opacity="${opacity}" stroke-width="1"${dash}/>`,
+      `<line x1="${fmt(line.x1)}" y1="${fmt(line.y1)}" x2="${fmt(line.x2)}" y2="${fmt(line.y2)}" stroke="${color}" stroke-opacity="${opacity}" stroke-width="${line.strong ? 1.8 : 1}"${dash}/>`,
     );
   }
   for (const dot of dots) {

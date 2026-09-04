@@ -1,7 +1,8 @@
 import { normalizeHex } from "../model/color";
 import { PAGE_PATTERNS, type PagePattern } from "../model/page";
+import { PRESSURE_CURVES, type PressureCurve } from "../model/pressureCurve";
 import { TOOL_KINDS, type ToolKind } from "../model/stroke";
-import { useBoardStore } from "../store/useBoardStore";
+import { RECENT_COLORS_LIMIT, useBoardStore } from "../store/useBoardStore";
 import { THEME_PREFERENCES, type ThemePreference } from "../theme";
 
 const PREFS_KEY = "vas.toolPrefs";
@@ -14,6 +15,9 @@ interface ToolPrefs {
   pattern?: PagePattern;
   sidebarOpen?: boolean;
   theme?: ThemePreference;
+  pressureCurve?: PressureCurve;
+  dash?: boolean;
+  recentColors?: string[];
 }
 
 export function loadToolPrefs(): ToolPrefs {
@@ -53,6 +57,16 @@ export function parseToolPrefs(raw: unknown): ToolPrefs {
   if (THEME_PREFERENCES.includes(prefs.theme as ThemePreference)) {
     out.theme = prefs.theme as ThemePreference;
   }
+  if (PRESSURE_CURVES.includes(prefs.pressureCurve as PressureCurve)) {
+    out.pressureCurve = prefs.pressureCurve as PressureCurve;
+  }
+  if (typeof prefs.dash === "boolean") out.dash = prefs.dash;
+  if (Array.isArray(prefs.recentColors)) {
+    const colors = prefs.recentColors
+      .map((c) => (typeof c === "string" ? normalizeHex(c) : null))
+      .filter((c): c is string => c !== null);
+    out.recentColors = [...new Set(colors)].slice(0, RECENT_COLORS_LIMIT);
+  }
   return out;
 }
 
@@ -66,18 +80,42 @@ export function startPrefsSync(): () => void {
       state.paperColor === prev.paperColor &&
       state.pattern === prev.pattern &&
       state.sidebarOpen === prev.sidebarOpen &&
-      state.theme === prev.theme
+      state.theme === prev.theme &&
+      state.pressureCurve === prev.pressureCurve &&
+      state.dash === prev.dash &&
+      state.recentColors === prev.recentColors
     ) {
       return;
     }
     window.clearTimeout(timer);
     timer = window.setTimeout(() => {
-      const { tool, color, size, paperColor, pattern, sidebarOpen, theme } =
-        useBoardStore.getState();
+      const {
+        tool,
+        color,
+        size,
+        paperColor,
+        pattern,
+        sidebarOpen,
+        theme,
+        pressureCurve,
+        dash,
+        recentColors,
+      } = useBoardStore.getState();
       try {
         localStorage.setItem(
           PREFS_KEY,
-          JSON.stringify({ tool, color, size, paperColor, pattern, sidebarOpen, theme }),
+          JSON.stringify({
+            tool,
+            color,
+            size,
+            paperColor,
+            pattern,
+            sidebarOpen,
+            theme,
+            pressureCurve,
+            dash,
+            recentColors,
+          }),
         );
       } catch {
         // storage may be unavailable

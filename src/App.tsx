@@ -1,28 +1,58 @@
 import { useEffect, useState } from "react";
 import { BoardCanvas } from "./components/BoardCanvas";
 import { ConfirmDialog, PromptDialog } from "./components/Dialogs";
+import { ErrorBanner } from "./components/ErrorBanner";
 import { GeometryOverlay } from "./components/GeometryOverlay";
 import { Home } from "./components/Home";
 import { PageIndicator } from "./components/PageIndicator";
 import { PageRangeDialog } from "./components/PageRangeDialog";
 import { PageSidebar } from "./components/PageSidebar";
 import { SelectionBar } from "./components/SelectionBar";
+import { ShortcutsDialog } from "./components/ShortcutsDialog";
 import { TextEditor } from "./components/TextEditor";
 import { Toasts } from "./components/Toasts";
 import { Toolbar } from "./components/Toolbar";
+import { UpdateBanner } from "./components/UpdateBanner";
 import { parseClipboardPayload } from "./model/clipboard";
+import { importPdfFile } from "./persistence/importPdf";
 import { insertFile, isInsertableFile } from "./persistence/insertFile";
 import { createNotebook, listNotebooks } from "./persistence/notebooks";
 import { pastePlainText } from "./persistence/pasteText";
 import { loadToolPrefs, startPrefsSync } from "./persistence/prefs";
 import { flushViewStateSave, openNotebook, readLastNotebookId } from "./persistence/session";
+import { importNotebookFile } from "./persistence/transfer";
+import { watchLaunchFiles } from "./pwa/fileHandling";
+import { COMBOS, matchCombo } from "./shortcuts";
 import { useDialogStore } from "./store/dialogs";
+import { useShortcutsStore } from "./store/shortcuts";
 import { toast } from "./store/toasts";
 import { useBoardStore } from "./store/useBoardStore";
 import { startThemeSync } from "./theme";
 
 // StrictMode mounts effects twice in dev; the module-level guard keeps app init idempotent.
 let initStarted = false;
+
+// Files launched via the OS (File Handling API) always create new notebooks.
+async function importLaunchFiles(files: File[]): Promise<void> {
+  for (const file of files) {
+    try {
+      if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
+        await openNotebook(await importPdfFile(file));
+      } else {
+        const result = await importNotebookFile(file);
+        const last = result.ids[result.ids.length - 1];
+        if (last) await openNotebook(last);
+        if (result.failed > 0) {
+          toast(`Imported ${result.ids.length} of ${result.ids.length + result.failed} notebooks.`);
+        }
+      }
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("Import cancelled")) return;
+      console.error("Failed to open launched file", error);
+      toast(error instanceof Error ? error.message : "Failed to open the file.");
+    }
+  }
+}
 
 export default function App() {
   const notebookId = useBoardStore((state) => state.notebookId);
@@ -45,6 +75,7 @@ export default function App() {
           const last = notebooks.find((n) => n.id === readLastNotebookId());
           if (last) await openNotebook(last.id);
         }
+        watchLaunchFiles((files) => void importLaunchFiles(files));
       } catch (error) {
         console.error("Failed to initialize vas storage", error);
         toast("Local storage is unavailable. Your notes will not be saved in this session.");
@@ -60,6 +91,7 @@ export default function App() {
       if (useBoardStore.getState().pdfRangeRequest) return;
       const dialogs = useDialogStore.getState();
       if (dialogs.confirm || dialogs.prompt) return;
+      if (useShortcutsStore.getState().open) return;
       const target = event.target;
       const typing =
         target instanceof HTMLElement &&
@@ -76,8 +108,13 @@ export default function App() {
         return;
       }
       if (typing) return;
+      if (matchCombo(event, COMBOS.shortcuts) && !event.ctrlKey && !event.metaKey) {
+        event.preventDefault();
+        useShortcutsStore.getState().setOpen(true);
+        return;
+      }
       if (useBoardStore.getState().exporting) return;
-      if (event.key === "Delete") {
+      if (matchCombo(event, COMBOS.deleteSelection)) {
         const state = useBoardStore.getState();
         if (state.selection) {
           event.preventDefault();
@@ -85,22 +122,17 @@ export default function App() {
         }
         return;
       }
-      if (!(event.metaKey || event.ctrlKey)) return;
-      const key = event.key.toLowerCase();
       const state = useBoardStore.getState();
-      if (key === "z" && event.shiftKey) {
-        event.preventDefault();
-        state.redo();
-      } else if (key === "z") {
+      if (matchCombo(event, COMBOS.undo)) {
         event.preventDefault();
         state.undo();
-      } else if (key === "y") {
+      } else if (COMBOS.redo.some((combo) => matchCombo(event, combo))) {
         event.preventDefault();
         state.redo();
-      } else if (key === "x" && state.selection) {
+      } else if (matchCombo(event, COMBOS.cut) && state.selection) {
         event.preventDefault();
         state.cutSelection();
-      } else if (key === "c" && state.selection) {
+      } else if (matchCombo(event, COMBOS.copy) && state.selection) {
         event.preventDefault();
         state.copySelection();
       }
@@ -246,7 +278,10 @@ export default function App() {
       <PageRangeDialog />
       <ConfirmDialog />
       <PromptDialog />
+      <ShortcutsDialog />
       <Toasts />
+      <ErrorBanner />
+      <UpdateBanner />
     </>
   );
 }

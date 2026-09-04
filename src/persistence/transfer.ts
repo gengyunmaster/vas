@@ -103,6 +103,7 @@ export function serializeNotebook(
           size: stroke.size,
           simulatePressure: stroke.simulatePressure,
           shape: stroke.shape,
+          ...(stroke.dash ? { dash: true } : {}),
           points: stroke.points,
         })),
         images: page.images.map((image) => ({
@@ -306,7 +307,12 @@ export function resolveGeometryEntries(
   });
 }
 
-export async function downloadNotebook(id: string): Promise<void> {
+export interface NotebookFileData {
+  name: string;
+  bytes: Uint8Array;
+}
+
+export async function buildNotebookFile(id: string): Promise<NotebookFileData> {
   const { meta, pages } = await loadNotebook(id);
   const referenced = new Set<string>();
   const referencedPdfs = new Set<string>();
@@ -397,8 +403,7 @@ export async function downloadNotebook(id: string): Promise<void> {
     geometryRecords.size === 0 &&
     mediaRecords.size === 0
   ) {
-    downloadBlob(new Blob([json], { type: "application/json" }), `${meta.title}.vas.json`);
-    return;
+    return { name: `${meta.title}.vas.json`, bytes: strToU8(json) };
   }
   const files: { path: string; data: Uint8Array }[] = [];
   for (const record of records.values()) {
@@ -425,8 +430,34 @@ export async function downloadNotebook(id: string): Promise<void> {
       data: new Uint8Array(await record.blob.arrayBuffer()),
     });
   }
-  const zip = buildNotebookZip(json, files);
-  downloadBlob(new Blob([zip.slice()], { type: "application/zip" }), `${meta.title}.vas.zip`);
+  return { name: `${meta.title}.vas.zip`, bytes: buildNotebookZip(json, files) };
+}
+
+export async function downloadNotebook(id: string): Promise<void> {
+  const file = await buildNotebookFile(id);
+  const type = file.name.endsWith(".zip") ? "application/zip" : "application/json";
+  downloadBlob(new Blob([file.bytes.slice()], { type }), file.name);
+}
+
+// A multi-notebook export is a zip of single-notebook files; import sniffs
+// this shape and restores every notebook inside.
+export async function downloadNotebooks(ids: string[]): Promise<void> {
+  if (ids.length === 1) return downloadNotebook(ids[0]);
+  const entries: Record<string, Uint8Array> = {};
+  for (const id of ids) {
+    const file = await buildNotebookFile(id);
+    let name = sanitizeFileName(file.name);
+    let attempt = 2;
+    while (entries[name] !== undefined) {
+      name = sanitizeFileName(file.name.replace(/\.vas\.(json|zip)$/, `-${attempt}.vas.$1`));
+      attempt += 1;
+    }
+    entries[name] = file.bytes;
+  }
+  downloadBlob(
+    new Blob([zipSync(entries).slice()], { type: "application/zip" }),
+    "vas-notebooks.zip",
+  );
 }
 
 export function sanitizeFileName(name: string): string {
@@ -442,12 +473,72 @@ export function downloadBlob(blob: Blob, filename: string): void {
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-export async function importNotebookFile(file: File): Promise<string> {
-  const bytes = new Uint8Array(await file.arrayBuffer());
+export interface NotebookImportResult {
+  ids: string[];
+  failed: number;
+}
+
+export async function importNotebookFile(file: File): Promise<NotebookImportResult> {
+  return importNotebookBytes(new Uint8Array(await file.arrayBuffer()));
+}
+
+async function importNotebookBytes(bytes: Uint8Array): Promise<NotebookImportResult> {
   if (bytes[0] === 0x50 && bytes[1] === 0x4b) {
-    return importNotebookZip(bytes);
+    let entries: Record<string, Uint8Array>;
+    try {
+      entries = unzipSync(bytes);
+    } catch {
+      throw new Error("Invalid zip archive");
+    }
+    if (entries[NOTEBOOK_JSON_ENTRY]) {
+      return { ids: [await importNotebookZipEntries(entries)], failed: 0 };
+    }
+    return importNotebookBundle(entries);
   }
-  const parsed = parseNotebookFile(strFromU8(bytes));
+  return { ids: [await importNotebookJson(strFromU8(bytes))], failed: 0 };
+}
+
+// A bundle zip holds one single-notebook file (.vas.json / .vas.zip) per top
+// level entry; each notebook imports and rolls back independently.
+export function bundleEntryPaths(entries: Record<string, Uint8Array>): string[] {
+  if (entries[NOTEBOOK_JSON_ENTRY]) return [];
+  return Object.keys(entries)
+    .filter((path) => !path.includes("/") && /\.(json|zip)$/i.test(path))
+    .sort();
+}
+
+async function importNotebookBundle(
+  entries: Record<string, Uint8Array>,
+): Promise<NotebookImportResult> {
+  const candidates = bundleEntryPaths(entries);
+  if (candidates.length === 0) throw new Error("Archive contains no notebook.json");
+  const ids: string[] = [];
+  let failed = 0;
+  for (const path of candidates) {
+    try {
+      const result = await importNotebookEntry(entries[path]);
+      ids.push(...result.ids);
+      failed += result.failed;
+    } catch (error) {
+      console.warn(`Skipped ${path} in notebook bundle`, error);
+      failed += 1;
+    }
+  }
+  if (ids.length === 0) throw new Error("Archive contains no importable notebook");
+  return { ids, failed };
+}
+
+async function importNotebookEntry(bytes: Uint8Array): Promise<NotebookImportResult> {
+  if (bytes[0] === 0x50 && bytes[1] === 0x4b) {
+    const entries = unzipSync(bytes);
+    if (!entries[NOTEBOOK_JSON_ENTRY]) throw new Error("Archive contains no notebook.json");
+    return { ids: [await importNotebookZipEntries(entries)], failed: 0 };
+  }
+  return { ids: [await importNotebookJson(strFromU8(bytes))], failed: 0 };
+}
+
+async function importNotebookJson(text: string): Promise<string> {
+  const parsed = parseNotebookFile(text);
   if (
     parsed.images.length > 0 ||
     parsed.pdfs.length > 0 ||
@@ -469,13 +560,7 @@ export async function importNotebookFile(file: File): Promise<string> {
   return meta.id;
 }
 
-async function importNotebookZip(bytes: Uint8Array): Promise<string> {
-  let entries: Record<string, Uint8Array>;
-  try {
-    entries = unzipSync(bytes);
-  } catch {
-    throw new Error("Invalid zip archive");
-  }
+async function importNotebookZipEntries(entries: Record<string, Uint8Array>): Promise<string> {
   const jsonEntry = entries[NOTEBOOK_JSON_ENTRY];
   if (!jsonEntry) throw new Error("Archive contains no notebook.json");
   const parsed = parseNotebookFile(strFromU8(jsonEntry));
@@ -808,6 +893,7 @@ function parseStroke(raw: unknown): Stroke {
         : FALLBACK_SIZE,
     simulatePressure: raw.simulatePressure === true,
     shape,
+    ...(raw.dash === true ? { dash: true } : {}),
     points,
   };
 }
@@ -826,7 +912,12 @@ function parsePoint(raw: unknown): StrokePoint {
     x: raw.x,
     y: raw.y,
     pressure:
-      typeof raw.pressure === "number" && Number.isFinite(raw.pressure) ? raw.pressure : 0.5,
+      typeof raw.pressure === "number" && Number.isFinite(raw.pressure)
+        ? Math.min(1, Math.max(0, raw.pressure))
+        : 0.5,
+    ...(typeof raw.tilt === "number" && Number.isFinite(raw.tilt)
+      ? { tilt: Math.min(1, Math.max(0, raw.tilt)) }
+      : {}),
   };
 }
 
